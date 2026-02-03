@@ -222,4 +222,60 @@ mod tests {
         let debug = format!("{err:?}");
         assert!(debug.contains("RateLimited"));
     }
+
+    #[test]
+    fn into_response_bad_request() {
+        let err = ApiError::BadRequest("invalid".to_string());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn into_response_unauthorized() {
+        let err = ApiError::Unauthorized("no token".to_string());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn into_response_not_found() {
+        let err = ApiError::NotFound("resource".to_string());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn into_response_rate_limited() {
+        let err = ApiError::RateLimited;
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[test]
+    fn into_response_service_unavailable() {
+        let err = ApiError::ServiceUnavailable("down".to_string());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn into_response_internal() {
+        let err = ApiError::Internal("crash".to_string());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn application_error_configuration_converts_to_internal() {
+        let app_err = ApplicationError::Configuration("bad config".to_string());
+        let api_err: ApiError = app_err.into();
+        assert!(matches!(api_err, ApiError::Internal(_)));
+    }
+
+    #[test]
+    fn application_error_command_failed_converts_to_internal() {
+        let app_err = ApplicationError::CommandFailed("execution failed".to_string());
+        let api_err: ApiError = app_err.into();
+        assert!(matches!(api_err, ApiError::Internal(_)));
+    }
 }

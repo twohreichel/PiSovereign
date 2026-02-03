@@ -199,4 +199,56 @@ mod tests {
         let cloned = config.clone();
         assert_eq!(config.server.port, cloned.server.port);
     }
+
+    #[test]
+    fn server_config_clone() {
+        let config = ServerConfig::default();
+        let cloned = config.clone();
+        assert_eq!(config.host, cloned.host);
+    }
+
+    #[test]
+    fn security_config_clone() {
+        let config = SecurityConfig::default();
+        let cloned = config.clone();
+        assert_eq!(config.rate_limit_enabled, cloned.rate_limit_enabled);
+    }
+
+    #[test]
+    fn security_config_serialization() {
+        let config = SecurityConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("whitelisted_phones"));
+        assert!(json.contains("rate_limit_enabled"));
+    }
+
+    #[test]
+    fn server_config_debug() {
+        let config = ServerConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("ServerConfig"));
+    }
+
+    #[test]
+    fn security_config_debug() {
+        let config = SecurityConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("SecurityConfig"));
+    }
+
+    #[test]
+    fn app_config_with_custom_port() {
+        let json = r#"{"server":{"port":4000,"host":"127.0.0.1"}}"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.server.port, 4000);
+        assert_eq!(config.server.host, "127.0.0.1");
+    }
+
+    #[test]
+    fn security_config_rate_limit_disabled() {
+        let json = r#"{"rate_limit_enabled":false,"rate_limit_rpm":120}"#;
+        let config: SecurityConfig = serde_json::from_str(json).unwrap();
+        assert!(!config.rate_limit_enabled);
+        assert_eq!(config.rate_limit_rpm, 120);
+    }
 }

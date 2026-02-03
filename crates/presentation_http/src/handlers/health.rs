@@ -191,4 +191,73 @@ mod tests {
         assert_eq!(status.healthy, cloned.healthy);
         assert_eq!(status.model, cloned.model);
     }
+
+    #[tokio::test]
+    async fn health_check_returns_ok() {
+        let response = health_check().await;
+        assert_eq!(response.status, "ok");
+        assert!(!response.version.is_empty());
+    }
+
+    #[test]
+    fn readiness_response_clone() {
+        let resp = ReadinessResponse {
+            ready: true,
+            inference: ServiceStatus {
+                healthy: true,
+                model: Some("qwen".to_string()),
+            },
+        };
+        let cloned = resp.clone();
+        assert_eq!(resp.ready, cloned.ready);
+    }
+
+    #[test]
+    fn health_response_clone() {
+        let resp = HealthResponse {
+            status: "ok".to_string(),
+            version: "1.0".to_string(),
+        };
+        let cloned = resp.clone();
+        assert_eq!(resp.status, cloned.status);
+    }
+
+    #[test]
+    fn readiness_response_has_debug() {
+        let resp = ReadinessResponse {
+            ready: false,
+            inference: ServiceStatus {
+                healthy: false,
+                model: None,
+            },
+        };
+        let debug = format!("{resp:?}");
+        assert!(debug.contains("ReadinessResponse"));
+    }
+
+    #[test]
+    fn service_status_has_debug() {
+        let status = ServiceStatus {
+            healthy: true,
+            model: None,
+        };
+        let debug = format!("{status:?}");
+        assert!(debug.contains("ServiceStatus"));
+    }
+
+    #[test]
+    fn readiness_response_deserialization() {
+        let json = r#"{"ready":true,"inference":{"healthy":true,"model":"qwen"}}"#;
+        let resp: ReadinessResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.ready);
+        assert!(resp.inference.healthy);
+    }
+
+    #[test]
+    fn service_status_deserialization() {
+        let json = r#"{"healthy":false,"model":null}"#;
+        let status: ServiceStatus = serde_json::from_str(json).unwrap();
+        assert!(!status.healthy);
+        assert!(status.model.is_none());
+    }
 }

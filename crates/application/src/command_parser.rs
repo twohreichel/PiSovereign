@@ -417,4 +417,134 @@ mod tests {
         };
         assert_eq!(topic, "kalender");
     }
+
+    #[test]
+    fn parses_guten_morgen() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("guten morgen").unwrap();
+        assert!(matches!(cmd, AgentCommand::MorningBriefing { date: None }));
+    }
+
+    #[test]
+    fn parses_was_steht_heute_an() {
+        let parser = CommandParser::new();
+        // The pattern checks for "was steht an" - needs to be exact match in lower case
+        let cmd = parser.parse_quick("Was steht an heute?").unwrap();
+        assert!(matches!(cmd, AgentCommand::MorningBriefing { date: None }));
+    }
+
+    #[test]
+    fn parses_emails_inbox() {
+        let parser = CommandParser::new();
+        // The pattern checks for "inbox" or "mails zusammen" or "email zusammen"
+        let cmd = parser.parse_quick("emails inbox zeigen").unwrap();
+        assert!(matches!(cmd, AgentCommand::SummarizeInbox { .. }));
+    }
+}
+
+#[cfg(test)]
+mod async_tests {
+    use super::*;
+    use crate::ports::InferenceResult;
+    use mockall::mock;
+    use std::sync::Arc;
+
+    mock! {
+        pub InferenceEngine {}
+
+        #[async_trait::async_trait]
+        impl InferencePort for InferenceEngine {
+            async fn generate(&self, message: &str) -> Result<InferenceResult, ApplicationError>;
+            async fn generate_with_context(&self, conversation: &domain::Conversation) -> Result<InferenceResult, ApplicationError>;
+            async fn generate_with_system(&self, system_prompt: &str, message: &str) -> Result<InferenceResult, ApplicationError>;
+            async fn is_healthy(&self) -> bool;
+            fn current_model(&self) -> &'static str;
+        }
+    }
+
+    #[tokio::test]
+    async fn parse_with_llm_quick_pattern() {
+        let parser = CommandParser::new();
+        let mock = MockInferenceEngine::new();
+        let inference: Arc<dyn InferencePort> = Arc::new(mock);
+
+        let result = parser.parse_with_llm(&inference, "hilfe").await.unwrap();
+        assert!(matches!(result, AgentCommand::Help { command: None }));
+    }
+
+    #[tokio::test]
+    async fn parse_with_llm_echo() {
+        let parser = CommandParser::new();
+        let mock = MockInferenceEngine::new();
+        let inference: Arc<dyn InferencePort> = Arc::new(mock);
+
+        let result = parser.parse_with_llm(&inference, "echo hello").await.unwrap();
+        let AgentCommand::Echo { message } = result else {
+            panic!("Expected Echo command");
+        };
+        assert!(message.contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn parse_with_llm_status() {
+        let parser = CommandParser::new();
+        let mock = MockInferenceEngine::new();
+        let inference: Arc<dyn InferencePort> = Arc::new(mock);
+
+        let result = parser.parse_with_llm(&inference, "status").await.unwrap();
+        assert!(matches!(result, AgentCommand::System(domain::SystemCommand::Status)));
+    }
+
+    #[tokio::test]
+    async fn parse_with_llm_unknown_becomes_ask() {
+        let parser = CommandParser::new();
+        let mock = MockInferenceEngine::new();
+        let inference: Arc<dyn InferencePort> = Arc::new(mock);
+
+        let result = parser.parse_with_llm(&inference, "was ist der Sinn des Lebens?").await.unwrap();
+        let AgentCommand::Ask { question } = result else {
+            panic!("Expected Ask command");
+        };
+        assert!(question.contains("Sinn"));
+    }
+
+    #[tokio::test]
+    async fn parse_with_llm_briefing() {
+        let parser = CommandParser::new();
+        let mock = MockInferenceEngine::new();
+        let inference: Arc<dyn InferencePort> = Arc::new(mock);
+
+        let result = parser.parse_with_llm(&inference, "briefing").await.unwrap();
+        assert!(matches!(result, AgentCommand::MorningBriefing { date: None }));
+    }
+
+    #[tokio::test]
+    async fn parse_with_llm_version() {
+        let parser = CommandParser::new();
+        let mock = MockInferenceEngine::new();
+        let inference: Arc<dyn InferencePort> = Arc::new(mock);
+
+        let result = parser.parse_with_llm(&inference, "version").await.unwrap();
+        assert!(matches!(result, AgentCommand::System(domain::SystemCommand::Version)));
+    }
+
+    #[tokio::test]
+    async fn parse_with_llm_models() {
+        let parser = CommandParser::new();
+        let mock = MockInferenceEngine::new();
+        let inference: Arc<dyn InferencePort> = Arc::new(mock);
+
+        let result = parser.parse_with_llm(&inference, "modelle").await.unwrap();
+        assert!(matches!(result, AgentCommand::System(domain::SystemCommand::ListModels)));
+    }
+
+    #[tokio::test]
+    async fn parse_with_llm_inbox() {
+        let parser = CommandParser::new();
+        let mock = MockInferenceEngine::new();
+        let inference: Arc<dyn InferencePort> = Arc::new(mock);
+
+        let result = parser.parse_with_llm(&inference, "inbox").await.unwrap();
+        assert!(matches!(result, AgentCommand::SummarizeInbox { .. }));
+    }
 }
