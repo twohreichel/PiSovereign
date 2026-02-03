@@ -66,3 +66,116 @@ pub trait MessageGatewayPort: Send + Sync {
     /// Mark a message as read/processed
     async fn mark_read(&self, message_id: &str) -> Result<(), ApplicationError>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_phone() -> PhoneNumber {
+        PhoneNumber::new("+491234567890").unwrap()
+    }
+
+    #[test]
+    fn incoming_message_creation() {
+        let msg = IncomingMessage {
+            message_id: "msg123".to_string(),
+            sender: test_phone(),
+            content: "Hello".to_string(),
+            timestamp: 1234567890,
+            metadata: None,
+        };
+        assert_eq!(msg.message_id, "msg123");
+        assert_eq!(msg.content, "Hello");
+    }
+
+    #[test]
+    fn incoming_message_with_metadata() {
+        let msg = IncomingMessage {
+            message_id: "msg123".to_string(),
+            sender: test_phone(),
+            content: "Hello".to_string(),
+            timestamp: 1234567890,
+            metadata: Some(serde_json::json!({"type": "text"})),
+        };
+        assert!(msg.metadata.is_some());
+    }
+
+    #[test]
+    fn outgoing_message_new() {
+        let msg = OutgoingMessage::new(test_phone(), "Hi");
+        assert_eq!(msg.content, "Hi");
+        assert!(msg.reply_to.is_none());
+    }
+
+    #[test]
+    fn outgoing_message_reply_to() {
+        let incoming = IncomingMessage {
+            message_id: "orig123".to_string(),
+            sender: test_phone(),
+            content: "Original".to_string(),
+            timestamp: 1234567890,
+            metadata: None,
+        };
+        
+        let reply = OutgoingMessage::reply_to(&incoming, "Reply");
+        assert_eq!(reply.content, "Reply");
+        assert_eq!(reply.reply_to, Some("orig123".to_string()));
+    }
+
+    #[test]
+    fn incoming_message_serialization() {
+        let msg = IncomingMessage {
+            message_id: "msg123".to_string(),
+            sender: test_phone(),
+            content: "Hello".to_string(),
+            timestamp: 1234567890,
+            metadata: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("message_id"));
+        assert!(json.contains("sender"));
+    }
+
+    #[test]
+    fn outgoing_message_serialization() {
+        let msg = OutgoingMessage::new(test_phone(), "Hi");
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("recipient"));
+        assert!(json.contains("content"));
+        assert!(!json.contains("reply_to")); // None is skipped
+    }
+
+    #[test]
+    fn outgoing_message_with_reply_serialization() {
+        let incoming = IncomingMessage {
+            message_id: "orig123".to_string(),
+            sender: test_phone(),
+            content: "Original".to_string(),
+            timestamp: 1234567890,
+            metadata: None,
+        };
+        let reply = OutgoingMessage::reply_to(&incoming, "Reply");
+        let json = serde_json::to_string(&reply).unwrap();
+        assert!(json.contains("reply_to"));
+    }
+
+    #[test]
+    fn incoming_message_clone() {
+        let msg = IncomingMessage {
+            message_id: "msg123".to_string(),
+            sender: test_phone(),
+            content: "Hello".to_string(),
+            timestamp: 1234567890,
+            metadata: None,
+        };
+        let cloned = msg.clone();
+        assert_eq!(msg.message_id, cloned.message_id);
+    }
+
+    #[test]
+    fn outgoing_message_clone() {
+        let msg = OutgoingMessage::new(test_phone(), "Hi");
+        let cloned = msg.clone();
+        assert_eq!(msg.content, cloned.content);
+    }
+}
