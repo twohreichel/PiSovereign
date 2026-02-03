@@ -114,3 +114,89 @@ impl AppConfig {
         config.try_deserialize()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_config_default() {
+        let config = AppConfig::default();
+        assert_eq!(config.server.port, 3000);
+        assert_eq!(config.server.host, "0.0.0.0");
+        assert!(config.server.cors_enabled);
+    }
+
+    #[test]
+    fn server_config_default() {
+        let config = ServerConfig::default();
+        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.port, 3000);
+        assert!(config.cors_enabled);
+    }
+
+    #[test]
+    fn security_config_default() {
+        let config = SecurityConfig::default();
+        assert!(config.whitelisted_phones.is_empty());
+        assert!(config.api_key.is_none());
+        assert!(config.rate_limit_enabled);
+        assert_eq!(config.rate_limit_rpm, 60);
+    }
+
+    #[test]
+    fn app_config_serialization() {
+        let config = AppConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("server"));
+        assert!(json.contains("inference"));
+        assert!(json.contains("security"));
+    }
+
+    #[test]
+    fn app_config_deserialization() {
+        let json = r#"{"server":{"port":8080}}"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.server.host, "0.0.0.0");
+    }
+
+    #[test]
+    fn server_config_serialization() {
+        let config = ServerConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("host"));
+        assert!(json.contains("port"));
+        assert!(json.contains("cors_enabled"));
+    }
+
+    #[test]
+    fn security_config_with_phones() {
+        let json = r#"{"whitelisted_phones":["+491234567890"]}"#;
+        let config: SecurityConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.whitelisted_phones.len(), 1);
+        assert_eq!(config.whitelisted_phones[0], "+491234567890");
+    }
+
+    #[test]
+    fn security_config_with_api_key() {
+        let json = r#"{"api_key":"secret123"}"#;
+        let config: SecurityConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.api_key, Some("secret123".to_string()));
+    }
+
+    #[test]
+    fn config_has_debug_impl() {
+        let config = AppConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("AppConfig"));
+        assert!(debug.contains("server"));
+    }
+
+    #[test]
+    fn config_clone() {
+        let config = AppConfig::default();
+        let cloned = config.clone();
+        assert_eq!(config.server.port, cloned.server.port);
+    }
+}
