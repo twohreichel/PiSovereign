@@ -98,3 +98,106 @@ pub async fn chat_stream(
             .text("keep-alive"),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_request_deserialize() {
+        let json = r#"{"message": "Hello"}"#;
+        let request: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.message, "Hello");
+        assert!(request.conversation_id.is_none());
+    }
+
+    #[test]
+    fn chat_request_with_conversation_id() {
+        let json = r#"{"message": "Hi", "conversation_id": "abc123"}"#;
+        let request: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.message, "Hi");
+        assert_eq!(request.conversation_id, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn chat_request_debug() {
+        let request = ChatRequest {
+            message: "Test".to_string(),
+            conversation_id: None,
+        };
+        let debug = format!("{request:?}");
+        assert!(debug.contains("ChatRequest"));
+    }
+
+    #[test]
+    fn chat_response_serialize() {
+        let response = ChatResponse {
+            message: "Hello there".to_string(),
+            model: "qwen".to_string(),
+            tokens: Some(42),
+            latency_ms: 100,
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("Hello there"));
+        assert!(json.contains("qwen"));
+        assert!(json.contains("42"));
+    }
+
+    #[test]
+    fn chat_response_without_tokens() {
+        let response = ChatResponse {
+            message: "Response".to_string(),
+            model: "llama".to_string(),
+            tokens: None,
+            latency_ms: 50,
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(!json.contains("tokens"));
+    }
+
+    #[test]
+    fn chat_response_debug() {
+        let response = ChatResponse {
+            message: "Test".to_string(),
+            model: "model".to_string(),
+            tokens: None,
+            latency_ms: 10,
+        };
+        let debug = format!("{response:?}");
+        assert!(debug.contains("ChatResponse"));
+    }
+
+    #[test]
+    fn stream_chat_request_deserialize() {
+        let json = r#"{"message": "Stream this"}"#;
+        let request: StreamChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.message, "Stream this");
+    }
+
+    #[test]
+    fn stream_chat_request_debug() {
+        let request = StreamChatRequest {
+            message: "Test".to_string(),
+        };
+        let debug = format!("{request:?}");
+        assert!(debug.contains("StreamChatRequest"));
+    }
+
+    #[test]
+    fn empty_message_validation() {
+        let request = ChatRequest {
+            message: "   ".to_string(),
+            conversation_id: None,
+        };
+        assert!(request.message.trim().is_empty());
+    }
+
+    #[test]
+    fn non_empty_message_validation() {
+        let request = ChatRequest {
+            message: "  Hello  ".to_string(),
+            conversation_id: None,
+        };
+        assert!(!request.message.trim().is_empty());
+    }
+}

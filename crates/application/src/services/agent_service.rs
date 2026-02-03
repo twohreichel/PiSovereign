@@ -426,3 +426,450 @@ mod tests {
         assert!(debug.contains("ExecutionResult"));
     }
 }
+
+#[cfg(test)]
+mod async_tests {
+    use super::*;
+    use crate::ports::InferenceResult;
+    use mockall::mock;
+
+    mock! {
+        pub InferenceEngine {}
+
+        #[async_trait::async_trait]
+        impl InferencePort for InferenceEngine {
+            async fn generate(&self, message: &str) -> Result<InferenceResult, ApplicationError>;
+            async fn generate_with_context(&self, conversation: &domain::Conversation) -> Result<InferenceResult, ApplicationError>;
+            async fn generate_with_system(&self, system_prompt: &str, message: &str) -> Result<InferenceResult, ApplicationError>;
+            async fn is_healthy(&self) -> bool;
+            fn current_model(&self) -> &'static str;
+        }
+    }
+
+    fn mock_inference_result(content: &str) -> InferenceResult {
+        InferenceResult {
+            content: content.to_string(),
+            model: "test-model".to_string(),
+            tokens_used: Some(42),
+            latency_ms: 100,
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_service_new() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+        let debug = format!("{service:?}");
+        assert!(debug.contains("AgentService"));
+    }
+
+    #[tokio::test]
+    async fn execute_echo_command() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Echo {
+                message: "Hello".to_string(),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Hello"));
+    }
+
+    #[tokio::test]
+    async fn execute_help_general() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Help { command: None })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("PiSovereign"));
+        assert!(result.response.contains("Hilfe"));
+    }
+
+    #[tokio::test]
+    async fn execute_help_briefing() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Help {
+                command: Some("briefing".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Briefing"));
+    }
+
+    #[tokio::test]
+    async fn execute_help_email() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Help {
+                command: Some("email".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("E-Mail"));
+    }
+
+    #[tokio::test]
+    async fn execute_help_kalender() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Help {
+                command: Some("kalender".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Kalender"));
+    }
+
+    #[tokio::test]
+    async fn execute_help_status() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Help {
+                command: Some("status".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("System"));
+    }
+
+    #[tokio::test]
+    async fn execute_ask_command() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_generate()
+            .returning(|_| Ok(mock_inference_result("AI Response")));
+
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Ask {
+                question: "What is the weather?".to_string(),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.response, "AI Response");
+    }
+
+    #[tokio::test]
+    async fn execute_morning_briefing() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::MorningBriefing { date: None })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Guten Morgen"));
+    }
+
+    #[tokio::test]
+    async fn execute_morning_briefing_with_date() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let date = chrono::NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+        let result = service
+            .execute_command(&AgentCommand::MorningBriefing { date: Some(date) })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("2025-01-15"));
+    }
+
+    #[tokio::test]
+    async fn execute_summarize_inbox() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::SummarizeInbox {
+                count: Some(5),
+                only_important: Some(true),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Inbox"));
+        assert!(result.response.contains("5"));
+    }
+
+    #[tokio::test]
+    async fn execute_summarize_inbox_defaults() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::SummarizeInbox {
+                count: None,
+                only_important: None,
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("10"));
+    }
+
+    #[tokio::test]
+    async fn execute_unknown_command() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Unknown {
+                original_input: "gibberish".to_string(),
+            })
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result.response.contains("gibberish"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_status() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_is_healthy().returning(|| true);
+        mock.expect_current_model().returning(|| "qwen2.5-1.5b");
+
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::Status))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Online"));
+        assert!(result.response.contains("qwen2.5-1.5b"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_status_unhealthy() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_is_healthy().returning(|| false);
+        mock.expect_current_model().returning(|| "test-model");
+
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::Status))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Offline"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_version() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::Version))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("PiSovereign"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_list_models() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_current_model().returning(|| "qwen2.5-1.5b");
+
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::ListModels))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Modelle"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_switch_model() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::SwitchModel {
+                model_name: "llama".to_string(),
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result.response.contains("llama"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_reload_config() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::ReloadConfig))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result.response.contains("nicht implementiert"));
+    }
+
+    #[tokio::test]
+    async fn execute_calendar_event_requires_approval() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::CreateCalendarEvent {
+                title: "Meeting".to_string(),
+                date: chrono::NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+                time: chrono::NaiveTime::from_hms_opt(10, 0, 0).unwrap(),
+                duration_minutes: None,
+                attendees: None,
+                location: None,
+            })
+            .await;
+
+        assert!(result.is_err());
+        if let Err(ApplicationError::ApprovalRequired(desc)) = result {
+            assert!(desc.contains("Meeting"));
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_send_email_requires_approval() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::SendEmail {
+                draft_id: "draft-123".to_string(),
+            })
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn execute_draft_email_requires_approval() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::DraftEmail {
+                to: domain::EmailAddress::new("test@example.com").unwrap(),
+                subject: Some("Test".to_string()),
+                body: "Body content".to_string(),
+            })
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn generate_help_for_morgen() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Help {
+                command: Some("morgen".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.response.contains("Briefing"));
+    }
+
+    #[tokio::test]
+    async fn generate_help_for_mail() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Help {
+                command: Some("mail".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.response.contains("E-Mail"));
+    }
+
+    #[tokio::test]
+    async fn generate_help_for_termin() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Help {
+                command: Some("termin".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.response.contains("Kalender"));
+    }
+
+    #[tokio::test]
+    async fn generate_help_for_system() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::Help {
+                command: Some("system".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.response.contains("System"));
+    }
+
+    #[tokio::test]
+    async fn agent_service_debug_output() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+        let debug = format!("{service:?}");
+        assert!(debug.contains("AgentService"));
+        assert!(debug.contains("parser"));
+    }
+}

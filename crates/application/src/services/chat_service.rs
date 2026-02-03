@@ -107,3 +107,171 @@ impl ChatService {
         self.inference.current_model()
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::InferenceResult;
+    use mockall::mock;
+
+    mock! {
+        pub InferenceEngine {}
+
+        #[async_trait::async_trait]
+        impl InferencePort for InferenceEngine {
+            async fn generate(&self, message: &str) -> Result<InferenceResult, ApplicationError>;
+            async fn generate_with_context(&self, conversation: &Conversation) -> Result<InferenceResult, ApplicationError>;
+            async fn generate_with_system(&self, system_prompt: &str, message: &str) -> Result<InferenceResult, ApplicationError>;
+            async fn is_healthy(&self) -> bool;
+            fn current_model(&self) -> &'static str;
+        }
+    }
+
+    fn mock_inference_result(content: &str) -> InferenceResult {
+        InferenceResult {
+            content: content.to_string(),
+            model: "test-model".to_string(),
+            tokens_used: Some(42),
+            latency_ms: 100,
+        }
+    }
+
+    #[test]
+    fn chat_service_new() {
+        let mock = MockInferenceEngine::new();
+        let service = ChatService::new(Arc::new(mock));
+        let debug = format!("{service:?}");
+        assert!(debug.contains("ChatService"));
+    }
+
+    #[test]
+    fn chat_service_with_system_prompt() {
+        let mock = MockInferenceEngine::new();
+        let service = ChatService::with_system_prompt(Arc::new(mock), "You are helpful");
+        let debug = format!("{service:?}");
+        assert!(debug.contains("ChatService"));
+    }
+
+    #[test]
+    fn chat_service_debug() {
+        let mock = MockInferenceEngine::new();
+        let service = ChatService::new(Arc::new(mock));
+        let debug = format!("{service:?}");
+        assert!(debug.contains("system_prompt"));
+    }
+
+    #[tokio::test]
+    async fn chat_without_system_prompt() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_generate()
+            .returning(|_| Ok(mock_inference_result("Hello there!")));
+
+        let service = ChatService::new(Arc::new(mock));
+        let result = service.chat("Hi").await.unwrap();
+
+        assert_eq!(result.content, "Hello there!");
+    }
+
+    #[tokio::test]
+    async fn chat_with_system_prompt() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_generate_with_system()
+            .returning(|_, _| Ok(mock_inference_result("System response")));
+
+        let service = ChatService::with_system_prompt(Arc::new(mock), "Be nice");
+        let result = service.chat("Hello").await.unwrap();
+
+        assert_eq!(result.content, "System response");
+    }
+
+    #[tokio::test]
+    async fn chat_response_has_metadata() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_generate()
+            .returning(|_| Ok(mock_inference_result("Response")));
+
+        let service = ChatService::new(Arc::new(mock));
+        let result = service.chat("Test").await.unwrap();
+
+        let metadata = result.metadata.unwrap();
+        assert_eq!(metadata.model, Some("test-model".to_string()));
+        assert_eq!(metadata.tokens, Some(42));
+    }
+
+    #[tokio::test]
+    async fn continue_conversation() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_generate_with_context()
+            .returning(|_| Ok(mock_inference_result("Continued")));
+
+        let service = ChatService::new(Arc::new(mock));
+        let conv = Conversation::new();
+        let result = service.continue_conversation(&conv).await.unwrap();
+
+        assert_eq!(result.content, "Continued");
+    }
+
+    #[tokio::test]
+    async fn continue_conversation_has_metadata() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_generate_with_context()
+            .returning(|_| Ok(mock_inference_result("Result")));
+
+        let service = ChatService::new(Arc::new(mock));
+        let conv = Conversation::new();
+        let result = service.continue_conversation(&conv).await.unwrap();
+
+        assert!(result.metadata.is_some());
+    }
+
+    #[tokio::test]
+    async fn is_healthy_true() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_is_healthy().returning(|| true);
+
+        let service = ChatService::new(Arc::new(mock));
+        assert!(service.is_healthy().await);
+    }
+
+    #[tokio::test]
+    async fn is_healthy_false() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_is_healthy().returning(|| false);
+
+        let service = ChatService::new(Arc::new(mock));
+        assert!(!service.is_healthy().await);
+    }
+
+    #[tokio::test]
+    async fn current_model() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_current_model().returning(|| "qwen2.5-1.5b");
+
+        let service = ChatService::new(Arc::new(mock));
+        assert_eq!(service.current_model(), "qwen2.5-1.5b");
+    }
+
+    #[tokio::test]
+    async fn chat_error_propagation() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_generate()
+            .returning(|_| Err(ApplicationError::Inference("Failed".to_string())));
+
+        let service = ChatService::new(Arc::new(mock));
+        let result = service.chat("Test").await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn continue_conversation_error_propagation() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_generate_with_context()
+            .returning(|_| Err(ApplicationError::RateLimited));
+
+        let service = ChatService::new(Arc::new(mock));
+        let conv = Conversation::new();
+        let result = service.continue_conversation(&conv).await;
+
+        assert!(result.is_err());
+    }
+}

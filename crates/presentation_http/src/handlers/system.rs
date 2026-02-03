@@ -67,3 +67,133 @@ pub async fn list_models(State(state): State<AppState>) -> Json<ModelsResponse> 
         available,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_response_serialize() {
+        let response = StatusResponse {
+            version: "0.1.0".to_string(),
+            model: "qwen2.5-1.5b".to_string(),
+            inference_healthy: true,
+            uptime_info: "Running".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("0.1.0"));
+        assert!(json.contains("qwen2.5-1.5b"));
+        assert!(json.contains("true"));
+    }
+
+    #[test]
+    fn status_response_debug() {
+        let response = StatusResponse {
+            version: "0.1.0".to_string(),
+            model: "test".to_string(),
+            inference_healthy: false,
+            uptime_info: "Test".to_string(),
+        };
+        let debug = format!("{response:?}");
+        assert!(debug.contains("StatusResponse"));
+    }
+
+    #[test]
+    fn models_response_serialize() {
+        let response = ModelsResponse {
+            current: "qwen".to_string(),
+            available: vec![ModelInfo {
+                name: "qwen".to_string(),
+                description: "Qwen model".to_string(),
+                parameters: "1.5B".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("qwen"));
+        assert!(json.contains("1.5B"));
+    }
+
+    #[test]
+    fn models_response_debug() {
+        let response = ModelsResponse {
+            current: "test".to_string(),
+            available: vec![],
+        };
+        let debug = format!("{response:?}");
+        assert!(debug.contains("ModelsResponse"));
+    }
+
+    #[test]
+    fn model_info_serialize() {
+        let info = ModelInfo {
+            name: "llama".to_string(),
+            description: "Llama model".to_string(),
+            parameters: "1B".to_string(),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("llama"));
+        assert!(json.contains("1B"));
+    }
+
+    #[test]
+    fn model_info_debug() {
+        let info = ModelInfo {
+            name: "test".to_string(),
+            description: "Test model".to_string(),
+            parameters: "100M".to_string(),
+        };
+        let debug = format!("{info:?}");
+        assert!(debug.contains("ModelInfo"));
+    }
+
+    #[test]
+    fn status_response_healthy_true() {
+        let response = StatusResponse {
+            version: "1.0.0".to_string(),
+            model: "model".to_string(),
+            inference_healthy: true,
+            uptime_info: "OK".to_string(),
+        };
+        assert!(response.inference_healthy);
+    }
+
+    #[test]
+    fn status_response_healthy_false() {
+        let response = StatusResponse {
+            version: "1.0.0".to_string(),
+            model: "model".to_string(),
+            inference_healthy: false,
+            uptime_info: "Error".to_string(),
+        };
+        assert!(!response.inference_healthy);
+    }
+
+    #[test]
+    fn models_response_empty_available() {
+        let response = ModelsResponse {
+            current: "default".to_string(),
+            available: vec![],
+        };
+        assert!(response.available.is_empty());
+    }
+
+    #[test]
+    fn models_response_multiple_models() {
+        let response = ModelsResponse {
+            current: "qwen".to_string(),
+            available: vec![
+                ModelInfo {
+                    name: "qwen".to_string(),
+                    description: "Qwen".to_string(),
+                    parameters: "1.5B".to_string(),
+                },
+                ModelInfo {
+                    name: "llama".to_string(),
+                    description: "Llama".to_string(),
+                    parameters: "1B".to_string(),
+                },
+            ],
+        };
+        assert_eq!(response.available.len(), 2);
+    }
+}
