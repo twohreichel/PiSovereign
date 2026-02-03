@@ -19,6 +19,41 @@ authors = ["Andreas Reichel"]
 license = "MIT"
 repository = "https://github.com/andreasreichel/PiSovereign"
 
+# Workspace-wide lints
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+rust_2024_compatibility = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+# Correctness
+all = { level = "deny", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+
+# Style & Pedantic (more opinionated)
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# Allow certain patterns
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"
+redundant_pub_crate = "allow"
+future_not_send = "allow"
+significant_drop_tightening = "allow"
+
+# Deny these explicitly
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+
 [workspace.dependencies]
 # Async runtime
 tokio = { version = "1.43", features = ["full"] }
