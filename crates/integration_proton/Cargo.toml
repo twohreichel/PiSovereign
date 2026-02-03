@@ -20,3 +20,4 @@ reqwest.workspace = true
 
 [dev-dependencies]
 tokio-test.workspace = true
+serde_json.workspace = true
