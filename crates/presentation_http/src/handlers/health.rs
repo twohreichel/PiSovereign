@@ -1,12 +1,12 @@
 //! Health check handlers
 
 use axum::{Json, extract::State, http::StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
 
 /// Health check response
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
@@ -21,14 +21,14 @@ pub async fn health_check() -> Json<HealthResponse> {
 }
 
 /// Readiness response
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadinessResponse {
     pub ready: bool,
     pub inference: ServiceStatus,
 }
 
 /// Status of a service
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceStatus {
     pub healthy: bool,
     pub model: Option<String>,
@@ -62,4 +62,133 @@ pub async fn readiness_check(
             },
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_response_creation() {
+        let resp = HealthResponse {
+            status: "ok".to_string(),
+            version: "0.1.0".to_string(),
+        };
+        assert_eq!(resp.status, "ok");
+        assert_eq!(resp.version, "0.1.0");
+    }
+
+    #[test]
+    fn health_response_serialization() {
+        let resp = HealthResponse {
+            status: "ok".to_string(),
+            version: "0.1.0".to_string(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("status"));
+        assert!(json.contains("ok"));
+        assert!(json.contains("version"));
+    }
+
+    #[test]
+    fn health_response_deserialization() {
+        let json = r#"{"status":"ok","version":"0.1.0"}"#;
+        let resp: HealthResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.status, "ok");
+        assert_eq!(resp.version, "0.1.0");
+    }
+
+    #[test]
+    fn service_status_healthy() {
+        let status = ServiceStatus {
+            healthy: true,
+            model: Some("qwen".to_string()),
+        };
+        assert!(status.healthy);
+        assert_eq!(status.model, Some("qwen".to_string()));
+    }
+
+    #[test]
+    fn service_status_unhealthy() {
+        let status = ServiceStatus {
+            healthy: false,
+            model: None,
+        };
+        assert!(!status.healthy);
+        assert!(status.model.is_none());
+    }
+
+    #[test]
+    fn service_status_serialization() {
+        let status = ServiceStatus {
+            healthy: true,
+            model: Some("llama".to_string()),
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("healthy"));
+        assert!(json.contains("true"));
+        assert!(json.contains("model"));
+    }
+
+    #[test]
+    fn readiness_response_ready() {
+        let resp = ReadinessResponse {
+            ready: true,
+            inference: ServiceStatus {
+                healthy: true,
+                model: Some("qwen".to_string()),
+            },
+        };
+        assert!(resp.ready);
+        assert!(resp.inference.healthy);
+    }
+
+    #[test]
+    fn readiness_response_not_ready() {
+        let resp = ReadinessResponse {
+            ready: false,
+            inference: ServiceStatus {
+                healthy: false,
+                model: None,
+            },
+        };
+        assert!(!resp.ready);
+        assert!(!resp.inference.healthy);
+    }
+
+    #[test]
+    fn readiness_response_serialization() {
+        let resp = ReadinessResponse {
+            ready: true,
+            inference: ServiceStatus {
+                healthy: true,
+                model: None,
+            },
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("ready"));
+        assert!(json.contains("inference"));
+        assert!(json.contains("healthy"));
+    }
+
+    #[test]
+    fn health_response_has_debug() {
+        let resp = HealthResponse {
+            status: "ok".to_string(),
+            version: "0.1.0".to_string(),
+        };
+        let debug = format!("{resp:?}");
+        assert!(debug.contains("HealthResponse"));
+    }
+
+    #[test]
+    fn service_status_clone() {
+        let status = ServiceStatus {
+            healthy: true,
+            model: Some("test".to_string()),
+        };
+        let cloned = status.clone();
+        assert_eq!(status.healthy, cloned.healthy);
+        assert_eq!(status.model, cloned.model);
+    }
 }

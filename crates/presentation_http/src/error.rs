@@ -97,3 +97,129 @@ impl From<ApplicationError> for ApiError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn api_error_bad_request_message() {
+        let err = ApiError::BadRequest("invalid input".to_string());
+        assert_eq!(err.to_string(), "Bad request: invalid input");
+    }
+
+    #[test]
+    fn api_error_unauthorized_message() {
+        let err = ApiError::Unauthorized("missing token".to_string());
+        assert_eq!(err.to_string(), "Unauthorized: missing token");
+    }
+
+    #[test]
+    fn api_error_not_found_message() {
+        let err = ApiError::NotFound("resource".to_string());
+        assert_eq!(err.to_string(), "Not found: resource");
+    }
+
+    #[test]
+    fn api_error_rate_limited_message() {
+        let err = ApiError::RateLimited;
+        assert_eq!(err.to_string(), "Rate limited");
+    }
+
+    #[test]
+    fn api_error_service_unavailable_message() {
+        let err = ApiError::ServiceUnavailable("inference down".to_string());
+        assert_eq!(err.to_string(), "Service unavailable: inference down");
+    }
+
+    #[test]
+    fn api_error_internal_message() {
+        let err = ApiError::Internal("unexpected".to_string());
+        assert_eq!(err.to_string(), "Internal error: unexpected");
+    }
+
+    #[test]
+    fn error_response_serialization() {
+        let resp = ErrorResponse {
+            error: "Bad request".to_string(),
+            code: "bad_request".to_string(),
+            details: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("error"));
+        assert!(json.contains("code"));
+        assert!(!json.contains("details"));
+    }
+
+    #[test]
+    fn error_response_with_details() {
+        let resp = ErrorResponse {
+            error: "Internal error".to_string(),
+            code: "internal_error".to_string(),
+            details: Some("stack trace".to_string()),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("details"));
+        assert!(json.contains("stack trace"));
+    }
+
+    #[test]
+    fn application_error_domain_converts_to_bad_request() {
+        let app_err = ApplicationError::Domain(domain::DomainError::not_found("User", "123"));
+        let api_err: ApiError = app_err.into();
+        assert!(matches!(api_err, ApiError::BadRequest(_)));
+    }
+
+    #[test]
+    fn application_error_rate_limited_converts() {
+        let app_err = ApplicationError::RateLimited;
+        let api_err: ApiError = app_err.into();
+        assert!(matches!(api_err, ApiError::RateLimited));
+    }
+
+    #[test]
+    fn application_error_not_authorized_converts() {
+        let app_err = ApplicationError::NotAuthorized("no access".to_string());
+        let api_err: ApiError = app_err.into();
+        assert!(matches!(api_err, ApiError::Unauthorized(_)));
+    }
+
+    #[test]
+    fn application_error_inference_converts_to_service_unavailable() {
+        let app_err = ApplicationError::Inference("model down".to_string());
+        let api_err: ApiError = app_err.into();
+        assert!(matches!(api_err, ApiError::ServiceUnavailable(_)));
+    }
+
+    #[test]
+    fn application_error_external_service_converts() {
+        let app_err = ApplicationError::ExternalService("api down".to_string());
+        let api_err: ApiError = app_err.into();
+        assert!(matches!(api_err, ApiError::ServiceUnavailable(_)));
+    }
+
+    #[test]
+    fn application_error_approval_required_converts_to_bad_request() {
+        let app_err = ApplicationError::ApprovalRequired("dangerous".to_string());
+        let api_err: ApiError = app_err.into();
+        if let ApiError::BadRequest(msg) = api_err {
+            assert!(msg.contains("Approval required"));
+        } else {
+            panic!("Expected BadRequest");
+        }
+    }
+
+    #[test]
+    fn application_error_internal_converts() {
+        let app_err = ApplicationError::Internal("crash".to_string());
+        let api_err: ApiError = app_err.into();
+        assert!(matches!(api_err, ApiError::Internal(_)));
+    }
+
+    #[test]
+    fn api_error_has_debug() {
+        let err = ApiError::RateLimited;
+        let debug = format!("{err:?}");
+        assert!(debug.contains("RateLimited"));
+    }
+}
