@@ -104,4 +104,58 @@ mod tests {
         assert!(chunk.done);
         assert_eq!(chunk.model.as_deref(), Some("qwen2.5-1.5b-instruct"));
     }
+
+    #[test]
+    fn non_final_chunk_has_no_model() {
+        let json = r#"{"model":"qwen2.5-1.5b-instruct","message":{"content":"Hi"},"done":false}"#;
+        let chunks = parse_chunks(json.as_bytes());
+
+        let chunk = chunks[0].as_ref().unwrap();
+        assert!(!chunk.done);
+        assert!(chunk.model.is_none());
+    }
+
+    #[test]
+    fn handles_invalid_utf8() {
+        let invalid_bytes = &[0xff, 0xfe, 0x00];
+        let chunks = parse_chunks(invalid_bytes);
+        
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].is_err());
+    }
+
+    #[test]
+    fn handles_invalid_json() {
+        let invalid_json = b"not valid json";
+        let chunks = parse_chunks(invalid_json);
+        
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].is_err());
+    }
+
+    #[test]
+    fn handles_empty_lines() {
+        let json = r#"{"model":"qwen","message":{"content":"Hi"},"done":false}
+
+{"model":"qwen","message":{"content":"!"},"done":true}"#;
+        let chunks = parse_chunks(json.as_bytes());
+        
+        // Empty lines are filtered out
+        assert_eq!(chunks.len(), 2);
+    }
+
+    #[test]
+    fn handles_empty_input() {
+        let chunks = parse_chunks(b"");
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn ollama_stream_chunk_deserializes() {
+        let json = r#"{"model":"test","message":{"content":"hello"},"done":false}"#;
+        let chunk: OllamaStreamChunk = serde_json::from_str(json).unwrap();
+        assert_eq!(chunk.model, "test");
+        assert_eq!(chunk.message.content, "hello");
+        assert!(!chunk.done);
+    }
 }
