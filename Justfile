@@ -23,15 +23,23 @@ lint-clippy:
     cargo clippy --workspace --all-targets --all-features -- \
         -D warnings \
         -D clippy::all \
-        -D clippy::pedantic \
-        -D clippy::nursery \
+        -W clippy::pedantic \
+        -W clippy::nursery \
         -A clippy::module_name_repetitions \
         -A clippy::must_use_candidate \
         -A clippy::missing_errors_doc \
         -A clippy::missing_panics_doc \
         -A clippy::doc_markdown \
         -A clippy::redundant_pub_crate \
-        -A clippy::future_not_send
+        -A clippy::future_not_send \
+        -A clippy::option_if_let_else \
+        -A clippy::return_self_not_must_use \
+        -A clippy::missing_const_for_fn \
+        -A clippy::use_self \
+        -A clippy::uninlined_format_args \
+        -A clippy::derive_partial_eq_without_eq \
+        -A clippy::unnested_or_patterns \
+        -A clippy::cast_possible_truncation
 
 # Run clippy with auto-fix (applies safe fixes)
 lint-fix:

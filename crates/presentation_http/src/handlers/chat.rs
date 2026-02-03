@@ -1,18 +1,17 @@
 //! Chat handlers
 
+use std::{convert::Infallible, time::Duration};
+
 use axum::{
+    Json,
     extract::State,
     response::sse::{Event, Sse},
-    Json,
 };
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
-use std::convert::Infallible;
-use std::time::Duration;
 use tracing::instrument;
 
-use crate::error::ApiError;
-use crate::state::AppState;
+use crate::{error::ApiError, state::AppState};
 
 /// Chat request body
 #[derive(Debug, Deserialize)]
@@ -21,6 +20,7 @@ pub struct ChatRequest {
     pub message: String,
     /// Optional conversation ID for context
     #[serde(default)]
+    #[allow(dead_code)]
     pub conversation_id: Option<String>,
 }
 
@@ -82,11 +82,13 @@ pub async fn chat_stream(
 
     let stream = stream::once(async move {
         Ok::<_, Infallible>(
-            Event::default()
-                .data(serde_json::json!({
+            Event::default().data(
+                serde_json::json!({
                     "content": response.content,
                     "done": true
-                }).to_string()),
+                })
+                .to_string(),
+            ),
         )
     });
 

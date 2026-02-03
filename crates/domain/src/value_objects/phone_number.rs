@@ -1,7 +1,8 @@
 //! Phone number value object with E.164 validation
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 
 use crate::errors::DomainError;
 

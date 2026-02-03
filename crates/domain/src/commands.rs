@@ -9,7 +9,7 @@ use crate::value_objects::EmailAddress;
 ///
 /// Each variant represents a distinct user intent with its required parameters.
 /// Commands are parsed from natural language input (WhatsApp, chat) or explicit API calls.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentCommand {
     /// Request a morning briefing with calendar, tasks, and important emails
@@ -87,7 +87,7 @@ pub enum AgentCommand {
 }
 
 /// System-level commands for administration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum SystemCommand {
     /// Get system status
@@ -104,59 +104,58 @@ pub enum SystemCommand {
 
 impl AgentCommand {
     /// Check if this command requires user approval before execution
-    pub fn requires_approval(&self) -> bool {
+    pub const fn requires_approval(&self) -> bool {
         matches!(
             self,
-            AgentCommand::SendEmail { .. }
-                | AgentCommand::CreateCalendarEvent { .. }
-                | AgentCommand::System(SystemCommand::ReloadConfig)
-                | AgentCommand::System(SystemCommand::SwitchModel { .. })
+            Self::SendEmail { .. }
+                | Self::CreateCalendarEvent { .. }
+                | Self::System(SystemCommand::ReloadConfig | SystemCommand::SwitchModel { .. })
         )
     }
 
     /// Get a human-readable description of the command
     pub fn description(&self) -> String {
         match self {
-            AgentCommand::MorningBriefing { date } => {
+            Self::MorningBriefing { date } => {
                 let date_str = date
                     .map(|d| d.to_string())
                     .unwrap_or_else(|| "today".to_string());
-                format!("Morning briefing for {}", date_str)
-            }
-            AgentCommand::CreateCalendarEvent { title, date, .. } => {
-                format!("Create event '{}' on {}", title, date)
-            }
-            AgentCommand::SummarizeInbox { count, .. } => {
+                format!("Morning briefing for {date_str}")
+            },
+            Self::CreateCalendarEvent { title, date, .. } => {
+                format!("Create event '{title}' on {date}")
+            },
+            Self::SummarizeInbox { count, .. } => {
                 format!("Summarize inbox (last {} emails)", count.unwrap_or(10))
-            }
-            AgentCommand::DraftEmail { to, subject, .. } => {
+            },
+            Self::DraftEmail { to, subject, .. } => {
                 let subj = subject.as_deref().unwrap_or("(no subject)");
-                format!("Draft email to {} - {}", to, subj)
-            }
-            AgentCommand::SendEmail { draft_id } => {
-                format!("Send email draft {}", draft_id)
-            }
-            AgentCommand::Ask { question } => {
+                format!("Draft email to {to} - {subj}")
+            },
+            Self::SendEmail { draft_id } => {
+                format!("Send email draft {draft_id}")
+            },
+            Self::Ask { question } => {
                 let preview: String = question.chars().take(50).collect();
-                format!("Ask: {}...", preview)
-            }
-            AgentCommand::System(cmd) => match cmd {
+                format!("Ask: {preview}...")
+            },
+            Self::System(cmd) => match cmd {
                 SystemCommand::Status => "System status".to_string(),
                 SystemCommand::Version => "Version info".to_string(),
                 SystemCommand::ReloadConfig => "Reload configuration".to_string(),
                 SystemCommand::ListModels => "List available models".to_string(),
                 SystemCommand::SwitchModel { model_name } => {
-                    format!("Switch to model: {}", model_name)
-                }
+                    format!("Switch to model: {model_name}")
+                },
             },
-            AgentCommand::Echo { message } => format!("Echo: {}", message),
-            AgentCommand::Help { command } => match command {
-                Some(cmd) => format!("Help for: {}", cmd),
+            Self::Echo { message } => format!("Echo: {message}"),
+            Self::Help { command } => match command {
+                Some(cmd) => format!("Help for: {cmd}"),
                 None => "General help".to_string(),
             },
-            AgentCommand::Unknown { original_input } => {
-                format!("Unknown command: {}", original_input)
-            }
+            Self::Unknown { original_input } => {
+                format!("Unknown command: {original_input}")
+            },
         }
     }
 }

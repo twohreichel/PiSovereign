@@ -1,7 +1,8 @@
 //! Email address value object with validation
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 use crate::errors::DomainError;

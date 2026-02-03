@@ -2,11 +2,12 @@
 //!
 //! Defines the traits (ports) that inference adapters must implement.
 
+use std::pin::Pin;
+
 use async_trait::async_trait;
 use domain::{ChatMessage, MessageRole};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
-use std::pin::Pin;
 
 use crate::error::InferenceError;
 
@@ -85,7 +86,7 @@ impl InferenceRequest {
     }
 
     /// Enable streaming for this request
-    pub fn streaming(mut self) -> Self {
+    pub const fn streaming(mut self) -> Self {
         self.stream = true;
         self
     }
@@ -97,7 +98,7 @@ impl InferenceRequest {
     }
 
     /// Set temperature
-    pub fn with_temperature(mut self, temp: f32) -> Self {
+    pub const fn with_temperature(mut self, temp: f32) -> Self {
         self.temperature = Some(temp);
         self
     }
@@ -144,10 +145,16 @@ pub type StreamingResponse =
 #[async_trait]
 pub trait InferenceEngine: Send + Sync {
     /// Generate a complete response (non-streaming)
-    async fn generate(&self, request: InferenceRequest) -> Result<InferenceResponse, InferenceError>;
+    async fn generate(
+        &self,
+        request: InferenceRequest,
+    ) -> Result<InferenceResponse, InferenceError>;
 
     /// Generate a streaming response
-    async fn generate_stream(&self, request: InferenceRequest) -> Result<StreamingResponse, InferenceError>;
+    async fn generate_stream(
+        &self,
+        request: InferenceRequest,
+    ) -> Result<StreamingResponse, InferenceError>;
 
     /// Check if the inference server is healthy
     async fn health_check(&self) -> Result<bool, InferenceError>;

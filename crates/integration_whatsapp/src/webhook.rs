@@ -2,20 +2,15 @@
 //!
 //! Receives and validates webhook requests from WhatsApp Business API.
 
-use axum::{
-    extract::State,
-    http::{HeaderMap, StatusCode},
-    Json,
-};
 use hmac::{Hmac, Mac};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::Sha256;
-use tracing::{debug, info, warn};
+use tracing::warn;
 
 type HmacSha256 = Hmac<Sha256>;
 
 /// Webhook configuration
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WebhookConfig {
     /// Verify token for webhook setup
     pub verify_token: String,
@@ -93,22 +88,16 @@ pub fn verify_signature(payload: &[u8], signature: &str, secret: &str) -> bool {
 
     let signature_hex = &signature[expected_prefix.len()..];
 
-    let mut mac = match HmacSha256::new_from_slice(secret.as_bytes()) {
-        Ok(m) => m,
-        Err(_) => {
-            warn!("Failed to create HMAC");
-            return false;
-        }
+    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
+        warn!("Failed to create HMAC");
+        return false;
     };
 
     mac.update(payload);
 
-    let expected = match hex::decode(signature_hex) {
-        Ok(e) => e,
-        Err(_) => {
-            warn!("Failed to decode signature hex");
-            return false;
-        }
+    let Ok(expected) = hex::decode(signature_hex) else {
+        warn!("Failed to decode signature hex");
+        return false;
     };
 
     mac.verify_slice(&expected).is_ok()

@@ -2,6 +2,8 @@
 //!
 //! Command-line interface for administration and testing.
 
+#![allow(clippy::print_stdout)]
+
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -77,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Status { url } => {
             let resp = client
-                .get(format!("{}/ready", url))
+                .get(format!("{url}/ready"))
                 .send()
                 .await?
                 .json::<serde_json::Value>()
@@ -85,13 +87,13 @@ async fn main() -> anyhow::Result<()> {
 
             println!("📊 System Status:");
             println!("{}", serde_json::to_string_pretty(&resp)?);
-        }
+        },
 
         Commands::Chat { message, url } => {
-            println!("💬 Sending: {}", message);
+            println!("💬 Sending: {message}");
 
             let resp = client
-                .post(format!("{}/v1/chat", url))
+                .post(format!("{url}/v1/chat"))
                 .json(&serde_json::json!({ "message": message }))
                 .send()
                 .await?
@@ -99,19 +101,19 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
 
             if let Some(response) = resp.get("message").and_then(|v| v.as_str()) {
-                println!("\n🤖 Response:\n{}", response);
+                println!("\n🤖 Response:\n{response}");
             }
 
-            if let Some(latency) = resp.get("latency_ms").and_then(|v| v.as_u64()) {
-                println!("\n⏱️  Latency: {}ms", latency);
+            if let Some(latency) = resp.get("latency_ms").and_then(serde_json::Value::as_u64) {
+                println!("\n⏱️  Latency: {latency}ms");
             }
-        }
+        },
 
         Commands::Command { input, url } => {
-            println!("⚡ Executing: {}", input);
+            println!("⚡ Executing: {input}");
 
             let resp = client
-                .post(format!("{}/v1/commands", url))
+                .post(format!("{url}/v1/commands"))
                 .json(&serde_json::json!({ "input": input }))
                 .send()
                 .await?
@@ -119,13 +121,13 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
 
             if let Some(response) = resp.get("response").and_then(|v| v.as_str()) {
-                println!("\n{}", response);
+                println!("\n{response}");
             }
-        }
+        },
 
         Commands::Models { url } => {
             let resp = client
-                .get(format!("{}/v1/system/models", url))
+                .get(format!("{url}/v1/system/models"))
                 .send()
                 .await?
                 .json::<serde_json::Value>()
@@ -133,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
 
             println!("📦 Available Models:");
             println!("{}", serde_json::to_string_pretty(&resp)?);
-        }
+        },
     }
 
     Ok(())

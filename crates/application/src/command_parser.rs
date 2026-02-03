@@ -1,17 +1,24 @@
 //! Command parser - Parse natural language into typed commands
 
-use std::sync::Arc;
-use tracing::{debug, instrument};
+use std::{fmt, sync::Arc};
 
 use domain::AgentCommand;
+use tracing::{debug, instrument};
 
-use crate::error::ApplicationError;
-use crate::ports::InferencePort;
+use crate::{error::ApplicationError, ports::InferencePort};
 
 /// Parser for converting natural language to AgentCommand
 pub struct CommandParser {
     /// Patterns for quick command matching (without LLM)
     quick_patterns: Vec<QuickPattern>,
+}
+
+impl fmt::Debug for CommandParser {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CommandParser")
+            .field("quick_patterns_count", &self.quick_patterns.len())
+            .finish()
+    }
 }
 
 /// A pattern for quick matching without LLM
@@ -39,7 +46,7 @@ impl CommandParser {
                 builder: |input| {
                     let lower = input.to_lowercase();
                     for keyword in ["echo ", "sag ", "sage "] {
-                        if let Some(rest) = lower.strip_prefix(keyword) {
+                        if lower.starts_with(keyword) {
                             // Get the original casing
                             let message = &input[keyword.len()..];
                             return Some(AgentCommand::Echo {
@@ -154,10 +161,10 @@ impl CommandParser {
     }
 
     /// Parse using LLM for complex commands
-    #[instrument(skip(self, inference, input), fields(input_len = input.len()))]
+    #[instrument(skip(self, _inference, input), fields(input_len = input.len()))]
     pub async fn parse_with_llm(
         &self,
-        inference: &Arc<dyn InferencePort>,
+        _inference: &Arc<dyn InferencePort>,
         input: &str,
     ) -> Result<AgentCommand, ApplicationError> {
         // First, try quick parsing
@@ -190,10 +197,10 @@ mod tests {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("echo Hello World").unwrap();
 
-        match cmd {
-            AgentCommand::Echo { message } => assert_eq!(message, "Hello World"),
-            _ => panic!("Expected Echo command"),
-        }
+        let AgentCommand::Echo { message } = cmd else {
+            unreachable!("Expected Echo command")
+        };
+        assert_eq!(message, "Hello World");
     }
 
     #[test]
@@ -204,10 +211,13 @@ mod tests {
         assert!(matches!(cmd, AgentCommand::Help { command: None }));
 
         let cmd = parser.parse_quick("hilfe email").unwrap();
-        match cmd {
-            AgentCommand::Help { command: Some(topic) } => assert_eq!(topic, "email"),
-            _ => panic!("Expected Help command with topic"),
-        }
+        let AgentCommand::Help {
+            command: Some(topic),
+        } = cmd
+        else {
+            unreachable!("Expected Help command with topic")
+        };
+        assert_eq!(topic, "email");
     }
 
     #[test]

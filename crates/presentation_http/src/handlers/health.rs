@@ -1,6 +1,6 @@
 //! Health check handlers
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{Json, extract::State, http::StatusCode};
 use serde::Serialize;
 
 use crate::state::AppState;
@@ -35,7 +35,9 @@ pub struct ServiceStatus {
 }
 
 /// Readiness check - is the server ready to accept requests?
-pub async fn readiness_check(State(state): State<AppState>) -> (StatusCode, Json<ReadinessResponse>) {
+pub async fn readiness_check(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<ReadinessResponse>) {
     let inference_healthy = state.chat_service.is_healthy().await;
     let model = if inference_healthy {
         Some(state.chat_service.current_model().to_string())

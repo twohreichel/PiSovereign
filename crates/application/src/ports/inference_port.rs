@@ -1,7 +1,7 @@
 //! Inference port - Interface for LLM inference
 
 use async_trait::async_trait;
-use domain::{ChatMessage, Conversation};
+use domain::Conversation;
 
 use crate::error::ApplicationError;
 

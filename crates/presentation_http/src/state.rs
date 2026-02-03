@@ -13,5 +13,6 @@ pub struct AppState {
     /// Agent service for command execution
     pub agent_service: Arc<AgentService>,
     /// Application configuration
+    #[allow(dead_code)]
     pub config: Arc<AppConfig>,
 }

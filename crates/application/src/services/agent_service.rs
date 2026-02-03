@@ -1,14 +1,11 @@
 //! Agent service - Command execution and orchestration
 
-use std::sync::Arc;
-use std::time::Instant;
-use tracing::{debug, info, instrument, warn};
+use std::{fmt, sync::Arc, time::Instant};
 
 use domain::{AgentCommand, SystemCommand};
+use tracing::{debug, info, instrument, warn};
 
-use crate::command_parser::CommandParser;
-use crate::error::ApplicationError;
-use crate::ports::InferencePort;
+use crate::{command_parser::CommandParser, error::ApplicationError, ports::InferencePort};
 
 /// Result of executing an agent command
 #[derive(Debug, Clone)]
@@ -26,7 +23,7 @@ pub struct CommandResult {
 }
 
 /// Status of approval for commands that require it
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalStatus {
     /// No approval needed for this command
     NotRequired,
@@ -42,6 +39,14 @@ pub enum ApprovalStatus {
 pub struct AgentService {
     inference: Arc<dyn InferencePort>,
     parser: CommandParser,
+}
+
+impl fmt::Debug for AgentService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgentService")
+            .field("parser", &self.parser)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AgentService {
@@ -92,11 +97,14 @@ impl AgentService {
 
     /// Execute a specific command (after parsing/approval)
     #[instrument(skip(self, command))]
-    pub async fn execute_command(&self, command: &AgentCommand) -> Result<ExecutionResult, ApplicationError> {
+    pub async fn execute_command(
+        &self,
+        command: &AgentCommand,
+    ) -> Result<ExecutionResult, ApplicationError> {
         match command {
             AgentCommand::Echo { message } => Ok(ExecutionResult {
                 success: true,
-                response: format!("🔊 {}", message),
+                response: format!("🔊 {message}"),
             }),
 
             AgentCommand::Help { command: cmd } => {
@@ -105,7 +113,7 @@ impl AgentService {
                     success: true,
                     response: help_text,
                 })
-            }
+            },
 
             AgentCommand::System(sys_cmd) => self.handle_system_command(sys_cmd).await,
 
@@ -115,27 +123,29 @@ impl AgentService {
                     success: true,
                     response: response.content,
                 })
-            }
+            },
 
             AgentCommand::MorningBriefing { date } => {
                 let date_str = date
                     .map(|d| d.to_string())
                     .unwrap_or_else(|| "heute".to_string());
-                
+
                 // TODO: Implement actual briefing with calendar/email integration
                 Ok(ExecutionResult {
                     success: true,
                     response: format!(
-                        "☀️ Guten Morgen! Hier ist dein Briefing für {}:\n\n\
+                        "☀️ Guten Morgen! Hier ist dein Briefing für {date_str}:\n\n\
                          📅 Termine: (noch nicht implementiert)\n\
                          📧 E-Mails: (noch nicht implementiert)\n\
-                         ✅ Aufgaben: (noch nicht implementiert)",
-                        date_str
+                         ✅ Aufgaben: (noch nicht implementiert)"
                     ),
                 })
-            }
+            },
 
-            AgentCommand::SummarizeInbox { count, only_important } => {
+            AgentCommand::SummarizeInbox {
+                count,
+                only_important,
+            } => {
                 // TODO: Implement with Proton Mail integration
                 Ok(ExecutionResult {
                     success: true,
@@ -143,38 +153,48 @@ impl AgentService {
                         "📧 Inbox-Zusammenfassung (letzte {} E-Mails{}): \n\n\
                          (Proton Mail Integration noch nicht implementiert)",
                         count.unwrap_or(10),
-                        if *only_important == Some(true) { ", nur wichtige" } else { "" }
+                        if *only_important == Some(true) {
+                            ", nur wichtige"
+                        } else {
+                            ""
+                        }
                     ),
                 })
-            }
+            },
 
             AgentCommand::Unknown { original_input } => {
                 warn!(input = %original_input, "Unknown command received");
                 Ok(ExecutionResult {
                     success: false,
                     response: format!(
-                        "❓ Ich konnte den Befehl nicht verstehen: '{}'\n\n\
-                         Schreibe 'hilfe' für eine Liste der verfügbaren Befehle.",
-                        original_input
+                        "❓ Ich konnte den Befehl nicht verstehen: '{original_input}'\n\n\
+                         Schreibe 'hilfe' für eine Liste der verfügbaren Befehle."
                     ),
                 })
-            }
+            },
 
             // Commands that require approval - should not reach here without approval
             AgentCommand::CreateCalendarEvent { .. }
             | AgentCommand::DraftEmail { .. }
             | AgentCommand::SendEmail { .. } => {
                 Err(ApplicationError::ApprovalRequired(command.description()))
-            }
+            },
         }
     }
 
     /// Handle system commands
-    async fn handle_system_command(&self, cmd: &SystemCommand) -> Result<ExecutionResult, ApplicationError> {
+    async fn handle_system_command(
+        &self,
+        cmd: &SystemCommand,
+    ) -> Result<ExecutionResult, ApplicationError> {
         match cmd {
             SystemCommand::Status => {
                 let healthy = self.inference.is_healthy().await;
-                let status = if healthy { "🟢 Online" } else { "🔴 Offline" };
+                let status = if healthy {
+                    "🟢 Online"
+                } else {
+                    "🔴 Offline"
+                };
                 Ok(ExecutionResult {
                     success: true,
                     response: format!(
@@ -187,7 +207,7 @@ impl AgentService {
                         env!("CARGO_PKG_VERSION")
                     ),
                 })
-            }
+            },
 
             SystemCommand::Version => Ok(ExecutionResult {
                 success: true,
@@ -212,18 +232,17 @@ impl AgentService {
                         self.inference.current_model()
                     ),
                 })
-            }
+            },
 
             SystemCommand::SwitchModel { model_name } => {
                 // TODO: Implement model switching
                 Ok(ExecutionResult {
                     success: false,
                     response: format!(
-                        "⚙️ Modellwechsel zu '{}' noch nicht implementiert.",
-                        model_name
+                        "⚙️ Modellwechsel zu '{model_name}' noch nicht implementiert."
                     ),
                 })
-            }
+            },
 
             SystemCommand::ReloadConfig => {
                 // TODO: Implement config reload
@@ -231,45 +250,37 @@ impl AgentService {
                     success: false,
                     response: "⚙️ Konfiguration neu laden noch nicht implementiert.".to_string(),
                 })
-            }
+            },
         }
     }
 
     /// Generate help text
+    #[allow(clippy::unused_self)]
     fn generate_help(&self, command: Option<&str>) -> String {
         match command {
-            Some("briefing") | Some("morgen") => {
-                "☀️ **Morning Briefing**\n\n\
+            Some("briefing" | "morgen") => "☀️ **Morning Briefing**\n\n\
                  Zeigt eine Übersicht über Termine, E-Mails und Aufgaben.\n\n\
                  Beispiele:\n\
                  • 'briefing'\n\
                  • 'briefing für morgen'\n\
                  • 'was steht heute an?'"
-                    .to_string()
-            }
-            Some("email") | Some("mail") => {
-                "📧 **E-Mail Befehle**\n\n\
+                .to_string(),
+            Some("email" | "mail") => "📧 **E-Mail Befehle**\n\n\
                  • 'inbox zusammenfassen' - Zusammenfassung der E-Mails\n\
                  • 'mail an X schreiben' - E-Mail-Entwurf erstellen\n\
                  • 'wichtige mails' - Nur wichtige E-Mails anzeigen"
-                    .to_string()
-            }
-            Some("kalender") | Some("termin") => {
-                "📅 **Kalender Befehle**\n\n\
+                .to_string(),
+            Some("kalender" | "termin") => "📅 **Kalender Befehle**\n\n\
                  • 'termin am X um Y' - Neuen Termin erstellen\n\
                  • 'termine heute' - Heutige Termine anzeigen\n\
                  • 'nächster termin' - Nächsten Termin anzeigen"
-                    .to_string()
-            }
-            Some("status") | Some("system") => {
-                "🔧 **System Befehle**\n\n\
+                .to_string(),
+            Some("status" | "system") => "🔧 **System Befehle**\n\n\
                  • 'status' - Systemstatus anzeigen\n\
                  • 'version' - Versionsinformation\n\
                  • 'modelle' - Verfügbare KI-Modelle"
-                    .to_string()
-            }
-            _ => {
-                "🤖 **PiSovereign Hilfe**\n\n\
+                .to_string(),
+            _ => "🤖 **PiSovereign Hilfe**\n\n\
                  Verfügbare Befehle:\n\n\
                  • 'hilfe [thema]' - Diese Hilfe\n\
                  • 'briefing' - Tagesübersicht\n\
@@ -278,8 +289,7 @@ impl AgentService {
                  • 'status' - Systemstatus\n\
                  • 'echo [text]' - Text zurückgeben\n\n\
                  Du kannst auch einfach Fragen stellen!"
-                    .to_string()
-            }
+                .to_string(),
         }
     }
 }

@@ -3,11 +3,12 @@
 use futures::stream::{self, StreamExt};
 use reqwest::Response;
 use serde::Deserialize;
-use std::pin::Pin;
 use tracing::trace;
 
-use crate::error::InferenceError;
-use crate::ports::{StreamingChunk, StreamingResponse};
+use crate::{
+    error::InferenceError,
+    ports::{StreamingChunk, StreamingResponse},
+};
 
 /// Ollama streaming response chunk
 #[derive(Debug, Deserialize)]
@@ -42,10 +43,9 @@ fn parse_chunks(bytes: &[u8]) -> Vec<Result<StreamingChunk, InferenceError>> {
         Ok(t) => t,
         Err(e) => {
             return vec![Err(InferenceError::InvalidResponse(format!(
-                "Invalid UTF-8: {}",
-                e
-            )))]
-        }
+                "Invalid UTF-8: {e}"
+            )))];
+        },
     };
 
     text.lines()
@@ -54,16 +54,12 @@ fn parse_chunks(bytes: &[u8]) -> Vec<Result<StreamingChunk, InferenceError>> {
             trace!(line = %line, "Parsing stream chunk");
 
             let chunk: OllamaStreamChunk = serde_json::from_str(line)
-                .map_err(|e| InferenceError::InvalidResponse(format!("JSON parse error: {}", e)))?;
+                .map_err(|e| InferenceError::InvalidResponse(format!("JSON parse error: {e}")))?;
 
             Ok(StreamingChunk {
                 content: chunk.message.content,
                 done: chunk.done,
-                model: if chunk.done {
-                    Some(chunk.model)
-                } else {
-                    None
-                },
+                model: if chunk.done { Some(chunk.model) } else { None },
             })
         })
         .collect()
@@ -75,7 +71,8 @@ mod tests {
 
     #[test]
     fn parses_single_chunk() {
-        let json = r#"{"model":"qwen2.5-1.5b-instruct","message":{"content":"Hello"},"done":false}"#;
+        let json =
+            r#"{"model":"qwen2.5-1.5b-instruct","message":{"content":"Hello"},"done":false}"#;
         let chunks = parse_chunks(json.as_bytes());
 
         assert_eq!(chunks.len(), 1);

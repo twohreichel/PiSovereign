@@ -42,19 +42,19 @@ fn default_model() -> String {
     "qwen2.5-1.5b-instruct".to_string()
 }
 
-fn default_timeout_ms() -> u64 {
+const fn default_timeout_ms() -> u64 {
     60000 // 60 seconds
 }
 
-fn default_max_tokens() -> u32 {
+const fn default_max_tokens() -> u32 {
     2048
 }
 
-fn default_temperature() -> f32 {
+const fn default_temperature() -> f32 {
     0.7
 }
 
-fn default_top_p() -> f32 {
+const fn default_top_p() -> f32 {
     0.9
 }
 

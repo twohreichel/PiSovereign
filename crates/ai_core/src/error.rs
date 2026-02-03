@@ -41,11 +41,11 @@ pub enum InferenceError {
 impl From<reqwest::Error> for InferenceError {
     fn from(err: reqwest::Error) -> Self {
         if err.is_timeout() {
-            InferenceError::Timeout(30000)
+            Self::Timeout(30000)
         } else if err.is_connect() {
-            InferenceError::ConnectionFailed(err.to_string())
+            Self::ConnectionFailed(err.to_string())
         } else {
-            InferenceError::RequestFailed(err.to_string())
+            Self::RequestFailed(err.to_string())
         }
     }
 }

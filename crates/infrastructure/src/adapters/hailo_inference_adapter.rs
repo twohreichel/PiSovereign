@@ -1,15 +1,18 @@
 //! Hailo inference adapter - Implements InferencePort using ai_core
 
 use std::time::Instant;
-use async_trait::async_trait;
-use tracing::{debug, instrument};
 
 use ai_core::{HailoInferenceEngine, InferenceConfig, InferenceEngine, InferenceRequest};
-use application::error::ApplicationError;
-use application::ports::{InferencePort, InferenceResult};
+use application::{
+    error::ApplicationError,
+    ports::{InferencePort, InferenceResult},
+};
+use async_trait::async_trait;
 use domain::Conversation;
+use tracing::{debug, instrument};
 
 /// Adapter for Hailo-10H inference
+#[derive(Debug)]
 pub struct HailoInferenceAdapter {
     engine: HailoInferenceEngine,
     system_prompt: Option<String>,
@@ -43,11 +46,11 @@ impl HailoInferenceAdapter {
         match e {
             ai_core::InferenceError::RateLimited => ApplicationError::RateLimited,
             ai_core::InferenceError::ConnectionFailed(msg) => {
-                ApplicationError::ExternalService(format!("Hailo connection failed: {}", msg))
-            }
+                ApplicationError::ExternalService(format!("Hailo connection failed: {msg}"))
+            },
             ai_core::InferenceError::Timeout(ms) => {
-                ApplicationError::ExternalService(format!("Inference timeout after {}ms", ms))
-            }
+                ApplicationError::ExternalService(format!("Inference timeout after {ms}ms"))
+            },
             other => ApplicationError::Inference(other.to_string()),
         }
     }
@@ -64,7 +67,11 @@ impl InferencePort for HailoInferenceAdapter {
             None => InferenceRequest::simple(message),
         };
 
-        let response = self.engine.generate(request).await.map_err(Self::map_error)?;
+        let response = self
+            .engine
+            .generate(request)
+            .await
+            .map_err(Self::map_error)?;
 
         let latency_ms = start.elapsed().as_millis() as u64;
 
@@ -94,7 +101,11 @@ impl InferencePort for HailoInferenceAdapter {
         let mut messages: Vec<ai_core::ports::InferenceMessage> = Vec::new();
 
         // Add system prompt if configured
-        if let Some(system) = conversation.system_prompt.as_ref().or(self.system_prompt.as_ref()) {
+        if let Some(system) = conversation
+            .system_prompt
+            .as_ref()
+            .or(self.system_prompt.as_ref())
+        {
             messages.push(ai_core::ports::InferenceMessage {
                 role: "system".to_string(),
                 content: system.to_string(),
@@ -114,7 +125,11 @@ impl InferencePort for HailoInferenceAdapter {
             stream: false,
         };
 
-        let response = self.engine.generate(request).await.map_err(Self::map_error)?;
+        let response = self
+            .engine
+            .generate(request)
+            .await
+            .map_err(Self::map_error)?;
 
         let latency_ms = start.elapsed().as_millis() as u64;
 
@@ -135,7 +150,11 @@ impl InferencePort for HailoInferenceAdapter {
         let start = Instant::now();
 
         let request = InferenceRequest::with_system(system_prompt, message);
-        let response = self.engine.generate(request).await.map_err(Self::map_error)?;
+        let response = self
+            .engine
+            .generate(request)
+            .await
+            .map_err(Self::map_error)?;
 
         let latency_ms = start.elapsed().as_millis() as u64;
 

@@ -79,11 +79,7 @@ pub trait CalDavClient: Send + Sync {
     ) -> Result<String, CalDavError>;
 
     /// Update an existing event
-    async fn update_event(
-        &self,
-        calendar: &str,
-        event: &CalendarEvent,
-    ) -> Result<(), CalDavError>;
+    async fn update_event(&self, calendar: &str, event: &CalendarEvent) -> Result<(), CalDavError>;
 
     /// Delete an event
     async fn delete_event(&self, calendar: &str, event_id: &str) -> Result<(), CalDavError>;

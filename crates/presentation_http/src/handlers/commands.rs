@@ -1,14 +1,12 @@
 //! Command handlers
 
-use axum::{extract::State, Json};
+use application::ApprovalStatus;
+use axum::{Json, extract::State};
+use domain::AgentCommand;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use application::ApprovalStatus;
-use domain::AgentCommand;
-
-use crate::error::ApiError;
-use crate::state::AppState;
+use crate::{error::ApiError, state::AppState};
 
 /// Command execution request
 #[derive(Debug, Deserialize)]
@@ -50,9 +48,9 @@ pub async fn execute_command(
         response: result.response,
         command_type: command_type_name(&result.command),
         execution_time_ms: result.execution_time_ms,
-        requires_approval: result.approval_status.map(|s| {
-            matches!(s, ApprovalStatus::Pending)
-        }),
+        requires_approval: result
+            .approval_status
+            .map(|s| matches!(s, ApprovalStatus::Pending)),
     }))
 }
 
@@ -75,9 +73,9 @@ pub struct ParseCommandResponse {
 }
 
 /// Parse input into a command without executing
-#[instrument(skip(state, request), fields(input_len = request.input.len()))]
+#[instrument(skip(_state, request), fields(input_len = request.input.len()))]
 pub async fn parse_command(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Json(request): Json<ParseCommandRequest>,
 ) -> Result<Json<ParseCommandResponse>, ApiError> {
     if request.input.trim().is_empty() {
@@ -89,9 +87,11 @@ pub async fn parse_command(
     let parser = application::CommandParser::new();
 
     // Try quick parse first, fall back to Ask if nothing matches
-    let command = parser.parse_quick(&request.input).unwrap_or_else(|| AgentCommand::Ask {
-        question: request.input.clone(),
-    });
+    let command = parser
+        .parse_quick(&request.input)
+        .unwrap_or_else(|| AgentCommand::Ask {
+            question: request.input.clone(),
+        });
 
     Ok(Json(ParseCommandResponse {
         requires_approval: command.requires_approval(),

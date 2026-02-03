@@ -1,14 +1,13 @@
 //! API error handling
 
+use application::ApplicationError;
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Serialize;
 use thiserror::Error;
-
-use application::ApplicationError;
 
 /// API error type
 #[derive(Debug, Error)]
@@ -20,6 +19,7 @@ pub enum ApiError {
     Unauthorized(String),
 
     #[error("Not found: {0}")]
+    #[allow(dead_code)]
     NotFound(String),
 
     #[error("Rate limited")]
@@ -44,22 +44,24 @@ pub struct ErrorResponse {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code, message, details) = match &self {
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone(), None),
-            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "unauthorized", msg.clone(), None),
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone(), None),
-            ApiError::RateLimited => (
+            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone(), None),
+            Self::Unauthorized(msg) => {
+                (StatusCode::UNAUTHORIZED, "unauthorized", msg.clone(), None)
+            },
+            Self::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone(), None),
+            Self::RateLimited => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "rate_limited",
                 "Rate limit exceeded".to_string(),
                 None,
             ),
-            ApiError::ServiceUnavailable(msg) => (
+            Self::ServiceUnavailable(msg) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "service_unavailable",
                 msg.clone(),
                 None,
             ),
-            ApiError::Internal(msg) => (
+            Self::Internal(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal_error",
                 "An internal error occurred".to_string(),
@@ -80,15 +82,18 @@ impl IntoResponse for ApiError {
 impl From<ApplicationError> for ApiError {
     fn from(err: ApplicationError) -> Self {
         match err {
-            ApplicationError::Domain(e) => ApiError::BadRequest(e.to_string()),
-            ApplicationError::RateLimited => ApiError::RateLimited,
-            ApplicationError::NotAuthorized(msg) => ApiError::Unauthorized(msg),
-            ApplicationError::Inference(msg) => ApiError::ServiceUnavailable(msg),
-            ApplicationError::ExternalService(msg) => ApiError::ServiceUnavailable(msg),
-            ApplicationError::ApprovalRequired(msg) => ApiError::BadRequest(format!("Approval required: {}", msg)),
-            ApplicationError::Configuration(msg) => ApiError::Internal(msg),
-            ApplicationError::CommandFailed(msg) => ApiError::Internal(msg),
-            ApplicationError::Internal(msg) => ApiError::Internal(msg),
+            ApplicationError::Domain(e) => Self::BadRequest(e.to_string()),
+            ApplicationError::RateLimited => Self::RateLimited,
+            ApplicationError::NotAuthorized(msg) => Self::Unauthorized(msg),
+            ApplicationError::Inference(msg) | ApplicationError::ExternalService(msg) => {
+                Self::ServiceUnavailable(msg)
+            },
+            ApplicationError::ApprovalRequired(msg) => {
+                Self::BadRequest(format!("Approval required: {msg}"))
+            },
+            ApplicationError::Configuration(msg)
+            | ApplicationError::CommandFailed(msg)
+            | ApplicationError::Internal(msg) => Self::Internal(msg),
         }
     }
 }

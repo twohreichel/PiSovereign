@@ -4,15 +4,15 @@
 
 use std::sync::Arc;
 
-use axum::Router;
-use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::trace::TraceLayer;
-use tracing::{info, Level};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
 use application::{AgentService, ChatService};
 use infrastructure::{AppConfig, HailoInferenceAdapter};
+use tokio::net::TcpListener;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
+use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod error;
 mod handlers;
@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize inference adapter
     let inference_adapter = HailoInferenceAdapter::new(config.inference.clone())
-        .map_err(|e| anyhow::anyhow!("Failed to initialize inference: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to initialize inference: {e}"))?;
 
     let inference: Arc<dyn application::ports::InferencePort> = Arc::new(inference_adapter);
 
@@ -74,14 +74,12 @@ async fn main() -> anyhow::Result<()> {
     let app = routes::create_router(state);
 
     // Add middleware
-    let app = app
-        .layer(TraceLayer::new_for_http())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        );
+    let app = app.layer(TraceLayer::new_for_http()).layer(
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any),
+    );
 
     // Start server
     let addr = format!("{}:{}", config.server.host, config.server.port);

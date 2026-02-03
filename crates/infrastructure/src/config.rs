@@ -1,11 +1,10 @@
 //! Application configuration
 
+use ai_core::InferenceConfig;
 use serde::{Deserialize, Serialize};
 
-use ai_core::InferenceConfig;
-
 /// Main application configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Server configuration
     #[serde(default)]
@@ -40,11 +39,11 @@ fn default_host() -> String {
     "0.0.0.0".to_string()
 }
 
-fn default_port() -> u16 {
+const fn default_port() -> u16 {
     3000
 }
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }
 
@@ -78,7 +77,7 @@ pub struct SecurityConfig {
     pub rate_limit_rpm: u32,
 }
 
-fn default_rate_limit() -> u32 {
+const fn default_rate_limit() -> u32 {
     60
 }
 
@@ -89,16 +88,6 @@ impl Default for SecurityConfig {
             api_key: None,
             rate_limit_enabled: true,
             rate_limit_rpm: default_rate_limit(),
-        }
-    }
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            inference: InferenceConfig::default(),
-            security: SecurityConfig::default(),
         }
     }
 }

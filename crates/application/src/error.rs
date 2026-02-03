@@ -45,10 +45,7 @@ pub enum ApplicationError {
 
 impl ApplicationError {
     /// Check if this error is retryable
-    pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            ApplicationError::RateLimited | ApplicationError::ExternalService(_)
-        )
+    pub const fn is_retryable(&self) -> bool {
+        matches!(self, Self::RateLimited | Self::ExternalService(_))
     }
 }

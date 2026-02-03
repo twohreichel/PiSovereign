@@ -37,4 +37,4 @@ force_multiline_blocks = false
 use_field_init_shorthand = true
 use_try_shorthand = true
 skip_children = false
-hide_parse_errors = false
+show_parse_errors = true

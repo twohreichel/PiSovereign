@@ -17,7 +17,7 @@ pub enum MessageRole {
 }
 
 /// A single message in a conversation
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatMessage {
     /// Unique message identifier
     pub id: Uuid,
@@ -33,7 +33,7 @@ pub struct ChatMessage {
 }
 
 /// Optional metadata about a message
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageMetadata {
     /// Model that generated this response
     #[serde(skip_serializing_if = "Option::is_none")]

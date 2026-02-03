@@ -1,7 +1,8 @@
 //! Conversation identifier for tracking chat sessions
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A unique conversation/session identifier
@@ -15,7 +16,7 @@ impl ConversationId {
     }
 
     /// Create a conversation ID from an existing UUID
-    pub fn from_uuid(uuid: Uuid) -> Self {
+    pub const fn from_uuid(uuid: Uuid) -> Self {
         Self(uuid)
     }
 
@@ -25,7 +26,7 @@ impl ConversationId {
     }
 
     /// Get the underlying UUID
-    pub fn as_uuid(&self) -> Uuid {
+    pub const fn as_uuid(&self) -> Uuid {
         self.0
     }
 }

@@ -1,20 +1,21 @@
 //! Hailo-Ollama client implementation
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use tracing::{debug, info, instrument, warn};
 
-use crate::config::InferenceConfig;
-use crate::error::InferenceError;
-use crate::ports::{
-    InferenceEngine, InferenceRequest, InferenceResponse, StreamingResponse, TokenUsage,
+use super::streaming::create_stream;
+use crate::{
+    config::InferenceConfig,
+    error::InferenceError,
+    ports::{InferenceEngine, InferenceRequest, InferenceResponse, StreamingResponse, TokenUsage},
 };
 
-use super::streaming::create_stream;
-
 /// Hailo-10H inference engine using hailo-ollama
+#[derive(Debug)]
 pub struct HailoInferenceEngine {
     client: Client,
     config: InferenceConfig,
@@ -44,7 +45,11 @@ impl HailoInferenceEngine {
 
     /// Build the API URL for a given endpoint
     fn api_url(&self, endpoint: &str) -> String {
-        format!("{}/api/{}", self.config.base_url, endpoint.trim_start_matches('/'))
+        format!(
+            "{}/api/{}",
+            self.config.base_url,
+            endpoint.trim_start_matches('/')
+        )
     }
 
     /// Get the model to use for a request
@@ -96,6 +101,7 @@ struct OllamaChatResponse {
 
 #[derive(Debug, Deserialize)]
 struct OllamaResponseMessage {
+    #[allow(dead_code)]
     role: String,
     content: String,
 }
@@ -114,7 +120,10 @@ struct OllamaModel {
 #[async_trait]
 impl InferenceEngine for HailoInferenceEngine {
     #[instrument(skip(self, request), fields(model = %self.resolve_model(&request)))]
-    async fn generate(&self, request: InferenceRequest) -> Result<InferenceResponse, InferenceError> {
+    async fn generate(
+        &self,
+        request: InferenceRequest,
+    ) -> Result<InferenceResponse, InferenceError> {
         let model = self.resolve_model(&request).to_string();
 
         let ollama_request = OllamaChatRequest {
@@ -149,8 +158,7 @@ impl InferenceEngine for HailoInferenceEngine {
             let body = response.text().await.unwrap_or_default();
             warn!(status = %status, body = %body, "Inference request failed");
             return Err(InferenceError::ServerError(format!(
-                "Status {}: {}",
-                status, body
+                "Status {status}: {body}"
             )));
         }
 
@@ -159,7 +167,10 @@ impl InferenceEngine for HailoInferenceEngine {
             .await
             .map_err(|e| InferenceError::InvalidResponse(e.to_string()))?;
 
-        let usage = match (ollama_response.prompt_eval_count, ollama_response.eval_count) {
+        let usage = match (
+            ollama_response.prompt_eval_count,
+            ollama_response.eval_count,
+        ) {
             (Some(prompt), Some(completion)) => Some(TokenUsage {
                 prompt_tokens: prompt,
                 completion_tokens: completion,
@@ -223,8 +234,7 @@ impl InferenceEngine for HailoInferenceEngine {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(InferenceError::ServerError(format!(
-                "Status {}: {}",
-                status, body
+                "Status {status}: {body}"
             )));
         }
 
@@ -257,9 +267,7 @@ impl InferenceEngine for HailoInferenceEngine {
             .await?;
 
         if !response.status().is_success() {
-            return Err(InferenceError::ServerError(
-                response.status().to_string(),
-            ));
+            return Err(InferenceError::ServerError(response.status().to_string()));
         }
 
         let models_response: OllamaModelsResponse = response
@@ -267,11 +275,7 @@ impl InferenceEngine for HailoInferenceEngine {
             .await
             .map_err(|e| InferenceError::InvalidResponse(e.to_string()))?;
 
-        Ok(models_response
-            .models
-            .into_iter()
-            .map(|m| m.name)
-            .collect())
+        Ok(models_response.models.into_iter().map(|m| m.name).collect())
     }
 
     fn default_model(&self) -> &str {
@@ -288,14 +292,8 @@ mod tests {
         let config = InferenceConfig::default();
         let engine = HailoInferenceEngine::new(config).unwrap();
 
-        assert_eq!(
-            engine.api_url("chat"),
-            "http://localhost:11434/api/chat"
-        );
-        assert_eq!(
-            engine.api_url("/tags"),
-            "http://localhost:11434/api/tags"
-        );
+        assert_eq!(engine.api_url("chat"), "http://localhost:11434/api/chat");
+        assert_eq!(engine.api_url("/tags"), "http://localhost:11434/api/tags");
     }
 
     #[test]

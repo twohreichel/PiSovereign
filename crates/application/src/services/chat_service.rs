@@ -1,18 +1,24 @@
 //! Chat service - Simple conversation handling
 
-use std::sync::Arc;
-use std::time::Instant;
-use tracing::{debug, instrument};
+use std::{fmt, sync::Arc, time::Instant};
 
 use domain::{ChatMessage, Conversation, MessageMetadata};
+use tracing::{debug, instrument};
 
-use crate::error::ApplicationError;
-use crate::ports::{InferencePort, InferenceResult};
+use crate::{error::ApplicationError, ports::InferencePort};
 
 /// Service for handling chat conversations
 pub struct ChatService {
     inference: Arc<dyn InferencePort>,
     system_prompt: Option<String>,
+}
+
+impl fmt::Debug for ChatService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChatService")
+            .field("system_prompt", &self.system_prompt)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ChatService {
@@ -25,7 +31,10 @@ impl ChatService {
     }
 
     /// Create a chat service with a system prompt
-    pub fn with_system_prompt(inference: Arc<dyn InferencePort>, prompt: impl Into<String>) -> Self {
+    pub fn with_system_prompt(
+        inference: Arc<dyn InferencePort>,
+        prompt: impl Into<String>,
+    ) -> Self {
         Self {
             inference,
             system_prompt: Some(prompt.into()),
