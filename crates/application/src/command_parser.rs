@@ -204,6 +204,28 @@ mod tests {
     }
 
     #[test]
+    fn parses_echo_with_sag() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("sag Hallo Welt").unwrap();
+
+        let AgentCommand::Echo { message } = cmd else {
+            unreachable!("Expected Echo command")
+        };
+        assert_eq!(message, "Hallo Welt");
+    }
+
+    #[test]
+    fn parses_echo_with_sage() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("sage Guten Tag").unwrap();
+
+        let AgentCommand::Echo { message } = cmd else {
+            unreachable!("Expected Echo command")
+        };
+        assert_eq!(message, "Guten Tag");
+    }
+
+    #[test]
     fn parses_help_command() {
         let parser = CommandParser::new();
 
@@ -218,6 +240,20 @@ mod tests {
             unreachable!("Expected Help command with topic")
         };
         assert_eq!(topic, "email");
+    }
+
+    #[test]
+    fn parses_help_with_help_keyword() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("help").unwrap();
+        assert!(matches!(cmd, AgentCommand::Help { command: None }));
+    }
+
+    #[test]
+    fn parses_help_with_question_mark() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("?").unwrap();
+        assert!(matches!(cmd, AgentCommand::Help { command: None }));
     }
 
     #[test]
@@ -240,10 +276,50 @@ mod tests {
     }
 
     #[test]
+    fn parses_briefing_with_morgen() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("guten morgen").unwrap();
+
+        assert!(matches!(cmd, AgentCommand::MorningBriefing { date: None }));
+    }
+
+    #[test]
     fn unknown_input_returns_none() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("some random text");
 
         assert!(cmd.is_none());
+    }
+
+    #[test]
+    fn parse_quick_is_case_insensitive() {
+        let parser = CommandParser::new();
+        
+        let cmd = parser.parse_quick("ECHO Test").unwrap();
+        assert!(matches!(cmd, AgentCommand::Echo { .. }));
+
+        let cmd = parser.parse_quick("HILFE").unwrap();
+        assert!(matches!(cmd, AgentCommand::Help { .. }));
+
+        let cmd = parser.parse_quick("STATUS").unwrap();
+        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::Status)));
+    }
+
+    #[test]
+    fn parse_quick_preserves_original_case_in_message() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("echo HeLLo WoRLd").unwrap();
+
+        let AgentCommand::Echo { message } = cmd else {
+            unreachable!("Expected Echo command")
+        };
+        assert_eq!(message, "HeLLo WoRLd");
+    }
+
+    #[test]
+    fn command_parser_debug_output() {
+        let parser = CommandParser::new();
+        let debug_str = format!("{:?}", parser);
+        assert!(debug_str.contains("CommandParser"));
     }
 }
