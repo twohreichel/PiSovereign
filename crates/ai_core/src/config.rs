@@ -98,3 +98,80 @@ impl InferenceConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_sensible_values() {
+        let config = InferenceConfig::default();
+        assert_eq!(config.base_url, "http://localhost:11434");
+        assert_eq!(config.default_model, "qwen2.5-1.5b-instruct");
+        assert_eq!(config.timeout_ms, 60000);
+        assert_eq!(config.max_tokens, 2048);
+        assert!((config.temperature - 0.7).abs() < 0.01);
+        assert!((config.top_p - 0.9).abs() < 0.01);
+        assert!(config.system_prompt.is_none());
+    }
+
+    #[test]
+    fn hailo_qwen_config() {
+        let config = InferenceConfig::hailo_qwen();
+        assert_eq!(config.default_model, "qwen2.5-1.5b-instruct");
+        assert_eq!(config.base_url, "http://localhost:11434");
+    }
+
+    #[test]
+    fn hailo_llama_config() {
+        let config = InferenceConfig::hailo_llama();
+        assert_eq!(config.default_model, "llama3.2-1b-instruct");
+    }
+
+    #[test]
+    fn hailo_function_calling_config() {
+        let config = InferenceConfig::hailo_function_calling();
+        assert_eq!(config.default_model, "qwen2-1.5b-function-calling");
+        assert!((config.temperature - 0.1).abs() < 0.01);
+    }
+
+    #[test]
+    fn config_serialization() {
+        let config = InferenceConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("base_url"));
+        assert!(json.contains("default_model"));
+    }
+
+    #[test]
+    fn config_deserialization() {
+        let json = r#"{"base_url":"http://custom:8080","default_model":"my-model"}"#;
+        let config: InferenceConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.base_url, "http://custom:8080");
+        assert_eq!(config.default_model, "my-model");
+    }
+
+    #[test]
+    fn config_deserialization_with_defaults() {
+        let json = r#"{}"#;
+        let config: InferenceConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.base_url, "http://localhost:11434");
+        assert_eq!(config.timeout_ms, 60000);
+    }
+
+    #[test]
+    fn config_has_debug_impl() {
+        let config = InferenceConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("InferenceConfig"));
+        assert!(debug.contains("base_url"));
+    }
+
+    #[test]
+    fn config_clone() {
+        let config = InferenceConfig::hailo_qwen();
+        let cloned = config.clone();
+        assert_eq!(config.default_model, cloned.default_model);
+        assert_eq!(config.base_url, cloned.base_url);
+    }
+}
