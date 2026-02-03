@@ -94,4 +94,54 @@ mod tests {
         assert!(EmailAddress::new("@nodomain.com").is_err());
         assert!(EmailAddress::new("noat.com").is_err());
     }
+
+    #[test]
+    fn display_format() {
+        let email = EmailAddress::new("test@example.com").unwrap();
+        assert_eq!(email.to_string(), "test@example.com");
+    }
+
+    #[test]
+    fn try_from_string() {
+        let email: EmailAddress = "test@example.com".to_string().try_into().unwrap();
+        assert_eq!(email.as_str(), "test@example.com");
+    }
+
+    #[test]
+    fn try_from_str() {
+        let email: EmailAddress = "test@example.com".try_into().unwrap();
+        assert_eq!(email.as_str(), "test@example.com");
+    }
+
+    #[test]
+    fn serialization() {
+        let email = EmailAddress::new("test@example.com").unwrap();
+        let json = serde_json::to_string(&email).unwrap();
+        let parsed: EmailAddress = serde_json::from_str(&json).unwrap();
+        assert_eq!(email, parsed);
+    }
+
+    #[test]
+    fn hash_works() {
+        use std::collections::HashSet;
+        let e1 = EmailAddress::new("a@b.com").unwrap();
+        let e2 = EmailAddress::new("c@d.com").unwrap();
+        let mut set = HashSet::new();
+        set.insert(e1.clone());
+        set.insert(e2);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn clone() {
+        let email = EmailAddress::new("test@example.com").unwrap();
+        let cloned = email.clone();
+        assert_eq!(email, cloned);
+    }
+
+    #[test]
+    fn whitespace_trimmed() {
+        let email = EmailAddress::new("  test@example.com  ").unwrap();
+        assert_eq!(email.as_str(), "test@example.com");
+    }
 }

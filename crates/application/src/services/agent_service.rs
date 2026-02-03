@@ -300,3 +300,129 @@ pub struct ExecutionResult {
     pub success: bool,
     pub response: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_result_creation() {
+        let result = CommandResult {
+            command: AgentCommand::Echo { message: "test".to_string() },
+            success: true,
+            response: "OK".to_string(),
+            execution_time_ms: 100,
+            approval_status: None,
+        };
+        assert!(result.success);
+        assert_eq!(result.execution_time_ms, 100);
+    }
+
+    #[test]
+    fn command_result_with_approval_status() {
+        let result = CommandResult {
+            command: AgentCommand::Help { command: None },
+            success: true,
+            response: "Help text".to_string(),
+            execution_time_ms: 50,
+            approval_status: Some(ApprovalStatus::NotRequired),
+        };
+        assert_eq!(result.approval_status, Some(ApprovalStatus::NotRequired));
+    }
+
+    #[test]
+    fn approval_status_pending() {
+        let status = ApprovalStatus::Pending;
+        assert_eq!(status, ApprovalStatus::Pending);
+        assert_ne!(status, ApprovalStatus::Granted);
+    }
+
+    #[test]
+    fn approval_status_granted() {
+        let status = ApprovalStatus::Granted;
+        assert_eq!(status, ApprovalStatus::Granted);
+    }
+
+    #[test]
+    fn approval_status_denied() {
+        let status = ApprovalStatus::Denied;
+        assert_eq!(status, ApprovalStatus::Denied);
+    }
+
+    #[test]
+    fn approval_status_not_required() {
+        let status = ApprovalStatus::NotRequired;
+        assert_eq!(status, ApprovalStatus::NotRequired);
+    }
+
+    #[test]
+    fn approval_status_clone() {
+        let status = ApprovalStatus::Pending;
+        let cloned = status.clone();
+        assert_eq!(status, cloned);
+    }
+
+    #[test]
+    fn command_result_clone() {
+        let result = CommandResult {
+            command: AgentCommand::Echo { message: "test".to_string() },
+            success: true,
+            response: "OK".to_string(),
+            execution_time_ms: 100,
+            approval_status: Some(ApprovalStatus::NotRequired),
+        };
+        let cloned = result.clone();
+        assert_eq!(result.success, cloned.success);
+        assert_eq!(result.response, cloned.response);
+    }
+
+    #[test]
+    fn command_result_has_debug() {
+        let result = CommandResult {
+            command: AgentCommand::Echo { message: "test".to_string() },
+            success: true,
+            response: "OK".to_string(),
+            execution_time_ms: 100,
+            approval_status: None,
+        };
+        let debug = format!("{result:?}");
+        assert!(debug.contains("CommandResult"));
+        assert!(debug.contains("success"));
+    }
+
+    #[test]
+    fn approval_status_has_debug() {
+        let status = ApprovalStatus::Pending;
+        let debug = format!("{status:?}");
+        assert!(debug.contains("Pending"));
+    }
+
+    #[test]
+    fn execution_result_creation() {
+        let result = ExecutionResult {
+            success: true,
+            response: "Done".to_string(),
+        };
+        assert!(result.success);
+        assert_eq!(result.response, "Done");
+    }
+
+    #[test]
+    fn execution_result_failure() {
+        let result = ExecutionResult {
+            success: false,
+            response: "Failed".to_string(),
+        };
+        assert!(!result.success);
+    }
+
+    #[test]
+    fn execution_result_has_debug() {
+        let result = ExecutionResult {
+            success: true,
+            response: "OK".to_string(),
+        };
+        let debug = format!("{result:?}");
+        assert!(debug.contains("ExecutionResult"));
+    }
+}

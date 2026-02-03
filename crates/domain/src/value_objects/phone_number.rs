@@ -121,4 +121,65 @@ mod tests {
         let us_phone = PhoneNumber::new("+11234567890").unwrap();
         assert!(!us_phone.is_german());
     }
+
+    #[test]
+    fn digits_returns_without_plus() {
+        let phone = PhoneNumber::new("+491234567890").unwrap();
+        assert_eq!(phone.digits(), "491234567890");
+    }
+
+    #[test]
+    fn display_format() {
+        let phone = PhoneNumber::new("+491234567890").unwrap();
+        assert_eq!(phone.to_string(), "+491234567890");
+    }
+
+    #[test]
+    fn try_from_string() {
+        let phone: PhoneNumber = "+491234567890".to_string().try_into().unwrap();
+        assert_eq!(phone.as_str(), "+491234567890");
+    }
+
+    #[test]
+    fn try_from_str() {
+        let phone: PhoneNumber = "+491234567890".try_into().unwrap();
+        assert_eq!(phone.as_str(), "+491234567890");
+    }
+
+    #[test]
+    fn number_with_dashes_and_parens_normalized() {
+        let phone = PhoneNumber::new("+49-(123)-456-7890").unwrap();
+        assert_eq!(phone.as_str(), "+491234567890");
+    }
+
+    #[test]
+    fn too_long_number_is_rejected() {
+        assert!(PhoneNumber::new("+12345678901234567890").is_err());
+    }
+
+    #[test]
+    fn serialization() {
+        let phone = PhoneNumber::new("+491234567890").unwrap();
+        let json = serde_json::to_string(&phone).unwrap();
+        let parsed: PhoneNumber = serde_json::from_str(&json).unwrap();
+        assert_eq!(phone, parsed);
+    }
+
+    #[test]
+    fn hash_works() {
+        use std::collections::HashSet;
+        let p1 = PhoneNumber::new("+491234567890").unwrap();
+        let p2 = PhoneNumber::new("+491234567891").unwrap();
+        let mut set = HashSet::new();
+        set.insert(p1.clone());
+        set.insert(p2);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn clone() {
+        let phone = PhoneNumber::new("+491234567890").unwrap();
+        let cloned = phone.clone();
+        assert_eq!(phone, cloned);
+    }
 }
