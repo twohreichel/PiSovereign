@@ -301,4 +301,73 @@ mod tests {
         let engine = HailoInferenceEngine::with_defaults().unwrap();
         assert_eq!(engine.default_model(), "qwen2.5-1.5b-instruct");
     }
+
+    #[test]
+    fn resolve_model_uses_request_model_when_provided() {
+        let config = InferenceConfig::default();
+        let engine = HailoInferenceEngine::new(config).unwrap();
+        
+        let request = InferenceRequest::simple("test").with_model("custom-model");
+        assert_eq!(engine.resolve_model(&request), "custom-model");
+    }
+
+    #[test]
+    fn resolve_model_uses_default_when_no_request_model() {
+        let config = InferenceConfig::default();
+        let engine = HailoInferenceEngine::new(config).unwrap();
+        
+        let request = InferenceRequest::simple("test");
+        assert_eq!(engine.resolve_model(&request), "qwen2.5-1.5b-instruct");
+    }
+
+    #[test]
+    fn ollama_chat_request_serialization() {
+        let request = OllamaChatRequest {
+            model: "test".to_string(),
+            messages: vec![OllamaMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+            }],
+            stream: false,
+            options: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("model"));
+        assert!(json.contains("messages"));
+    }
+
+    #[test]
+    fn ollama_options_skip_none_fields() {
+        let request = OllamaChatRequest {
+            model: "test".to_string(),
+            messages: vec![],
+            stream: false,
+            options: Some(OllamaOptions {
+                temperature: Some(0.7),
+                num_predict: None,
+                top_p: None,
+            }),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("temperature"));
+        assert!(!json.contains("num_predict"));
+    }
+
+    #[test]
+    fn engine_has_debug() {
+        let engine = HailoInferenceEngine::with_defaults().unwrap();
+        let debug = format!("{engine:?}");
+        assert!(debug.contains("HailoInferenceEngine"));
+    }
+
+    #[test]
+    fn ollama_message_creation() {
+        let msg = OllamaMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("user"));
+        assert!(json.contains("Hello"));
+    }
 }

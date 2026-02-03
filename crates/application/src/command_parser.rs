@@ -322,4 +322,99 @@ mod tests {
         let debug_str = format!("{:?}", parser);
         assert!(debug_str.contains("CommandParser"));
     }
+
+    #[test]
+    fn parses_version_command() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("version").unwrap();
+        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::Version)));
+    }
+
+    #[test]
+    fn parses_models_command() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("modelle").unwrap();
+        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::ListModels)));
+    }
+
+    #[test]
+    fn parses_models_command_english() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("models").unwrap();
+        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::ListModels)));
+    }
+
+    #[test]
+    fn parses_inbox_command() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("inbox").unwrap();
+        assert!(matches!(cmd, AgentCommand::SummarizeInbox { count: None, only_important: None }));
+    }
+
+    #[test]
+    fn parses_mails_zusammenfassen() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("mails zusammenfassen").unwrap();
+        assert!(matches!(cmd, AgentCommand::SummarizeInbox { .. }));
+    }
+
+    #[test]
+    fn parses_wichtige_mails() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("inbox nur wichtige").unwrap();
+        let AgentCommand::SummarizeInbox { only_important, .. } = cmd else {
+            unreachable!("Expected SummarizeInbox")
+        };
+        assert_eq!(only_important, Some(true));
+    }
+
+    #[test]
+    fn parses_was_steht_an() {
+        let parser = CommandParser::new();
+        // The pattern checks for "was steht an" in the input
+        let cmd = parser.parse_quick("was steht an").unwrap();
+        assert!(matches!(cmd, AgentCommand::MorningBriefing { date: None }));
+    }
+
+    #[test]
+    fn parses_ping_as_status() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("ping").unwrap();
+        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::Status)));
+    }
+
+    #[test]
+    fn default_creates_parser() {
+        let parser = CommandParser::default();
+        let debug_str = format!("{:?}", parser);
+        assert!(debug_str.contains("CommandParser"));
+    }
+
+    #[test]
+    fn parser_has_quick_patterns() {
+        let parser = CommandParser::new();
+        // The debug output shows the pattern count
+        let debug_str = format!("{:?}", parser);
+        assert!(debug_str.contains("quick_patterns_count"));
+    }
+
+    #[test]
+    fn help_with_topic_email() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("help email").unwrap();
+        let AgentCommand::Help { command: Some(topic) } = cmd else {
+            unreachable!("Expected Help with topic")
+        };
+        assert_eq!(topic, "email");
+    }
+
+    #[test]
+    fn help_with_topic_kalender() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("hilfe kalender").unwrap();
+        let AgentCommand::Help { command: Some(topic) } = cmd else {
+            unreachable!("Expected Help with topic")
+        };
+        assert_eq!(topic, "kalender");
+    }
 }
