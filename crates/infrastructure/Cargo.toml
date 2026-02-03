@@ -1,0 +1,22 @@
+[package]
+name = "infrastructure"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+ai_core.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+config.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true

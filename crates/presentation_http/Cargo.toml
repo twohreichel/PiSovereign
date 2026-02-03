@@ -1,0 +1,33 @@
+[package]
+name = "presentation_http"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pisovereign-server"
+path = "src/main.rs"
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+infrastructure.workspace = true
+ai_core.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+futures = "0.3"
+axum-extra = { version = "0.10", features = ["typed-header"] }
+
+[dev-dependencies]
+tokio-test.workspace = true
+axum-test = "16"

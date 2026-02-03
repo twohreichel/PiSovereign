@@ -1,0 +1,19 @@
+[package]
+name = "integration_proton"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true

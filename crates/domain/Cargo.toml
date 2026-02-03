@@ -1,0 +1,16 @@
+[package]
+name = "domain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+validator.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true

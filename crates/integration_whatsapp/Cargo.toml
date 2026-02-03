@@ -1,0 +1,24 @@
+[package]
+name = "integration_whatsapp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+axum.workspace = true
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+tokio-test.workspace = true

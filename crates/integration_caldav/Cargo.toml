@@ -1,0 +1,20 @@
+[package]
+name = "integration_caldav"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+reqwest.workspace = true
+icalendar = "0.16"
+
+[dev-dependencies]
+tokio-test.workspace = true
