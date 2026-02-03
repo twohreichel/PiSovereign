@@ -91,7 +91,7 @@ impl AgentService {
     }
 
     /// Execute a specific command (after parsing/approval)
-    #[instrument(skip(self), fields(command_type = ?std::mem::discriminant(&command)))]
+    #[instrument(skip(self, command))]
     pub async fn execute_command(&self, command: &AgentCommand) -> Result<ExecutionResult, ApplicationError> {
         match command {
             AgentCommand::Echo { message } => Ok(ExecutionResult {

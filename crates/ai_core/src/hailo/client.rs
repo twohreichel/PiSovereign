@@ -48,7 +48,7 @@ impl HailoInferenceEngine {
     }
 
     /// Get the model to use for a request
-    fn resolve_model(&self, request: &InferenceRequest) -> &str {
+    fn resolve_model<'a>(&'a self, request: &'a InferenceRequest) -> &'a str {
         request
             .model
             .as_deref()

@@ -94,10 +94,10 @@ impl InferencePort for HailoInferenceAdapter {
         let mut messages: Vec<ai_core::ports::InferenceMessage> = Vec::new();
 
         // Add system prompt if configured
-        if let Some(system) = &conversation.system_prompt.as_ref().or(self.system_prompt.as_ref()) {
+        if let Some(system) = conversation.system_prompt.as_ref().or(self.system_prompt.as_ref()) {
             messages.push(ai_core::ports::InferenceMessage {
                 role: "system".to_string(),
-                content: system.clone(),
+                content: system.to_string(),
             });
         }
 

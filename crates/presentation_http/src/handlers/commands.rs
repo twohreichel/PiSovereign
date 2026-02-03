@@ -4,6 +4,7 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
+use application::ApprovalStatus;
 use domain::AgentCommand;
 
 use crate::error::ApiError;
@@ -50,10 +51,7 @@ pub async fn execute_command(
         command_type: command_type_name(&result.command),
         execution_time_ms: result.execution_time_ms,
         requires_approval: result.approval_status.map(|s| {
-            matches!(
-                s,
-                application::services::agent_service::ApprovalStatus::Pending
-            )
+            matches!(s, ApprovalStatus::Pending)
         }),
     }))
 }
