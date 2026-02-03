@@ -33,7 +33,7 @@ pub enum ApiError {
 }
 
 /// Error response body
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: String,
     pub code: String,

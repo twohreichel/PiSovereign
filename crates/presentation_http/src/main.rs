@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use application::{AgentService, ChatService};
 use infrastructure::{AppConfig, HailoInferenceAdapter};
+use presentation_http::{routes, state::AppState};
 use tokio::net::TcpListener;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -13,13 +14,6 @@ use tower_http::{
 };
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-mod error;
-mod handlers;
-mod routes;
-mod state;
-
-use state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

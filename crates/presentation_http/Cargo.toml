@@ -8,6 +8,10 @@ license.workspace = true
 [lints]
 workspace = true
 
+[lib]
+name = "presentation_http"
+path = "src/lib.rs"
+
 [[bin]]
 name = "pisovereign-server"
 path = "src/main.rs"
@@ -34,4 +38,6 @@ axum-extra = { version = "0.10", features = ["typed-header"] }
 
 [dev-dependencies]
 tokio-test.workspace = true
-axum-test = "16"
+axum-test = "18"
+mockall.workspace = true
+async-trait.workspace = true

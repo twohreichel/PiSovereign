@@ -6,7 +6,7 @@ use application::{AgentService, ChatService};
 use infrastructure::AppConfig;
 
 /// Shared application state
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AppState {
     /// Chat service for conversation handling
     pub chat_service: Arc<ChatService>,
