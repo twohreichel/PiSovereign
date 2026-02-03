@@ -102,5 +102,64 @@ mod tests {
     fn assistant_message_has_correct_role() {
         let msg = ChatMessage::assistant("Hi there!");
         assert_eq!(msg.role, MessageRole::Assistant);
+        assert_eq!(msg.content, "Hi there!");
+    }
+
+    #[test]
+    fn system_message_has_correct_role() {
+        let msg = ChatMessage::system("You are a helpful assistant.");
+        assert_eq!(msg.role, MessageRole::System);
+        assert_eq!(msg.content, "You are a helpful assistant.");
+    }
+
+    #[test]
+    fn message_has_unique_id() {
+        let msg1 = ChatMessage::user("Hello");
+        let msg2 = ChatMessage::user("Hello");
+        assert_ne!(msg1.id, msg2.id);
+    }
+
+    #[test]
+    fn message_has_created_at_timestamp() {
+        let before = Utc::now();
+        let msg = ChatMessage::user("Hello");
+        let after = Utc::now();
+        assert!(msg.created_at >= before);
+        assert!(msg.created_at <= after);
+    }
+
+    #[test]
+    fn message_without_metadata_has_none() {
+        let msg = ChatMessage::user("Hello");
+        assert!(msg.metadata.is_none());
+    }
+
+    #[test]
+    fn message_with_metadata_has_some() {
+        let metadata = MessageMetadata {
+            model: Some("qwen2.5".to_string()),
+            tokens: Some(10),
+            latency_ms: Some(100),
+        };
+        let msg = ChatMessage::assistant("Response").with_metadata(metadata);
+        assert!(msg.metadata.is_some());
+        let meta = msg.metadata.unwrap();
+        assert_eq!(meta.model, Some("qwen2.5".to_string()));
+        assert_eq!(meta.tokens, Some(10));
+        assert_eq!(meta.latency_ms, Some(100));
+    }
+
+    #[test]
+    fn message_role_serializes_correctly() {
+        let msg = ChatMessage::user("Hello");
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""role":"user""#));
+    }
+
+    #[test]
+    fn message_role_deserializes_correctly() {
+        let json = r#""assistant""#;
+        let role: MessageRole = serde_json::from_str(json).unwrap();
+        assert_eq!(role, MessageRole::Assistant);
     }
 }

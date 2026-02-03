@@ -49,3 +49,99 @@ impl ApplicationError {
         matches!(self, Self::RateLimited | Self::ExternalService(_))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rate_limited_is_retryable() {
+        let err = ApplicationError::RateLimited;
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn external_service_is_retryable() {
+        let err = ApplicationError::ExternalService("timeout".to_string());
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn inference_error_is_not_retryable() {
+        let err = ApplicationError::Inference("model failed".to_string());
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn command_failed_is_not_retryable() {
+        let err = ApplicationError::CommandFailed("syntax error".to_string());
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn approval_required_is_not_retryable() {
+        let err = ApplicationError::ApprovalRequired("email send".to_string());
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn not_authorized_is_not_retryable() {
+        let err = ApplicationError::NotAuthorized("invalid token".to_string());
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn configuration_is_not_retryable() {
+        let err = ApplicationError::Configuration("missing key".to_string());
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn internal_is_not_retryable() {
+        let err = ApplicationError::Internal("unexpected".to_string());
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn error_messages_are_correct() {
+        assert_eq!(
+            ApplicationError::RateLimited.to_string(),
+            "Rate limit exceeded"
+        );
+        assert_eq!(
+            ApplicationError::Inference("failed".to_string()).to_string(),
+            "Inference error: failed"
+        );
+        assert_eq!(
+            ApplicationError::ExternalService("timeout".to_string()).to_string(),
+            "External service error: timeout"
+        );
+        assert_eq!(
+            ApplicationError::CommandFailed("error".to_string()).to_string(),
+            "Command execution failed: error"
+        );
+        assert_eq!(
+            ApplicationError::ApprovalRequired("action".to_string()).to_string(),
+            "Approval required: action"
+        );
+        assert_eq!(
+            ApplicationError::NotAuthorized("reason".to_string()).to_string(),
+            "Not authorized: reason"
+        );
+        assert_eq!(
+            ApplicationError::Configuration("missing".to_string()).to_string(),
+            "Configuration error: missing"
+        );
+        assert_eq!(
+            ApplicationError::Internal("oops".to_string()).to_string(),
+            "Internal error: oops"
+        );
+    }
+
+    #[test]
+    fn domain_error_converts_to_application_error() {
+        let domain_err = DomainError::InvalidEmailAddress("bad".to_string());
+        let app_err: ApplicationError = domain_err.into();
+        assert!(matches!(app_err, ApplicationError::Domain(_)));
+    }
+}
