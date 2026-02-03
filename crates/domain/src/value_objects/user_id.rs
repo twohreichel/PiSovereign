@@ -123,6 +123,7 @@ mod tests {
     #[test]
     fn clone_and_copy() {
         let id = UserId::new();
+        #[allow(clippy::clone_on_copy)]
         let cloned = id.clone();
         let copied = id;
         assert_eq!(id, cloned);

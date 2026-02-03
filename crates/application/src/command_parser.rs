@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn parse_quick_is_case_insensitive() {
         let parser = CommandParser::new();
-        
+
         let cmd = parser.parse_quick("ECHO Test").unwrap();
         assert!(matches!(cmd, AgentCommand::Echo { .. }));
 
@@ -302,7 +302,10 @@ mod tests {
         assert!(matches!(cmd, AgentCommand::Help { .. }));
 
         let cmd = parser.parse_quick("STATUS").unwrap();
-        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::Status)));
+        assert!(matches!(
+            cmd,
+            AgentCommand::System(domain::SystemCommand::Status)
+        ));
     }
 
     #[test]
@@ -327,28 +330,40 @@ mod tests {
     fn parses_version_command() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("version").unwrap();
-        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::Version)));
+        assert!(matches!(
+            cmd,
+            AgentCommand::System(domain::SystemCommand::Version)
+        ));
     }
 
     #[test]
     fn parses_models_command() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("modelle").unwrap();
-        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::ListModels)));
+        assert!(matches!(
+            cmd,
+            AgentCommand::System(domain::SystemCommand::ListModels)
+        ));
     }
 
     #[test]
     fn parses_models_command_english() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("models").unwrap();
-        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::ListModels)));
+        assert!(matches!(
+            cmd,
+            AgentCommand::System(domain::SystemCommand::ListModels)
+        ));
     }
 
     #[test]
     fn parses_inbox_command() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("inbox").unwrap();
-        assert!(matches!(cmd, AgentCommand::SummarizeInbox { count: None, only_important: None }));
+        assert!(matches!(cmd, AgentCommand::SummarizeInbox {
+            count: None,
+            only_important: None
+        }));
     }
 
     #[test]
@@ -380,7 +395,10 @@ mod tests {
     fn parses_ping_as_status() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("ping").unwrap();
-        assert!(matches!(cmd, AgentCommand::System(domain::SystemCommand::Status)));
+        assert!(matches!(
+            cmd,
+            AgentCommand::System(domain::SystemCommand::Status)
+        ));
     }
 
     #[test]
@@ -402,7 +420,10 @@ mod tests {
     fn help_with_topic_email() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("help email").unwrap();
-        let AgentCommand::Help { command: Some(topic) } = cmd else {
+        let AgentCommand::Help {
+            command: Some(topic),
+        } = cmd
+        else {
             unreachable!("Expected Help with topic")
         };
         assert_eq!(topic, "email");
@@ -412,7 +433,10 @@ mod tests {
     fn help_with_topic_kalender() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("hilfe kalender").unwrap();
-        let AgentCommand::Help { command: Some(topic) } = cmd else {
+        let AgentCommand::Help {
+            command: Some(topic),
+        } = cmd
+        else {
             unreachable!("Expected Help with topic")
         };
         assert_eq!(topic, "kalender");
@@ -444,10 +468,12 @@ mod tests {
 
 #[cfg(test)]
 mod async_tests {
+    use std::sync::Arc;
+
+    use mockall::mock;
+
     use super::*;
     use crate::ports::InferenceResult;
-    use mockall::mock;
-    use std::sync::Arc;
 
     mock! {
         pub InferenceEngine {}
@@ -478,9 +504,12 @@ mod async_tests {
         let mock = MockInferenceEngine::new();
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
-        let result = parser.parse_with_llm(&inference, "echo hello").await.unwrap();
+        let result = parser
+            .parse_with_llm(&inference, "echo hello")
+            .await
+            .unwrap();
         let AgentCommand::Echo { message } = result else {
-            panic!("Expected Echo command");
+            unreachable!("Expected Echo command");
         };
         assert!(message.contains("hello"));
     }
@@ -492,7 +521,10 @@ mod async_tests {
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
         let result = parser.parse_with_llm(&inference, "status").await.unwrap();
-        assert!(matches!(result, AgentCommand::System(domain::SystemCommand::Status)));
+        assert!(matches!(
+            result,
+            AgentCommand::System(domain::SystemCommand::Status)
+        ));
     }
 
     #[tokio::test]
@@ -501,9 +533,12 @@ mod async_tests {
         let mock = MockInferenceEngine::new();
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
-        let result = parser.parse_with_llm(&inference, "was ist der Sinn des Lebens?").await.unwrap();
+        let result = parser
+            .parse_with_llm(&inference, "was ist der Sinn des Lebens?")
+            .await
+            .unwrap();
         let AgentCommand::Ask { question } = result else {
-            panic!("Expected Ask command");
+            unreachable!("Expected Ask command");
         };
         assert!(question.contains("Sinn"));
     }
@@ -515,7 +550,9 @@ mod async_tests {
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
         let result = parser.parse_with_llm(&inference, "briefing").await.unwrap();
-        assert!(matches!(result, AgentCommand::MorningBriefing { date: None }));
+        assert!(matches!(result, AgentCommand::MorningBriefing {
+            date: None
+        }));
     }
 
     #[tokio::test]
@@ -525,7 +562,10 @@ mod async_tests {
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
         let result = parser.parse_with_llm(&inference, "version").await.unwrap();
-        assert!(matches!(result, AgentCommand::System(domain::SystemCommand::Version)));
+        assert!(matches!(
+            result,
+            AgentCommand::System(domain::SystemCommand::Version)
+        ));
     }
 
     #[tokio::test]
@@ -535,7 +575,10 @@ mod async_tests {
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
         let result = parser.parse_with_llm(&inference, "modelle").await.unwrap();
-        assert!(matches!(result, AgentCommand::System(domain::SystemCommand::ListModels)));
+        assert!(matches!(
+            result,
+            AgentCommand::System(domain::SystemCommand::ListModels)
+        ));
     }
 
     #[tokio::test]

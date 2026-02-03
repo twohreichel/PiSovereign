@@ -306,7 +306,7 @@ mod tests {
     fn resolve_model_uses_request_model_when_provided() {
         let config = InferenceConfig::default();
         let engine = HailoInferenceEngine::new(config).unwrap();
-        
+
         let request = InferenceRequest::simple("test").with_model("custom-model");
         assert_eq!(engine.resolve_model(&request), "custom-model");
     }
@@ -315,7 +315,7 @@ mod tests {
     fn resolve_model_uses_default_when_no_request_model() {
         let config = InferenceConfig::default();
         let engine = HailoInferenceEngine::new(config).unwrap();
-        
+
         let request = InferenceRequest::simple("test");
         assert_eq!(engine.resolve_model(&request), "qwen2.5-1.5b-instruct");
     }

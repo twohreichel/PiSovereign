@@ -81,7 +81,7 @@ mod tests {
             message_id: "msg123".to_string(),
             sender: test_phone(),
             content: "Hello".to_string(),
-            timestamp: 1234567890,
+            timestamp: 1_234_567_890,
             metadata: None,
         };
         assert_eq!(msg.message_id, "msg123");
@@ -94,7 +94,7 @@ mod tests {
             message_id: "msg123".to_string(),
             sender: test_phone(),
             content: "Hello".to_string(),
-            timestamp: 1234567890,
+            timestamp: 1_234_567_890,
             metadata: Some(serde_json::json!({"type": "text"})),
         };
         assert!(msg.metadata.is_some());
@@ -113,10 +113,10 @@ mod tests {
             message_id: "orig123".to_string(),
             sender: test_phone(),
             content: "Original".to_string(),
-            timestamp: 1234567890,
+            timestamp: 1_234_567_890,
             metadata: None,
         };
-        
+
         let reply = OutgoingMessage::reply_to(&incoming, "Reply");
         assert_eq!(reply.content, "Reply");
         assert_eq!(reply.reply_to, Some("orig123".to_string()));
@@ -128,7 +128,7 @@ mod tests {
             message_id: "msg123".to_string(),
             sender: test_phone(),
             content: "Hello".to_string(),
-            timestamp: 1234567890,
+            timestamp: 1_234_567_890,
             metadata: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
@@ -151,7 +151,7 @@ mod tests {
             message_id: "orig123".to_string(),
             sender: test_phone(),
             content: "Original".to_string(),
-            timestamp: 1234567890,
+            timestamp: 1_234_567_890,
             metadata: None,
         };
         let reply = OutgoingMessage::reply_to(&incoming, "Reply");
@@ -165,9 +165,10 @@ mod tests {
             message_id: "msg123".to_string(),
             sender: test_phone(),
             content: "Hello".to_string(),
-            timestamp: 1234567890,
+            timestamp: 1_234_567_890,
             metadata: None,
         };
+        #[allow(clippy::redundant_clone)]
         let cloned = msg.clone();
         assert_eq!(msg.message_id, cloned.message_id);
     }
@@ -175,6 +176,7 @@ mod tests {
     #[test]
     fn outgoing_message_clone() {
         let msg = OutgoingMessage::new(test_phone(), "Hi");
+        #[allow(clippy::redundant_clone)]
         let cloned = msg.clone();
         assert_eq!(msg.content, cloned.content);
     }

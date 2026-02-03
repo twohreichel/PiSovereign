@@ -127,7 +127,7 @@ mod tests {
         let e1 = EmailAddress::new("a@b.com").unwrap();
         let e2 = EmailAddress::new("c@d.com").unwrap();
         let mut set = HashSet::new();
-        set.insert(e1.clone());
+        set.insert(e1);
         set.insert(e2);
         assert_eq!(set.len(), 2);
     }
@@ -135,6 +135,7 @@ mod tests {
     #[test]
     fn clone() {
         let email = EmailAddress::new("test@example.com").unwrap();
+        #[allow(clippy::redundant_clone)]
         let cloned = email.clone();
         assert_eq!(email, cloned);
     }

@@ -187,6 +187,7 @@ mod tests {
             healthy: true,
             model: Some("test".to_string()),
         };
+        #[allow(clippy::redundant_clone)]
         let cloned = status.clone();
         assert_eq!(status.healthy, cloned.healthy);
         assert_eq!(status.model, cloned.model);
@@ -208,6 +209,7 @@ mod tests {
                 model: Some("qwen".to_string()),
             },
         };
+        #[allow(clippy::redundant_clone)]
         let cloned = resp.clone();
         assert_eq!(resp.ready, cloned.ready);
     }
@@ -218,6 +220,7 @@ mod tests {
             status: "ok".to_string(),
             version: "1.0".to_string(),
         };
+        #[allow(clippy::redundant_clone)]
         let cloned = resp.clone();
         assert_eq!(resp.status, cloned.status);
     }

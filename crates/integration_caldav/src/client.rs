@@ -148,7 +148,8 @@ mod tests {
 
     #[test]
     fn caldav_config_deserialization() {
-        let json = r#"{"server_url":"https://cal.example.com","username":"user","password":"pass"}"#;
+        let json =
+            r#"{"server_url":"https://cal.example.com","username":"user","password":"pass"}"#;
         let config: CalDavConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.server_url, "https://cal.example.com");
         assert!(config.calendar_path.is_none());
@@ -219,6 +220,7 @@ mod tests {
             location: None,
             attendees: vec!["a@b.com".to_string()],
         };
+        #[allow(clippy::redundant_clone)]
         let cloned = event.clone();
         assert_eq!(event.id, cloned.id);
         assert_eq!(event.attendees, cloned.attendees);

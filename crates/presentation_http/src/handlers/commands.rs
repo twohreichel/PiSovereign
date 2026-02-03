@@ -119,8 +119,9 @@ fn command_type_name(cmd: &AgentCommand) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use domain::SystemCommand;
+
+    use super::*;
 
     #[test]
     fn execute_command_request_deserialize() {

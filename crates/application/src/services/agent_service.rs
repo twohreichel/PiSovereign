@@ -308,7 +308,9 @@ mod tests {
     #[test]
     fn command_result_creation() {
         let result = CommandResult {
-            command: AgentCommand::Echo { message: "test".to_string() },
+            command: AgentCommand::Echo {
+                message: "test".to_string(),
+            },
             success: true,
             response: "OK".to_string(),
             execution_time_ms: 100,
@@ -358,6 +360,7 @@ mod tests {
     #[test]
     fn approval_status_clone() {
         let status = ApprovalStatus::Pending;
+        #[allow(clippy::redundant_clone)]
         let cloned = status.clone();
         assert_eq!(status, cloned);
     }
@@ -365,12 +368,15 @@ mod tests {
     #[test]
     fn command_result_clone() {
         let result = CommandResult {
-            command: AgentCommand::Echo { message: "test".to_string() },
+            command: AgentCommand::Echo {
+                message: "test".to_string(),
+            },
             success: true,
             response: "OK".to_string(),
             execution_time_ms: 100,
             approval_status: Some(ApprovalStatus::NotRequired),
         };
+        #[allow(clippy::redundant_clone)]
         let cloned = result.clone();
         assert_eq!(result.success, cloned.success);
         assert_eq!(result.response, cloned.response);
@@ -379,7 +385,9 @@ mod tests {
     #[test]
     fn command_result_has_debug() {
         let result = CommandResult {
-            command: AgentCommand::Echo { message: "test".to_string() },
+            command: AgentCommand::Echo {
+                message: "test".to_string(),
+            },
             success: true,
             response: "OK".to_string(),
             execution_time_ms: 100,
@@ -429,9 +437,10 @@ mod tests {
 
 #[cfg(test)]
 mod async_tests {
+    use mockall::mock;
+
     use super::*;
     use crate::ports::InferenceResult;
-    use mockall::mock;
 
     mock! {
         pub InferenceEngine {}
@@ -621,7 +630,7 @@ mod async_tests {
 
         assert!(result.success);
         assert!(result.response.contains("Inbox"));
-        assert!(result.response.contains("5"));
+        assert!(result.response.contains('5'));
     }
 
     #[tokio::test]

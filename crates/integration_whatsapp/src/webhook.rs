@@ -195,14 +195,18 @@ mod tests {
                 id: "msg1".to_string(),
                 timestamp: "1234567890".to_string(),
                 msg_type: "text".to_string(),
-                text: Some(TextMessage { body: "First".to_string() }),
+                text: Some(TextMessage {
+                    body: "First".to_string(),
+                }),
             },
             WebhookMessage {
                 from: "+492222".to_string(),
                 id: "msg2".to_string(),
                 timestamp: "1234567891".to_string(),
                 msg_type: "text".to_string(),
-                text: Some(TextMessage { body: "Second".to_string() }),
+                text: Some(TextMessage {
+                    body: "Second".to_string(),
+                }),
             },
         ]);
 
@@ -248,7 +252,8 @@ mod tests {
     fn verify_signature_invalid() {
         let secret = "test_secret";
         let payload = b"test payload";
-        let wrong_signature = "sha256=0000000000000000000000000000000000000000000000000000000000000000";
+        let wrong_signature =
+            "sha256=0000000000000000000000000000000000000000000000000000000000000000";
 
         assert!(!verify_signature(payload, wrong_signature, secret));
     }

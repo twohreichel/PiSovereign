@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn config_deserialization_with_defaults() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let config: InferenceConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.base_url, "http://localhost:11434");
         assert_eq!(config.timeout_ms, 60000);
@@ -170,6 +170,7 @@ mod tests {
     #[test]
     fn config_clone() {
         let config = InferenceConfig::hailo_qwen();
+        #[allow(clippy::redundant_clone)]
         let cloned = config.clone();
         assert_eq!(config.default_model, cloned.default_model);
         assert_eq!(config.base_url, cloned.base_url);

@@ -55,8 +55,8 @@ mod tests {
             DomainError::NotFound { entity_type, id } => {
                 assert_eq!(entity_type, "User");
                 assert_eq!(id, "123");
-            }
-            _ => panic!("Expected NotFound error"),
+            },
+            _ => unreachable!("Expected NotFound error"),
         }
     }
 

@@ -165,55 +165,54 @@ mod tests {
 
     #[test]
     fn application_error_domain_converts_to_bad_request() {
-        let app_err = ApplicationError::Domain(domain::DomainError::not_found("User", "123"));
-        let api_err: ApiError = app_err.into();
-        assert!(matches!(api_err, ApiError::BadRequest(_)));
+        let source = ApplicationError::Domain(domain::DomainError::not_found("User", "123"));
+        let result: ApiError = source.into();
+        assert!(matches!(result, ApiError::BadRequest(_)));
     }
 
     #[test]
     fn application_error_rate_limited_converts() {
-        let app_err = ApplicationError::RateLimited;
-        let api_err: ApiError = app_err.into();
-        assert!(matches!(api_err, ApiError::RateLimited));
+        let source = ApplicationError::RateLimited;
+        let result: ApiError = source.into();
+        assert!(matches!(result, ApiError::RateLimited));
     }
 
     #[test]
     fn application_error_not_authorized_converts() {
-        let app_err = ApplicationError::NotAuthorized("no access".to_string());
-        let api_err: ApiError = app_err.into();
-        assert!(matches!(api_err, ApiError::Unauthorized(_)));
+        let source = ApplicationError::NotAuthorized("no access".to_string());
+        let result: ApiError = source.into();
+        assert!(matches!(result, ApiError::Unauthorized(_)));
     }
 
     #[test]
     fn application_error_inference_converts_to_service_unavailable() {
-        let app_err = ApplicationError::Inference("model down".to_string());
-        let api_err: ApiError = app_err.into();
-        assert!(matches!(api_err, ApiError::ServiceUnavailable(_)));
+        let source = ApplicationError::Inference("model down".to_string());
+        let result: ApiError = source.into();
+        assert!(matches!(result, ApiError::ServiceUnavailable(_)));
     }
 
     #[test]
     fn application_error_external_service_converts() {
-        let app_err = ApplicationError::ExternalService("api down".to_string());
-        let api_err: ApiError = app_err.into();
-        assert!(matches!(api_err, ApiError::ServiceUnavailable(_)));
+        let source = ApplicationError::ExternalService("api down".to_string());
+        let result: ApiError = source.into();
+        assert!(matches!(result, ApiError::ServiceUnavailable(_)));
     }
 
     #[test]
     fn application_error_approval_required_converts_to_bad_request() {
-        let app_err = ApplicationError::ApprovalRequired("dangerous".to_string());
-        let api_err: ApiError = app_err.into();
-        if let ApiError::BadRequest(msg) = api_err {
-            assert!(msg.contains("Approval required"));
-        } else {
-            panic!("Expected BadRequest");
-        }
+        let source = ApplicationError::ApprovalRequired("dangerous".to_string());
+        let result: ApiError = source.into();
+        let ApiError::BadRequest(msg) = result else {
+            unreachable!("Expected BadRequest");
+        };
+        assert!(msg.contains("Approval required"));
     }
 
     #[test]
     fn application_error_internal_converts() {
-        let app_err = ApplicationError::Internal("crash".to_string());
-        let api_err: ApiError = app_err.into();
-        assert!(matches!(api_err, ApiError::Internal(_)));
+        let source = ApplicationError::Internal("crash".to_string());
+        let result: ApiError = source.into();
+        assert!(matches!(result, ApiError::Internal(_)));
     }
 
     #[test]
@@ -267,15 +266,15 @@ mod tests {
 
     #[test]
     fn application_error_configuration_converts_to_internal() {
-        let app_err = ApplicationError::Configuration("bad config".to_string());
-        let api_err: ApiError = app_err.into();
-        assert!(matches!(api_err, ApiError::Internal(_)));
+        let source = ApplicationError::Configuration("bad config".to_string());
+        let result: ApiError = source.into();
+        assert!(matches!(result, ApiError::Internal(_)));
     }
 
     #[test]
     fn application_error_command_failed_converts_to_internal() {
-        let app_err = ApplicationError::CommandFailed("execution failed".to_string());
-        let api_err: ApiError = app_err.into();
-        assert!(matches!(api_err, ApiError::Internal(_)));
+        let source = ApplicationError::CommandFailed("execution failed".to_string());
+        let result: ApiError = source.into();
+        assert!(matches!(result, ApiError::Internal(_)));
     }
 }

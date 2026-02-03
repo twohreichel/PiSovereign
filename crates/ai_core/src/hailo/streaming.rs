@@ -119,7 +119,7 @@ mod tests {
     fn handles_invalid_utf8() {
         let invalid_bytes = &[0xff, 0xfe, 0x00];
         let chunks = parse_chunks(invalid_bytes);
-        
+
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].is_err());
     }
@@ -128,7 +128,7 @@ mod tests {
     fn handles_invalid_json() {
         let invalid_json = b"not valid json";
         let chunks = parse_chunks(invalid_json);
-        
+
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].is_err());
     }
@@ -139,7 +139,7 @@ mod tests {
 
 {"model":"qwen","message":{"content":"!"},"done":true}"#;
         let chunks = parse_chunks(json.as_bytes());
-        
+
         // Empty lines are filtered out
         assert_eq!(chunks.len(), 2);
     }

@@ -109,9 +109,10 @@ impl ChatService {
 }
 #[cfg(test)]
 mod tests {
+    use mockall::mock;
+
     use super::*;
     use crate::ports::InferenceResult;
-    use mockall::mock;
 
     mock! {
         pub InferenceEngine {}

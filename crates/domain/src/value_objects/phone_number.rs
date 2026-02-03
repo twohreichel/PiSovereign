@@ -171,7 +171,7 @@ mod tests {
         let p1 = PhoneNumber::new("+491234567890").unwrap();
         let p2 = PhoneNumber::new("+491234567891").unwrap();
         let mut set = HashSet::new();
-        set.insert(p1.clone());
+        set.insert(p1);
         set.insert(p2);
         assert_eq!(set.len(), 2);
     }
@@ -179,6 +179,7 @@ mod tests {
     #[test]
     fn clone() {
         let phone = PhoneNumber::new("+491234567890").unwrap();
+        #[allow(clippy::redundant_clone)]
         let cloned = phone.clone();
         assert_eq!(phone, cloned);
     }

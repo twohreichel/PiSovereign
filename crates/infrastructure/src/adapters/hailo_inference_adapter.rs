@@ -177,8 +177,9 @@ impl InferencePort for HailoInferenceAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ai_core::InferenceConfig;
+
+    use super::*;
 
     #[test]
     fn hailo_inference_adapter_creation() {
@@ -215,33 +216,30 @@ mod tests {
     fn map_error_connection_failed() {
         let error = ai_core::InferenceError::ConnectionFailed("timeout".to_string());
         let mapped = HailoInferenceAdapter::map_error(error);
-        if let ApplicationError::ExternalService(msg) = mapped {
-            assert!(msg.contains("connection failed"));
-        } else {
-            panic!("Expected ExternalService error");
-        }
+        let ApplicationError::ExternalService(msg) = mapped else {
+            unreachable!("Expected ExternalService error");
+        };
+        assert!(msg.contains("connection failed"));
     }
 
     #[test]
     fn map_error_timeout() {
         let error = ai_core::InferenceError::Timeout(5000);
         let mapped = HailoInferenceAdapter::map_error(error);
-        if let ApplicationError::ExternalService(msg) = mapped {
-            assert!(msg.contains("5000"));
-        } else {
-            panic!("Expected ExternalService error");
-        }
+        let ApplicationError::ExternalService(msg) = mapped else {
+            unreachable!("Expected ExternalService error");
+        };
+        assert!(msg.contains("5000"));
     }
 
     #[test]
     fn map_error_other() {
         let error = ai_core::InferenceError::RequestFailed("bad".to_string());
         let mapped = HailoInferenceAdapter::map_error(error);
-        if let ApplicationError::Inference(msg) = mapped {
-            assert!(msg.contains("bad"));
-        } else {
-            panic!("Expected Inference error");
-        }
+        let ApplicationError::Inference(msg) = mapped else {
+            unreachable!("Expected Inference error");
+        };
+        assert!(msg.contains("bad"));
     }
 
     #[test]
@@ -277,6 +275,7 @@ mod tests {
             tokens_used: Some(5),
             latency_ms: 25,
         };
+        #[allow(clippy::redundant_clone)]
         let cloned = result.clone();
         assert_eq!(result.content, cloned.content);
     }

@@ -196,6 +196,7 @@ mod tests {
     #[test]
     fn config_clone() {
         let config = AppConfig::default();
+        #[allow(clippy::redundant_clone)]
         let cloned = config.clone();
         assert_eq!(config.server.port, cloned.server.port);
     }
@@ -203,6 +204,7 @@ mod tests {
     #[test]
     fn server_config_clone() {
         let config = ServerConfig::default();
+        #[allow(clippy::redundant_clone)]
         let cloned = config.clone();
         assert_eq!(config.host, cloned.host);
     }
@@ -210,6 +212,7 @@ mod tests {
     #[test]
     fn security_config_clone() {
         let config = SecurityConfig::default();
+        #[allow(clippy::redundant_clone)]
         let cloned = config.clone();
         assert_eq!(config.rate_limit_enabled, cloned.rate_limit_enabled);
     }

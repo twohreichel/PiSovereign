@@ -147,6 +147,7 @@ mod tests {
             is_read: false,
             is_important: true,
         };
+        #[allow(clippy::redundant_clone)]
         let cloned = email.clone();
         assert_eq!(email.id, cloned.id);
         assert_eq!(email.is_important, cloned.is_important);

@@ -178,7 +178,7 @@ mod tests {
         let mut conv = Conversation::new();
         conv.add_user_message("Hello");
         conv.add_assistant_message("Hi");
-        
+
         assert_eq!(conv.messages.len(), 2);
     }
 
@@ -200,7 +200,10 @@ mod tests {
     #[test]
     fn with_system_prompt_sets_system_prompt() {
         let conv = Conversation::with_system_prompt("You are a helpful assistant.");
-        assert_eq!(conv.system_prompt, Some("You are a helpful assistant.".to_string()));
+        assert_eq!(
+            conv.system_prompt,
+            Some("You are a helpful assistant.".to_string())
+        );
     }
 
     #[test]

@@ -358,7 +358,9 @@ mod tests {
     #[test]
     fn ask_description_truncates_long_questions() {
         let cmd = AgentCommand::Ask {
-            question: "This is a very long question that exceeds fifty characters and should be truncated".to_string(),
+            question:
+                "This is a very long question that exceeds fifty characters and should be truncated"
+                    .to_string(),
         };
         let desc = cmd.description();
         assert!(desc.starts_with("Ask: "));
