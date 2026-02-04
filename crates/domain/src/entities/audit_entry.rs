@@ -130,7 +130,7 @@ impl AuditEntry {
 
     /// Set the IP address
     #[must_use]
-    pub fn with_ip_address(mut self, ip: IpAddr) -> Self {
+    pub const fn with_ip_address(mut self, ip: IpAddr) -> Self {
         self.ip_address = Some(ip);
         self
     }

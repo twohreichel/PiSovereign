@@ -81,6 +81,7 @@ impl ChatMessage {
     }
 
     /// Add metadata to the message
+    #[must_use]
     pub fn with_metadata(mut self, metadata: MessageMetadata) -> Self {
         self.metadata = Some(metadata);
         self

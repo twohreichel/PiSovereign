@@ -40,7 +40,8 @@ lint-clippy:
         -A clippy::derive_partial_eq_without_eq \
         -A clippy::unnested_or_patterns \
         -A clippy::cast_possible_truncation \
-        -A clippy::literal_string_with_formatting_args
+        -A clippy::literal_string_with_formatting_args \
+        -A clippy::significant_drop_tightening
 
 # Run clippy with auto-fix (applies safe fixes)
 lint-fix:

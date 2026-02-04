@@ -1,23 +1,9 @@
 # Clippy Configuration
-
-# Maximum cognitive complexity before warning
 cognitive-complexity-threshold = 25
-
-# Maximum lines in a function before warning
 too-many-lines-threshold = 150
-
-# Maximum arguments before warning
 too-many-arguments-threshold = 7
-
-# Minimum size for type complexity warning
 type-complexity-threshold = 250
-
-# Avoid false positives for common patterns
 avoid-breaking-exported-api = true
-
-# Allow certain patterns in tests
 allow-expect-in-tests = true
 allow-unwrap-in-tests = true
-
-# MSRV for compatibility lints
 msrv = "1.85.0"

@@ -38,18 +38,21 @@ impl AuditQuery {
     }
 
     /// Filter by event type
-    pub fn with_event_type(mut self, event_type: AuditEventType) -> Self {
+    #[must_use]
+    pub const fn with_event_type(mut self, event_type: AuditEventType) -> Self {
         self.event_type = Some(event_type);
         self
     }
 
     /// Filter by actor
+    #[must_use]
     pub fn with_actor(mut self, actor: impl Into<String>) -> Self {
         self.actor = Some(actor.into());
         self
     }
 
     /// Filter by resource
+    #[must_use]
     pub fn with_resource(
         mut self,
         resource_type: impl Into<String>,
@@ -61,12 +64,14 @@ impl AuditQuery {
     }
 
     /// Filter by success/failure
+    #[must_use]
     pub const fn with_success(mut self, success: bool) -> Self {
         self.success = Some(success);
         self
     }
 
     /// Filter by time range
+    #[must_use]
     pub const fn with_time_range(mut self, from: DateTime<Utc>, to: DateTime<Utc>) -> Self {
         self.from = Some(from);
         self.to = Some(to);
@@ -74,12 +79,14 @@ impl AuditQuery {
     }
 
     /// Limit results
+    #[must_use]
     pub const fn with_limit(mut self, limit: u32) -> Self {
         self.limit = Some(limit);
         self
     }
 
     /// Set offset for pagination
+    #[must_use]
     pub const fn with_offset(mut self, offset: u32) -> Self {
         self.offset = Some(offset);
         self

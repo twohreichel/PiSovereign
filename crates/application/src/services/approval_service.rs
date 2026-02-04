@@ -91,9 +91,10 @@ impl ApprovalService {
         id: &ApprovalId,
         approver_id: &UserId,
     ) -> Result<ApprovalRequest, ApplicationError> {
-        let mut request = self.queue.get(id).await?.ok_or(ApplicationError::NotFound(
-            "Approval request not found".to_string(),
-        ))?;
+        let mut request =
+            self.queue.get(id).await?.ok_or_else(|| {
+                ApplicationError::NotFound("Approval request not found".to_string())
+            })?;
 
         // Verify the approver is the same user who created the request
         if request.user_id != *approver_id {
@@ -148,9 +149,10 @@ impl ApprovalService {
         denier_id: &UserId,
         reason: Option<String>,
     ) -> Result<ApprovalRequest, ApplicationError> {
-        let mut request = self.queue.get(id).await?.ok_or(ApplicationError::NotFound(
-            "Approval request not found".to_string(),
-        ))?;
+        let mut request =
+            self.queue.get(id).await?.ok_or_else(|| {
+                ApplicationError::NotFound("Approval request not found".to_string())
+            })?;
 
         // Verify the denier is the same user who created the request
         if request.user_id != *denier_id {
@@ -248,9 +250,10 @@ impl ApprovalService {
         id: &ApprovalId,
         user_id: &UserId,
     ) -> Result<ApprovalRequest, ApplicationError> {
-        let mut request = self.queue.get(id).await?.ok_or(ApplicationError::NotFound(
-            "Approval request not found".to_string(),
-        ))?;
+        let mut request =
+            self.queue.get(id).await?.ok_or_else(|| {
+                ApplicationError::NotFound("Approval request not found".to_string())
+            })?;
 
         // Verify ownership
         if request.user_id != *user_id {

@@ -43,6 +43,7 @@ doc_markdown = "allow"
 redundant_pub_crate = "allow"
 future_not_send = "allow"
 significant_drop_tightening = "allow"
+literal_string_with_formatting_args = "allow"
 
 # Deny these explicitly
 unwrap_used = "warn"
