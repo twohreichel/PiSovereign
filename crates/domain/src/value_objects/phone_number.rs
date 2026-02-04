@@ -184,3 +184,88 @@ mod tests {
         assert_eq!(phone, cloned);
     }
 }
+
+#[cfg(test)]
+mod proptest_tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    proptest! {
+        #[test]
+        fn valid_e164_numbers_accepted(digits in "[0-9]{7,14}") {
+            let phone_str = format!("+{digits}");
+            let result = PhoneNumber::new(&phone_str);
+            // Should succeed for valid length
+            if digits.len() >= 7 && digits.len() <= 15 {
+                prop_assert!(result.is_ok());
+            }
+        }
+
+        #[test]
+        fn phone_is_normalized(
+            cc in "[0-9]{1,3}",
+            area in "[0-9]{2,4}",
+            number in "[0-9]{4,8}"
+        ) {
+            // With random separators
+            let with_separators = format!("+{cc}-({area})-{number}");
+            if let Ok(phone) = PhoneNumber::new(&with_separators) {
+                // Should contain only + and digits
+                prop_assert!(phone.as_str().starts_with('+'));
+                prop_assert!(phone.as_str().chars().skip(1).all(|c| c.is_ascii_digit()));
+            }
+        }
+
+        #[test]
+        fn phone_roundtrips_through_display(digits in "[0-9]{7,12}") {
+            let phone_str = format!("+{digits}");
+            if let Ok(phone) = PhoneNumber::new(&phone_str) {
+                let displayed = phone.to_string();
+                let reparsed = PhoneNumber::new(&displayed).unwrap();
+                prop_assert_eq!(phone, reparsed);
+            }
+        }
+
+        #[test]
+        fn phone_roundtrips_through_json(digits in "[0-9]{7,12}") {
+            let phone_str = format!("+{digits}");
+            if let Ok(phone) = PhoneNumber::new(&phone_str) {
+                let json = serde_json::to_string(&phone).unwrap();
+                let parsed: PhoneNumber = serde_json::from_str(&json).unwrap();
+                prop_assert_eq!(phone, parsed);
+            }
+        }
+
+        #[test]
+        fn numbers_without_plus_rejected(digits in "[0-9]{7,14}") {
+            let result = PhoneNumber::new(&digits);
+            prop_assert!(result.is_err());
+        }
+
+        #[test]
+        fn numbers_with_letters_rejected(
+            digits in "[0-9]{3,6}",
+            letters in "[a-zA-Z]{1,3}",
+            more_digits in "[0-9]{3,6}"
+        ) {
+            let phone_str = format!("+{digits}{letters}{more_digits}");
+            let result = PhoneNumber::new(&phone_str);
+            prop_assert!(result.is_err());
+        }
+
+        #[test]
+        fn german_number_detection(number in "[0-9]{8,11}") {
+            let german_str = format!("+49{number}");
+            if let Ok(phone) = PhoneNumber::new(&german_str) {
+                prop_assert!(phone.is_german());
+            }
+
+            // Non-German numbers
+            let us_str = format!("+1{number}");
+            if let Ok(phone) = PhoneNumber::new(&us_str) {
+                prop_assert!(!phone.is_german());
+            }
+        }
+    }
+}

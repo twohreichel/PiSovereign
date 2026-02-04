@@ -310,3 +310,118 @@ mod tests {
         assert_eq!(parse_date("gibberish xyz 123"), None);
     }
 }
+
+#[cfg(test)]
+mod proptest_tests {
+    use chrono::{Datelike, Duration, Local, Weekday};
+    use proptest::prelude::*;
+
+    use super::{next_weekday, parse_date};
+
+    proptest! {
+        #[test]
+        fn iso_dates_are_parsed(year in 2000i32..2100, month in 1u32..=12, day in 1u32..=28) {
+            let date_str = format!("{year:04}-{month:02}-{day:02}");
+            let result = parse_date(&date_str);
+            prop_assert!(result.is_some());
+            let date = result.unwrap();
+            prop_assert_eq!(date.year(), year);
+            prop_assert_eq!(date.month(), month);
+            prop_assert_eq!(date.day(), day);
+        }
+
+        #[test]
+        fn german_dates_are_parsed(year in 2000i32..2100, month in 1u32..=12, day in 1u32..=28) {
+            let date_str = format!("{day:02}.{month:02}.{year}");
+            let result = parse_date(&date_str);
+            prop_assert!(result.is_some());
+            let date = result.unwrap();
+            prop_assert_eq!(date.year(), year);
+            prop_assert_eq!(date.month(), month);
+            prop_assert_eq!(date.day(), day);
+        }
+
+        #[test]
+        fn next_weekday_is_always_correct_weekday(
+            days_from_now in 0i64..365,
+            target_day in 0u32..7,
+            force_next in proptest::bool::ANY
+        ) {
+            let today = Local::now().date_naive();
+            let from = today + Duration::days(days_from_now);
+            let target = match target_day {
+                0 => Weekday::Mon,
+                1 => Weekday::Tue,
+                2 => Weekday::Wed,
+                3 => Weekday::Thu,
+                4 => Weekday::Fri,
+                5 => Weekday::Sat,
+                _ => Weekday::Sun,
+            };
+
+            let result = next_weekday(from, target, force_next);
+            prop_assert_eq!(result.weekday(), target);
+        }
+
+        #[test]
+        fn next_weekday_is_in_future_or_today(
+            days_from_now in 0i64..365,
+            target_day in 0u32..7,
+            force_next in proptest::bool::ANY
+        ) {
+            let today = Local::now().date_naive();
+            let from = today + Duration::days(days_from_now);
+            let target = match target_day {
+                0 => Weekday::Mon,
+                1 => Weekday::Tue,
+                2 => Weekday::Wed,
+                3 => Weekday::Thu,
+                4 => Weekday::Fri,
+                5 => Weekday::Sat,
+                _ => Weekday::Sun,
+            };
+
+            let result = next_weekday(from, target, force_next);
+
+            // Result should always be >= from (unless force_next is false and same day)
+            if force_next {
+                prop_assert!(result >= from);
+            } else {
+                prop_assert!(result >= from || result == from);
+            }
+        }
+
+        #[test]
+        fn morgen_is_always_tomorrow(dummy in 0..10) {
+            let _ = dummy; // Just to make proptest generate something
+            let today = Local::now().date_naive();
+            let result = parse_date("morgen");
+            prop_assert!(result.is_some());
+            prop_assert_eq!(result.unwrap(), today + Duration::days(1));
+        }
+
+        #[test]
+        fn heute_is_always_today(dummy in 0..10) {
+            let _ = dummy;
+            let today = Local::now().date_naive();
+            let result = parse_date("heute");
+            prop_assert!(result.is_some());
+            prop_assert_eq!(result.unwrap(), today);
+        }
+
+        #[test]
+        fn random_strings_dont_panic(input in "\\PC{0,50}") {
+            // Should not panic regardless of input
+            let _ = parse_date(&input);
+        }
+
+        #[test]
+        fn invalid_date_parts_return_none(
+            day in 32u32..100,
+            month in 13u32..100
+        ) {
+            let date_str = format!("{day:02}.{month:02}.2025");
+            prop_assert!(parse_date(&date_str).is_none());
+        }
+    }
+}
