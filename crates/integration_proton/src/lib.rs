@@ -37,6 +37,7 @@ mod smtp_client;
 
 pub use client::{
     EmailComposition, EmailSummary, ProtonBridgeClient, ProtonClient, ProtonConfig, ProtonError,
+    TlsConfig,
 };
 pub use imap_client::ProtonImapClient;
 pub use smtp_client::ProtonSmtpClient;

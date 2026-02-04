@@ -3,15 +3,18 @@
 //! Provides async SMTP operations for sending emails via Proton Bridge.
 //! This is a lightweight implementation using tokio and tokio-native-tls.
 
+use std::fs;
+
 use base64::Engine;
+use native_tls::Certificate;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
 };
 use tokio_native_tls::TlsConnector;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, error, instrument, trace, warn};
 
-use crate::{EmailComposition, ProtonConfig, ProtonError};
+use crate::{EmailComposition, ProtonConfig, ProtonError, TlsConfig};
 
 /// SMTP client for Proton Bridge
 ///
@@ -26,6 +29,44 @@ impl ProtonSmtpClient {
     /// Creates a new SMTP client with the given configuration
     pub const fn new(config: ProtonConfig) -> Self {
         Self { config }
+    }
+
+    /// Builds a TLS connector based on the TLS configuration
+    fn build_tls_connector(tls_config: &TlsConfig) -> Result<TlsConnector, ProtonError> {
+        let mut builder = native_tls::TlsConnector::builder();
+
+        // Configure certificate verification
+        if !tls_config.verify_certificates {
+            warn!("⚠️ TLS certificate verification disabled - only recommended for local Proton Bridge");
+            builder.danger_accept_invalid_certs(true);
+        } else if let Some(ca_cert_path) = &tls_config.ca_cert_path {
+            // Load custom CA certificate
+            debug!(path = %ca_cert_path.display(), "Loading custom CA certificate");
+            let cert_data = fs::read(ca_cert_path).map_err(|e| {
+                ProtonError::ConnectionFailed(format!(
+                    "Failed to read CA certificate at {}: {e}",
+                    ca_cert_path.display()
+                ))
+            })?;
+            let cert = Certificate::from_pem(&cert_data).map_err(|e| {
+                ProtonError::ConnectionFailed(format!("Failed to parse CA certificate: {e}"))
+            })?;
+            builder.add_root_certificate(cert);
+        }
+
+        // Configure minimum TLS version
+        let min_protocol = match tls_config.min_tls_version.as_str() {
+            "1.0" => native_tls::Protocol::Tlsv10,
+            "1.1" => native_tls::Protocol::Tlsv11,
+            "1.2" | _ => native_tls::Protocol::Tlsv12,
+        };
+        builder.min_protocol_version(Some(min_protocol));
+
+        let native_connector = builder
+            .build()
+            .map_err(|e| ProtonError::ConnectionFailed(format!("TLS builder failed: {e}")))?;
+
+        Ok(TlsConnector::from(native_connector))
     }
 
     /// Sends an email
@@ -86,14 +127,11 @@ impl ProtonSmtpClient {
             ProtonError::ConnectionFailed(format!("SMTP connection failed: {e}"))
         })?;
 
+        // Build TLS connector with config-based settings
+        let tls = Self::build_tls_connector(&self.config.tls)?;
+
         // For port 465, use implicit TLS
         if self.config.smtp_port == 465 {
-            let tls_connector = native_tls::TlsConnector::builder()
-                .danger_accept_invalid_certs(true) // Proton Bridge uses self-signed certs
-                .build()
-                .map_err(|e| ProtonError::ConnectionFailed(format!("TLS builder failed: {e}")))?;
-
-            let tls = TlsConnector::from(tls_connector);
             let tls_stream = tls
                 .connect(&self.config.smtp_host, stream)
                 .await
@@ -134,15 +172,10 @@ impl ProtonSmtpClient {
         self.send_command(&mut writer, "STARTTLS").await?;
         self.read_response(&mut reader).await?;
 
-        // Upgrade to TLS
+        // Upgrade to TLS with config-based settings
         let stream = reader.into_inner().unsplit(writer);
 
-        let tls_connector = native_tls::TlsConnector::builder()
-            .danger_accept_invalid_certs(true) // Proton Bridge uses self-signed certs
-            .build()
-            .map_err(|e| ProtonError::ConnectionFailed(format!("TLS builder failed: {e}")))?;
-
-        let tls = TlsConnector::from(tls_connector);
+        let tls = Self::build_tls_connector(&self.config.tls)?;
         let tls_stream = tls
             .connect(&self.config.smtp_host, stream)
             .await
@@ -320,6 +353,7 @@ impl ProtonSmtpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TlsConfig;
 
     fn test_config() -> ProtonConfig {
         ProtonConfig {
@@ -329,6 +363,7 @@ mod tests {
             smtp_port: 1025,
             email: "test@proton.me".to_string(),
             password: "bridge-password".to_string(),
+            tls: TlsConfig::insecure(), // Test config uses insecure for local testing
         }
     }
 

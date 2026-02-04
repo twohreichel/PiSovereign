@@ -3,13 +3,14 @@
 //! Provides async IMAP operations for reading, managing, and organizing emails.
 //! Uses the synchronous `imap` crate wrapped in `spawn_blocking` for async compatibility.
 
+use std::fs;
 use std::net::TcpStream;
 
 use imap::Session;
-use native_tls::TlsConnector;
-use tracing::{debug, error, instrument};
+use native_tls::{Certificate, TlsConnector};
+use tracing::{debug, error, instrument, warn};
 
-use crate::{EmailSummary, ProtonConfig, ProtonError};
+use crate::{EmailSummary, ProtonConfig, ProtonError, TlsConfig};
 
 /// Type alias for IMAP session over TLS
 type ImapSession = Session<native_tls::TlsStream<TcpStream>>;
@@ -29,6 +30,42 @@ impl ProtonImapClient {
         Self { config }
     }
 
+    /// Builds a TLS connector based on the TLS configuration
+    fn build_tls_connector(tls_config: &TlsConfig) -> Result<TlsConnector, ProtonError> {
+        let mut builder = native_tls::TlsConnector::builder();
+
+        // Configure certificate verification
+        if !tls_config.verify_certificates {
+            warn!("⚠️ TLS certificate verification disabled - only recommended for local Proton Bridge");
+            builder.danger_accept_invalid_certs(true);
+        } else if let Some(ca_cert_path) = &tls_config.ca_cert_path {
+            // Load custom CA certificate
+            debug!(path = %ca_cert_path.display(), "Loading custom CA certificate");
+            let cert_data = fs::read(ca_cert_path).map_err(|e| {
+                ProtonError::ConnectionFailed(format!(
+                    "Failed to read CA certificate at {}: {e}",
+                    ca_cert_path.display()
+                ))
+            })?;
+            let cert = Certificate::from_pem(&cert_data).map_err(|e| {
+                ProtonError::ConnectionFailed(format!("Failed to parse CA certificate: {e}"))
+            })?;
+            builder.add_root_certificate(cert);
+        }
+
+        // Configure minimum TLS version
+        let min_protocol = match tls_config.min_tls_version.as_str() {
+            "1.0" => native_tls::Protocol::Tlsv10,
+            "1.1" => native_tls::Protocol::Tlsv11,
+            "1.2" | _ => native_tls::Protocol::Tlsv12,
+        };
+        builder.min_protocol_version(Some(min_protocol));
+
+        builder
+            .build()
+            .map_err(|e| ProtonError::ConnectionFailed(format!("TLS builder failed: {e}")))
+    }
+
     /// Establishes a new IMAP connection
     fn connect_sync(config: &ProtonConfig) -> Result<ImapSession, ProtonError> {
         let addr = format!("{}:{}", config.imap_host, config.imap_port);
@@ -40,11 +77,8 @@ impl ProtonImapClient {
             ProtonError::ConnectionFailed(format!("TCP connection failed: {e}"))
         })?;
 
-        // Create TLS connector
-        let tls = TlsConnector::builder()
-            .danger_accept_invalid_certs(true) // Proton Bridge uses self-signed certs
-            .build()
-            .map_err(|e| ProtonError::ConnectionFailed(format!("TLS builder failed: {e}")))?;
+        // Create TLS connector with config-based settings
+        let tls = Self::build_tls_connector(&config.tls)?;
 
         // Wrap with TLS
         let tls_stream = tls.connect(&config.imap_host, tcp_stream).map_err(|e| {
@@ -367,6 +401,7 @@ impl ProtonImapClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TlsConfig;
 
     fn test_config() -> ProtonConfig {
         ProtonConfig {
@@ -376,6 +411,7 @@ mod tests {
             smtp_port: 1025,
             email: "test@proton.me".to_string(),
             password: "bridge-password".to_string(),
+            tls: TlsConfig::insecure(), // Test config uses insecure for local testing
         }
     }
 

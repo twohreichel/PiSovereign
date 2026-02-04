@@ -15,6 +15,8 @@
 //! - Default IMAP port: 1143 (STARTTLS)
 //! - Default SMTP port: 1025 (STARTTLS)
 
+use std::path::PathBuf;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -62,6 +64,67 @@ pub enum ProtonError {
     InvalidAddress(String),
 }
 
+/// TLS configuration for Proton Bridge connections
+///
+/// Controls certificate verification behavior for IMAP and SMTP connections.
+/// By default, certificate verification is disabled to support Proton Bridge's
+/// self-signed certificates, but this can be changed for enhanced security.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsConfig {
+    /// Whether to verify TLS certificates (default: false for Proton Bridge)
+    ///
+    /// When set to `false`, self-signed certificates are accepted.
+    /// Set to `true` and provide `ca_cert_path` for strict verification.
+    pub verify_certificates: bool,
+
+    /// Path to a custom CA certificate file (PEM format)
+    ///
+    /// If provided and `verify_certificates` is true, this certificate
+    /// will be used as the root of trust for TLS connections.
+    pub ca_cert_path: Option<PathBuf>,
+
+    /// Minimum TLS version to accept (default: "1.2")
+    pub min_tls_version: String,
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            // Default to false for Proton Bridge compatibility
+            verify_certificates: false,
+            ca_cert_path: None,
+            min_tls_version: "1.2".to_string(),
+        }
+    }
+}
+
+impl TlsConfig {
+    /// Create a TLS config that accepts self-signed certificates
+    ///
+    /// This is the default for Proton Bridge which uses self-signed certs.
+    pub fn insecure() -> Self {
+        Self::default()
+    }
+
+    /// Create a TLS config with strict certificate verification
+    pub fn strict() -> Self {
+        Self {
+            verify_certificates: true,
+            ca_cert_path: None,
+            min_tls_version: "1.2".to_string(),
+        }
+    }
+
+    /// Create a TLS config with a custom CA certificate
+    pub fn with_ca_cert(ca_cert_path: impl Into<PathBuf>) -> Self {
+        Self {
+            verify_certificates: true,
+            ca_cert_path: Some(ca_cert_path.into()),
+            min_tls_version: "1.2".to_string(),
+        }
+    }
+}
+
 /// Proton Bridge configuration
 ///
 /// Contains connection settings for both IMAP and SMTP services.
@@ -81,6 +144,9 @@ pub struct ProtonConfig {
     /// Bridge password (from Bridge UI, not Proton account password)
     #[serde(skip_serializing)]
     pub password: String,
+    /// TLS configuration for secure connections
+    #[serde(default)]
+    pub tls: TlsConfig,
 }
 
 impl Default for ProtonConfig {
@@ -92,6 +158,7 @@ impl Default for ProtonConfig {
             smtp_port: 1025,
             email: String::new(),
             password: String::new(),
+            tls: TlsConfig::default(),
         }
     }
 }
@@ -119,6 +186,13 @@ impl ProtonConfig {
     pub fn with_smtp(mut self, host: impl Into<String>, port: u16) -> Self {
         self.smtp_host = host.into();
         self.smtp_port = port;
+        self
+    }
+
+    /// Sets the TLS configuration
+    #[must_use]
+    pub fn with_tls(mut self, tls: TlsConfig) -> Self {
+        self.tls = tls;
         self
     }
 
