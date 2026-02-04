@@ -76,6 +76,30 @@ impl InferencePort for MockInference {
         })
     }
 
+    async fn generate_stream(
+        &self,
+        _message: &str,
+    ) -> Result<application::ports::InferenceStream, ApplicationError> {
+        use application::ports::StreamingChunk;
+        use futures::stream;
+        let response = self.response.clone();
+        let model = self.model.clone();
+        let stream = stream::iter(vec![Ok(StreamingChunk {
+            content: response,
+            done: true,
+            model: Some(model),
+        })]);
+        Ok(Box::pin(stream))
+    }
+
+    async fn generate_stream_with_system(
+        &self,
+        _system_prompt: &str,
+        _message: &str,
+    ) -> Result<application::ports::InferenceStream, ApplicationError> {
+        self.generate_stream("").await
+    }
+
     async fn is_healthy(&self) -> bool {
         self.healthy
     }

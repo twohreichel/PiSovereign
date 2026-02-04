@@ -5,10 +5,11 @@ use std::time::Instant;
 use ai_core::{HailoInferenceEngine, InferenceConfig, InferenceEngine, InferenceRequest};
 use application::{
     error::ApplicationError,
-    ports::{InferencePort, InferenceResult},
+    ports::{InferencePort, InferenceResult, InferenceStream, StreamingChunk},
 };
 use async_trait::async_trait;
 use domain::Conversation;
+use futures::StreamExt;
 use tracing::{debug, instrument};
 
 /// Adapter for Hailo-10H inference
@@ -164,6 +165,61 @@ impl InferencePort for HailoInferenceAdapter {
             tokens_used: response.usage.map(|u| u.total_tokens),
             latency_ms,
         })
+    }
+
+    #[instrument(skip(self, message), fields(message_len = message.len()))]
+    async fn generate_stream(&self, message: &str) -> Result<InferenceStream, ApplicationError> {
+        let request = match &self.system_prompt {
+            Some(system) => InferenceRequest::with_system(system, message).streaming(),
+            None => InferenceRequest::simple(message).streaming(),
+        };
+
+        let stream = self
+            .engine
+            .generate_stream(request)
+            .await
+            .map_err(Self::map_error)?;
+
+        // Map ai_core::StreamingChunk to application::StreamingChunk
+        let mapped_stream = stream.map(|result| {
+            result
+                .map(|chunk| StreamingChunk {
+                    content: chunk.content,
+                    done: chunk.done,
+                    model: chunk.model,
+                })
+                .map_err(|e| ApplicationError::Inference(e.to_string()))
+        });
+
+        Ok(Box::pin(mapped_stream))
+    }
+
+    #[instrument(skip(self, system_prompt, message))]
+    async fn generate_stream_with_system(
+        &self,
+        system_prompt: &str,
+        message: &str,
+    ) -> Result<InferenceStream, ApplicationError> {
+        let request = InferenceRequest::with_system(system_prompt, message).streaming();
+
+        let stream = self
+            .engine
+            .generate_stream(request)
+            .await
+            .map_err(Self::map_error)?;
+
+        // Map ai_core::StreamingChunk to application::StreamingChunk
+        let mapped_stream = stream.map(|result| {
+            result
+                .map(|chunk| StreamingChunk {
+                    content: chunk.content,
+                    done: chunk.done,
+                    model: chunk.model,
+                })
+                .map_err(|e| ApplicationError::Inference(e.to_string()))
+        });
+
+        Ok(Box::pin(mapped_stream))
     }
 
     async fn is_healthy(&self) -> bool {

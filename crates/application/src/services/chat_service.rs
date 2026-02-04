@@ -5,7 +5,10 @@ use std::{fmt, sync::Arc, time::Instant};
 use domain::{ChatMessage, Conversation, MessageMetadata};
 use tracing::{debug, instrument};
 
-use crate::{error::ApplicationError, ports::InferencePort};
+use crate::{
+    error::ApplicationError,
+    ports::{InferencePort, InferenceStream},
+};
 
 /// Service for handling chat conversations
 pub struct ChatService {
@@ -106,6 +109,21 @@ impl ChatService {
     pub fn current_model(&self) -> &str {
         self.inference.current_model()
     }
+
+    /// Handle a streaming chat message (stateless)
+    ///
+    /// Returns a stream of chunks that can be forwarded directly to SSE
+    #[instrument(skip(self, message), fields(message_len = message.len()))]
+    pub async fn chat_stream(&self, message: &str) -> Result<InferenceStream, ApplicationError> {
+        match &self.system_prompt {
+            Some(system) => {
+                self.inference
+                    .generate_stream_with_system(system, message)
+                    .await
+            },
+            None => self.inference.generate_stream(message).await,
+        }
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -122,6 +140,8 @@ mod tests {
             async fn generate(&self, message: &str) -> Result<InferenceResult, ApplicationError>;
             async fn generate_with_context(&self, conversation: &Conversation) -> Result<InferenceResult, ApplicationError>;
             async fn generate_with_system(&self, system_prompt: &str, message: &str) -> Result<InferenceResult, ApplicationError>;
+            async fn generate_stream(&self, message: &str) -> Result<InferenceStream, ApplicationError>;
+            async fn generate_stream_with_system(&self, system_prompt: &str, message: &str) -> Result<InferenceStream, ApplicationError>;
             async fn is_healthy(&self) -> bool;
             fn current_model(&self) -> &'static str;
         }

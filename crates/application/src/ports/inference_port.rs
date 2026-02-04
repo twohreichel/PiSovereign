@@ -1,7 +1,11 @@
 //! Inference port - Interface for LLM inference
 
+use std::pin::Pin;
+
 use async_trait::async_trait;
 use domain::Conversation;
+use futures::Stream;
+use serde::{Deserialize, Serialize};
 
 use crate::error::ApplicationError;
 
@@ -17,6 +21,22 @@ pub struct InferenceResult {
     /// Latency in milliseconds
     pub latency_ms: u64,
 }
+
+/// A chunk of a streaming response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamingChunk {
+    /// Content delta (new text since last chunk)
+    pub content: String,
+    /// Whether this is the final chunk
+    pub done: bool,
+    /// Model name (typically present in final chunk)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// Type alias for streaming response
+pub type InferenceStream =
+    Pin<Box<dyn Stream<Item = Result<StreamingChunk, ApplicationError>> + Send>>;
 
 /// Port for inference operations
 #[async_trait]
@@ -36,6 +56,16 @@ pub trait InferencePort: Send + Sync {
         system_prompt: &str,
         message: &str,
     ) -> Result<InferenceResult, ApplicationError>;
+
+    /// Generate a streaming response for a single message
+    async fn generate_stream(&self, message: &str) -> Result<InferenceStream, ApplicationError>;
+
+    /// Generate a streaming response with a specific system prompt
+    async fn generate_stream_with_system(
+        &self,
+        system_prompt: &str,
+        message: &str,
+    ) -> Result<InferenceStream, ApplicationError>;
 
     /// Check if the inference backend is healthy
     async fn is_healthy(&self) -> bool;

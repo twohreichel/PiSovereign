@@ -1,13 +1,13 @@
 //! Chat handlers
 
-use std::{convert::Infallible, time::Duration};
+use std::time::Duration;
 
 use axum::{
     Json,
     extract::State,
     response::sse::{Event, Sse},
 };
-use futures::stream::{self, Stream};
+use futures::{StreamExt, stream::Stream};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use validator::Validate;
@@ -89,28 +89,32 @@ pub struct StreamChatRequest {
 }
 
 /// Handle a streaming chat request via SSE
+///
+/// Streams chunks from the LLM directly to the client as SSE events.
+/// Each event contains a JSON payload with `content`, `done`, and optionally `model`.
 #[instrument(skip(state, request), fields(message_len = request.message.len()))]
 pub async fn chat_stream(
     State(state): State<AppState>,
     ValidatedJson(request): ValidatedJson<StreamChatRequest>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    // For now, we simulate streaming by sending the full response in one event
-    // TODO: Implement true streaming when ai_core streaming is connected
-    let response = state.chat_service.chat(&request.message).await?;
+) -> Result<Sse<impl Stream<Item = Result<Event, ApiError>>>, ApiError> {
+    // Get streaming response from LLM
+    let inference_stream = state.chat_service.chat_stream(&request.message).await?;
 
-    let stream = stream::once(async move {
-        Ok::<_, Infallible>(
-            Event::default().data(
-                serde_json::json!({
-                    "content": response.content,
-                    "done": true
-                })
-                .to_string(),
-            ),
-        )
+    // Map inference chunks to SSE events
+    let sse_stream = inference_stream.map(|result| {
+        result
+            .map(|chunk| {
+                let json = serde_json::json!({
+                    "content": chunk.content,
+                    "done": chunk.done,
+                    "model": chunk.model,
+                });
+                Event::default().data(json.to_string())
+            })
+            .map_err(ApiError::from)
     });
 
-    Ok(Sse::new(stream).keep_alive(
+    Ok(Sse::new(sse_stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("keep-alive"),

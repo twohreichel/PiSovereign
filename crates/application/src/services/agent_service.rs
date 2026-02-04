@@ -450,6 +450,8 @@ mod async_tests {
             async fn generate(&self, message: &str) -> Result<InferenceResult, ApplicationError>;
             async fn generate_with_context(&self, conversation: &domain::Conversation) -> Result<InferenceResult, ApplicationError>;
             async fn generate_with_system(&self, system_prompt: &str, message: &str) -> Result<InferenceResult, ApplicationError>;
+            async fn generate_stream(&self, message: &str) -> Result<crate::ports::InferenceStream, ApplicationError>;
+            async fn generate_stream_with_system(&self, system_prompt: &str, message: &str) -> Result<crate::ports::InferenceStream, ApplicationError>;
             async fn is_healthy(&self) -> bool;
             fn current_model(&self) -> &'static str;
         }

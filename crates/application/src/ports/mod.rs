@@ -12,5 +12,5 @@ mod message_gateway_port;
 pub use approval_queue::ApprovalQueuePort;
 pub use audit_log::{AuditLogPort, AuditQuery};
 pub use conversation_store::ConversationStore;
-pub use inference_port::{InferencePort, InferenceResult};
+pub use inference_port::{InferencePort, InferenceResult, InferenceStream, StreamingChunk};
 pub use message_gateway_port::{IncomingMessage, MessageGatewayPort, OutgoingMessage};
