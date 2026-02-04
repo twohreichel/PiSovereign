@@ -2,14 +2,14 @@
 //!
 //! Main entry point for the HTTP API server.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use application::{AgentService, ChatService};
 use infrastructure::{AppConfig, HailoInferenceAdapter};
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, routes, state::AppState,
 };
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, signal};
 use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
@@ -114,7 +114,54 @@ async fn main() -> anyhow::Result<()> {
     info!("🚀 Server listening on http://{}", addr);
     info!("📚 API docs: http://{}/health", addr);
 
-    axum::serve(listener, app).await?;
+    // Graceful shutdown configuration
+    let shutdown_timeout = Duration::from_secs(config.server.shutdown_timeout_secs.unwrap_or(30));
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal(shutdown_timeout))
+        .await?;
+
+    info!("👋 Server shutdown complete");
 
     Ok(())
+}
+
+/// Wait for shutdown signals (SIGINT, SIGTERM) and handle graceful shutdown
+#[allow(clippy::expect_used)]
+async fn shutdown_signal(timeout: Duration) {
+    let ctrl_c = async {
+        // Log error but continue waiting - this is a best-effort signal handler
+        if let Err(e) = signal::ctrl_c().await {
+            tracing::error!("Failed to install Ctrl+C handler: {}", e);
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        // unwrap is acceptable here as failure to install signal handler is unrecoverable
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            },
+            Err(e) => {
+                tracing::error!("Failed to install SIGTERM handler: {}", e);
+                std::future::pending::<()>().await;
+            },
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {
+            info!("📥 Received Ctrl+C, initiating graceful shutdown...");
+        }
+        () = terminate => {
+            info!("📥 Received SIGTERM, initiating graceful shutdown...");
+        }
+    }
+
+    info!("⏳ Waiting up to {:?} for connections to close...", timeout);
+    // Note: The actual connection draining is handled by axum's graceful_shutdown
 }

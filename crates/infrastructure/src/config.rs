@@ -45,6 +45,10 @@ pub struct ServerConfig {
     /// Allowed CORS origins (empty = allow all in dev, specific origins in production)
     #[serde(default)]
     pub allowed_origins: Vec<String>,
+
+    /// Graceful shutdown timeout in seconds
+    #[serde(default)]
+    pub shutdown_timeout_secs: Option<u64>,
 }
 
 fn default_host() -> String {
@@ -66,6 +70,7 @@ impl Default for ServerConfig {
             port: default_port(),
             cors_enabled: true,
             allowed_origins: Vec::new(),
+            shutdown_timeout_secs: Some(30),
         }
     }
 }
