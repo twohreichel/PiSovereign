@@ -175,8 +175,9 @@ impl CommandParser {
                         || lower.contains("was steht an")
                         || lower.contains("was steht heute an")
                     {
-                        // TODO: Parse date from input
-                        return Some(AgentCommand::MorningBriefing { date: None });
+                        // Parse date from input using date_parser
+                        let date = crate::date_parser::extract_date_from_text(input);
+                        return Some(AgentCommand::MorningBriefing { date });
                     }
                     None
                 },
