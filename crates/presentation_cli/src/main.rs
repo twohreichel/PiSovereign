@@ -57,17 +57,27 @@ enum Commands {
     },
 }
 
+/// Determine log filter level from verbosity count
+fn log_filter_from_verbosity(verbose: u8) -> &'static str {
+    match verbose {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    }
+}
+
+/// Format endpoint URL
+fn endpoint_url(base_url: &str, path: &str) -> String {
+    format!("{base_url}{path}")
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     // Set up logging based on verbosity
-    let filter = match cli.verbose {
-        0 => "warn",
-        1 => "info",
-        2 => "debug",
-        _ => "trace",
-    };
+    let filter = log_filter_from_verbosity(cli.verbose);
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(filter))
@@ -79,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Status { url } => {
             let resp = client
-                .get(format!("{url}/ready"))
+                .get(endpoint_url(&url, "/ready"))
                 .send()
                 .await?
                 .json::<serde_json::Value>()
@@ -93,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
             println!("💬 Sending: {message}");
 
             let resp = client
-                .post(format!("{url}/v1/chat"))
+                .post(endpoint_url(&url, "/v1/chat"))
                 .json(&serde_json::json!({ "message": message }))
                 .send()
                 .await?
@@ -113,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
             println!("⚡ Executing: {input}");
 
             let resp = client
-                .post(format!("{url}/v1/commands"))
+                .post(endpoint_url(&url, "/v1/commands"))
                 .json(&serde_json::json!({ "input": input }))
                 .send()
                 .await?
@@ -127,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
 
         Commands::Models { url } => {
             let resp = client
-                .get(format!("{url}/v1/system/models"))
+                .get(endpoint_url(&url, "/v1/system/models"))
                 .send()
                 .await?
                 .json::<serde_json::Value>()
@@ -139,4 +149,62 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_filter_verbosity_zero() {
+        assert_eq!(log_filter_from_verbosity(0), "warn");
+    }
+
+    #[test]
+    fn log_filter_verbosity_one() {
+        assert_eq!(log_filter_from_verbosity(1), "info");
+    }
+
+    #[test]
+    fn log_filter_verbosity_two() {
+        assert_eq!(log_filter_from_verbosity(2), "debug");
+    }
+
+    #[test]
+    fn log_filter_verbosity_three_or_more() {
+        assert_eq!(log_filter_from_verbosity(3), "trace");
+        assert_eq!(log_filter_from_verbosity(10), "trace");
+    }
+
+    #[test]
+    fn endpoint_url_concatenates_correctly() {
+        assert_eq!(
+            endpoint_url("http://localhost:3000", "/ready"),
+            "http://localhost:3000/ready"
+        );
+    }
+
+    #[test]
+    fn endpoint_url_handles_trailing_slash() {
+        assert_eq!(
+            endpoint_url("http://example.com/", "/v1/chat"),
+            "http://example.com//v1/chat"
+        );
+    }
+
+    #[test]
+    fn endpoint_url_with_port() {
+        assert_eq!(
+            endpoint_url("http://api:8080", "/v1/commands"),
+            "http://api:8080/v1/commands"
+        );
+    }
+
+    #[test]
+    fn endpoint_url_with_https() {
+        assert_eq!(
+            endpoint_url("https://secure.example.com", "/v1/system/models"),
+            "https://secure.example.com/v1/system/models"
+        );
+    }
 }
