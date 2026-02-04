@@ -6,19 +6,33 @@ use integration_proton::{
     EmailComposition, EmailSummary as ProtonEmailSummary, ProtonBridgeClient, ProtonClient,
     ProtonConfig, ProtonError,
 };
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
+
+use super::{CircuitBreaker, CircuitBreakerConfig};
 
 /// Adapter for Proton Mail via Proton Bridge
-#[derive(Debug)]
 pub struct ProtonEmailAdapter {
     client: ProtonBridgeClient,
+    circuit_breaker: Option<CircuitBreaker>,
+}
+
+impl std::fmt::Debug for ProtonEmailAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProtonEmailAdapter")
+            .field("client", &self.client)
+            .field("circuit_breaker", &self.circuit_breaker.as_ref().map(|cb| cb.name()))
+            .finish()
+    }
 }
 
 impl ProtonEmailAdapter {
     /// Create a new adapter with the given configuration
     pub fn new(config: ProtonConfig) -> Self {
         let client = ProtonBridgeClient::new(config);
-        Self { client }
+        Self {
+            client,
+            circuit_breaker: None,
+        }
     }
 
     /// Create with specific IMAP/SMTP ports
@@ -36,13 +50,53 @@ impl ProtonEmailAdapter {
         Self::new(config)
     }
 
+    /// Enable circuit breaker with default configuration
+    #[must_use]
+    pub fn with_circuit_breaker(mut self) -> Self {
+        self.circuit_breaker = Some(CircuitBreaker::new("proton-email"));
+        self
+    }
+
+    /// Enable circuit breaker with custom configuration
+    #[must_use]
+    pub fn with_circuit_breaker_config(mut self, config: CircuitBreakerConfig) -> Self {
+        self.circuit_breaker = Some(CircuitBreaker::with_config("proton-email", config));
+        self
+    }
+
+    /// Check if circuit breaker is blocking requests
+    fn is_circuit_open(&self) -> bool {
+        self.circuit_breaker
+            .as_ref()
+            .is_some_and(CircuitBreaker::is_open)
+    }
+
+    /// Get circuit breaker state description for logging
+    fn circuit_state_desc(&self) -> &'static str {
+        match &self.circuit_breaker {
+            Some(cb) if cb.is_open() => "open",
+            Some(cb) if cb.is_closed() => "closed",
+            Some(_) => "half-open",
+            None => "disabled",
+        }
+    }
+
+    /// Check circuit and return error if open
+    fn check_circuit(&self) -> Result<(), EmailError> {
+        if self.is_circuit_open() {
+            warn!("Proton email circuit breaker is open, failing fast");
+            return Err(EmailError::ServiceUnavailable);
+        }
+        Ok(())
+    }
+
     /// Map ProtonError to EmailError
     fn map_error(e: ProtonError) -> EmailError {
         match e {
             ProtonError::AuthenticationFailed => EmailError::AuthenticationFailed,
             ProtonError::BridgeUnavailable(_) | ProtonError::ConnectionFailed(_) => {
                 EmailError::ServiceUnavailable
-            },
+            }
             ProtonError::MailboxNotFound(name) => EmailError::NotFound(name),
             ProtonError::MessageNotFound(id) => EmailError::NotFound(id),
             ProtonError::InvalidAddress(addr) => EmailError::InvalidAddress(addr),
@@ -61,8 +115,9 @@ impl ProtonEmailAdapter {
 
 #[async_trait]
 impl EmailPort for ProtonEmailAdapter {
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn get_inbox(&self, count: u32) -> Result<Vec<EmailSummary>, EmailError> {
+        self.check_circuit()?;
         debug!(count, "Getting inbox from Proton");
 
         let emails = self
@@ -74,12 +129,13 @@ impl EmailPort for ProtonEmailAdapter {
         Ok(emails.iter().map(Self::convert_summary).collect())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn get_mailbox(
         &self,
         mailbox: &str,
         count: u32,
     ) -> Result<Vec<EmailSummary>, EmailError> {
+        self.check_circuit()?;
         debug!(mailbox, count, "Getting mailbox from Proton");
 
         let emails = self
@@ -91,37 +147,42 @@ impl EmailPort for ProtonEmailAdapter {
         Ok(emails.iter().map(Self::convert_summary).collect())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn get_unread_count(&self) -> Result<u32, EmailError> {
+        self.check_circuit()?;
         self.client
             .get_unread_count()
             .await
             .map_err(Self::map_error)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn mark_read(&self, email_id: &str) -> Result<(), EmailError> {
+        self.check_circuit()?;
         self.client
             .mark_read(email_id)
             .await
             .map_err(Self::map_error)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn mark_unread(&self, email_id: &str) -> Result<(), EmailError> {
+        self.check_circuit()?;
         self.client
             .mark_unread(email_id)
             .await
             .map_err(Self::map_error)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn delete(&self, email_id: &str) -> Result<(), EmailError> {
+        self.check_circuit()?;
         self.client.delete(email_id).await.map_err(Self::map_error)
     }
 
-    #[instrument(skip(self, draft))]
+    #[instrument(skip(self, draft), fields(circuit = %self.circuit_state_desc()))]
     async fn send_email(&self, draft: &EmailDraft) -> Result<String, EmailError> {
+        self.check_circuit()?;
         debug!(to = %draft.to, subject = %draft.subject, "Sending email via Proton");
 
         let mut composition = EmailComposition::new(&draft.to, &draft.subject, &draft.body);
@@ -137,11 +198,17 @@ impl EmailPort for ProtonEmailAdapter {
     }
 
     async fn is_available(&self) -> bool {
+        // If circuit is open, report as unavailable
+        if self.is_circuit_open() {
+            debug!("Proton email unavailable: circuit breaker open");
+            return false;
+        }
         self.client.check_connection().await.unwrap_or(false)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn list_mailboxes(&self) -> Result<Vec<String>, EmailError> {
+        self.check_circuit()?;
         self.client.list_mailboxes().await.map_err(Self::map_error)
     }
 }

@@ -6,13 +6,25 @@ use chrono::{DateTime, NaiveDate, Utc};
 use integration_caldav::{
     CalDavClient, CalDavConfig, CalDavError, CalendarEvent as CalDavEvent, HttpCalDavClient,
 };
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
+
+use super::{CircuitBreaker, CircuitBreakerConfig};
 
 /// Adapter for CalDAV calendar servers
-#[derive(Debug)]
 pub struct CalDavCalendarAdapter {
     client: HttpCalDavClient,
     default_calendar: Option<String>,
+    circuit_breaker: Option<CircuitBreaker>,
+}
+
+impl std::fmt::Debug for CalDavCalendarAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CalDavCalendarAdapter")
+            .field("client", &self.client)
+            .field("default_calendar", &self.default_calendar)
+            .field("circuit_breaker", &self.circuit_breaker.as_ref().map(|cb| cb.name()))
+            .finish()
+    }
 }
 
 impl CalDavCalendarAdapter {
@@ -23,6 +35,7 @@ impl CalDavCalendarAdapter {
         Ok(Self {
             client,
             default_calendar,
+            circuit_breaker: None,
         })
     }
 
@@ -42,6 +55,46 @@ impl CalDavCalendarAdapter {
             timeout_secs: 30,
         };
         Self::new(config)
+    }
+
+    /// Enable circuit breaker with default configuration
+    #[must_use]
+    pub fn with_circuit_breaker(mut self) -> Self {
+        self.circuit_breaker = Some(CircuitBreaker::new("caldav-calendar"));
+        self
+    }
+
+    /// Enable circuit breaker with custom configuration
+    #[must_use]
+    pub fn with_circuit_breaker_config(mut self, config: CircuitBreakerConfig) -> Self {
+        self.circuit_breaker = Some(CircuitBreaker::with_config("caldav-calendar", config));
+        self
+    }
+
+    /// Check if circuit breaker is blocking requests
+    fn is_circuit_open(&self) -> bool {
+        self.circuit_breaker
+            .as_ref()
+            .is_some_and(CircuitBreaker::is_open)
+    }
+
+    /// Get circuit breaker state description for logging
+    fn circuit_state_desc(&self) -> &'static str {
+        match &self.circuit_breaker {
+            Some(cb) if cb.is_open() => "open",
+            Some(cb) if cb.is_closed() => "closed",
+            Some(_) => "half-open",
+            None => "disabled",
+        }
+    }
+
+    /// Check circuit and return error if open
+    fn check_circuit(&self) -> Result<(), CalendarError> {
+        if self.is_circuit_open() {
+            warn!("CalDAV calendar circuit breaker is open, failing fast");
+            return Err(CalendarError::ServiceUnavailable);
+        }
+        Ok(())
     }
 
     /// Map CalDavError to CalendarError
@@ -118,8 +171,9 @@ fn format_date_for_caldav(date: NaiveDate) -> (String, String) {
 
 #[async_trait]
 impl CalendarPort for CalDavCalendarAdapter {
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn list_calendars(&self) -> Result<Vec<CalendarInfo>, CalendarError> {
+        self.check_circuit()?;
         debug!("Listing calendars from CalDAV");
 
         let calendars = self
@@ -140,11 +194,12 @@ impl CalendarPort for CalDavCalendarAdapter {
             .collect())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn get_events_for_date(
         &self,
         date: NaiveDate,
     ) -> Result<Vec<CalendarEvent>, CalendarError> {
+        self.check_circuit()?;
         debug!(date = %date, "Getting events for date from CalDAV");
 
         let calendar = self.get_default_calendar().await?;
@@ -159,12 +214,13 @@ impl CalendarPort for CalDavCalendarAdapter {
         Ok(events.iter().map(Self::convert_event).collect())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn get_events_in_range(
         &self,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<CalendarEvent>, CalendarError> {
+        self.check_circuit()?;
         debug!(start = %start, end = %end, "Getting events in range from CalDAV");
 
         let calendar = self.get_default_calendar().await?;
@@ -180,8 +236,9 @@ impl CalendarPort for CalDavCalendarAdapter {
         Ok(events.iter().map(Self::convert_event).collect())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn get_event(&self, event_id: &str) -> Result<CalendarEvent, CalendarError> {
+        self.check_circuit()?;
         debug!(event_id, "Getting event from CalDAV");
 
         // CalDAV doesn't have a direct get-by-ID, so we search recent events
@@ -203,8 +260,9 @@ impl CalendarPort for CalDavCalendarAdapter {
             .ok_or_else(|| CalendarError::EventNotFound(event_id.to_string()))
     }
 
-    #[instrument(skip(self, event))]
+    #[instrument(skip(self, event), fields(circuit = %self.circuit_state_desc()))]
     async fn create_event(&self, event: &NewEvent) -> Result<String, CalendarError> {
+        self.check_circuit()?;
         debug!(title = %event.title, "Creating event in CalDAV");
 
         let calendar = self.get_default_calendar().await?;
@@ -216,8 +274,9 @@ impl CalendarPort for CalDavCalendarAdapter {
             .map_err(Self::map_error)
     }
 
-    #[instrument(skip(self, event))]
+    #[instrument(skip(self, event), fields(circuit = %self.circuit_state_desc()))]
     async fn update_event(&self, event_id: &str, event: &NewEvent) -> Result<(), CalendarError> {
+        self.check_circuit()?;
         debug!(event_id, title = %event.title, "Updating event in CalDAV");
 
         let calendar = self.get_default_calendar().await?;
@@ -230,8 +289,9 @@ impl CalendarPort for CalDavCalendarAdapter {
             .map_err(Self::map_error)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn delete_event(&self, event_id: &str) -> Result<(), CalendarError> {
+        self.check_circuit()?;
         debug!(event_id, "Deleting event from CalDAV");
 
         let calendar = self.get_default_calendar().await?;
@@ -243,12 +303,18 @@ impl CalendarPort for CalDavCalendarAdapter {
     }
 
     async fn is_available(&self) -> bool {
+        // If circuit is open, report as unavailable
+        if self.is_circuit_open() {
+            debug!("CalDAV calendar unavailable: circuit breaker open");
+            return false;
+        }
         // Try to list calendars as a health check
         self.client.list_calendars().await.is_ok()
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
     async fn get_next_event(&self) -> Result<Option<CalendarEvent>, CalendarError> {
+        self.check_circuit()?;
         debug!("Getting next event from CalDAV");
 
         let calendar = self.get_default_calendar().await?;

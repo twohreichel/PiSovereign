@@ -109,8 +109,8 @@ arc-swap = "1.7"
 # Secret management
 vaultrs = "0.7"
 
-# Circuit breaker
-recloser = "1.3"
+# Synchronization primitives
+parking_lot = "0.12"
 
 # Natural language date parsing
 fuzzydate = "0.4"
