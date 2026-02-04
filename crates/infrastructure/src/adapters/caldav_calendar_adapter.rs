@@ -22,7 +22,10 @@ impl std::fmt::Debug for CalDavCalendarAdapter {
         f.debug_struct("CalDavCalendarAdapter")
             .field("client", &self.client)
             .field("default_calendar", &self.default_calendar)
-            .field("circuit_breaker", &self.circuit_breaker.as_ref().map(|cb| cb.name()))
+            .field(
+                "circuit_breaker",
+                &self.circuit_breaker.as_ref().map(|cb| cb.name()),
+            )
             .finish()
     }
 }

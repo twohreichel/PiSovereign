@@ -49,11 +49,11 @@ pub fn parse_date(input: &str) -> Option<NaiveDate> {
             let date = datetime.date();
             debug!(input = %input, date = %date, "Parsed with fuzzydate");
             Some(date)
-        }
+        },
         Err(_) => {
             debug!(input = %input, "Failed to parse date");
             None
-        }
+        },
     }
 }
 
@@ -105,9 +105,7 @@ fn parse_weekday(input: &str, today: NaiveDate) -> Option<NaiveDate> {
         None
     }?;
 
-    let is_next = input.contains("nächst")
-        || input.contains("next")
-        || input.contains("kommend");
+    let is_next = input.contains("nächst") || input.contains("next") || input.contains("kommend");
 
     Some(next_weekday(today, weekday, is_next))
 }
@@ -183,14 +181,7 @@ pub fn extract_date_from_text(input: &str) -> Option<NaiveDate> {
 
     // Try to extract date patterns
     let date_indicators = [
-        "für ",
-        "am ",
-        "on ",
-        "for ",
-        "ab ",
-        "vom ",
-        "bis ",
-        "until ",
+        "für ", "am ", "on ", "for ", "ab ", "vom ", "bis ", "until ",
     ];
 
     for indicator in &date_indicators {

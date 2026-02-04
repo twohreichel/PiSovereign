@@ -147,16 +147,12 @@ impl AgentService {
                 })
             },
 
-            AgentCommand::MorningBriefing { date } => {
-                self.handle_morning_briefing(*date).await
-            },
+            AgentCommand::MorningBriefing { date } => self.handle_morning_briefing(*date).await,
 
             AgentCommand::SummarizeInbox {
                 count,
                 only_important,
-            } => {
-                self.handle_summarize_inbox(*count, *only_important).await
-            },
+            } => self.handle_summarize_inbox(*count, *only_important).await,
 
             AgentCommand::Unknown { original_input } => {
                 warn!(input = %original_input, "Unknown command received");
@@ -241,14 +237,14 @@ impl AgentService {
                                 "✅ Modell erfolgreich auf '{model_name}' gewechselt."
                             ),
                         })
-                    }
+                    },
                     Err(e) => {
                         warn!(model = %model_name, error = %e, "Model switch failed");
                         Ok(ExecutionResult {
                             success: false,
                             response: format!("❌ Modellwechsel fehlgeschlagen: {e}"),
                         })
-                    }
+                    },
                 }
             },
 
@@ -308,7 +304,10 @@ impl AgentService {
         date: Option<chrono::NaiveDate>,
     ) -> Result<ExecutionResult, ApplicationError> {
         use chrono::Local;
-        use super::briefing_service::{BriefingService, CalendarBrief, EmailBrief, EmailHighlight, TaskBrief};
+
+        use super::briefing_service::{
+            BriefingService, CalendarBrief, EmailBrief, EmailHighlight, TaskBrief,
+        };
 
         let briefing_date = date.unwrap_or_else(|| Local::now().date_naive());
         let date_str = if date.is_none() {
@@ -324,7 +323,7 @@ impl AgentService {
                 Err(e) => {
                     warn!(error = %e, "Failed to get calendar brief");
                     CalendarBrief::default()
-                }
+                },
             }
         } else {
             CalendarBrief::default()
@@ -336,11 +335,15 @@ impl AgentService {
                 Ok(summary) => EmailBrief {
                     unread_count: summary.unread_count,
                     important_count: summary.emails.iter().filter(|e| e.is_starred).count() as u32,
-                    top_senders: summary.emails.iter()
+                    top_senders: summary
+                        .emails
+                        .iter()
                         .take(3)
                         .map(|e| e.from.clone())
                         .collect(),
-                    highlights: summary.emails.iter()
+                    highlights: summary
+                        .emails
+                        .iter()
                         .take(3)
                         .map(|e| EmailHighlight {
                             from: e.from.clone(),
@@ -352,7 +355,7 @@ impl AgentService {
                 Err(e) => {
                     warn!(error = %e, "Failed to get email summary");
                     EmailBrief::default()
-                }
+                },
             }
         } else {
             EmailBrief::default()
@@ -364,7 +367,7 @@ impl AgentService {
             calendar_brief,
             email_brief,
             TaskBrief::default(), // TODO: Implement task integration
-            None, // TODO: Implement weather integration
+            None,                 // TODO: Implement weather integration
         );
 
         // Format briefing response
@@ -375,7 +378,10 @@ impl AgentService {
         if briefing.calendar.event_count == 0 {
             response.push_str("Heute stehen keine Termine an.\n");
         } else {
-            response.push_str(&format!("{} Termin(e) heute:\n", briefing.calendar.event_count));
+            response.push_str(&format!(
+                "{} Termin(e) heute:\n",
+                briefing.calendar.event_count
+            ));
             for event in &briefing.calendar.events {
                 if event.all_day {
                     response.push_str(&format!("  • {} (ganztägig)\n", event.title));
@@ -384,7 +390,10 @@ impl AgentService {
                 }
             }
             if !briefing.calendar.conflicts.is_empty() {
-                response.push_str(&format!("  ⚠️ {} Konflikt(e) erkannt\n", briefing.calendar.conflicts.len()));
+                response.push_str(&format!(
+                    "  ⚠️ {} Konflikt(e) erkannt\n",
+                    briefing.calendar.conflicts.len()
+                ));
             }
         }
 
@@ -393,7 +402,10 @@ impl AgentService {
         if briefing.email.unread_count == 0 {
             response.push_str("Keine ungelesenen E-Mails.\n");
         } else {
-            response.push_str(&format!("{} ungelesene E-Mail(s)", briefing.email.unread_count));
+            response.push_str(&format!(
+                "{} ungelesene E-Mail(s)",
+                briefing.email.unread_count
+            ));
             if briefing.email.important_count > 0 {
                 response.push_str(&format!(", {} wichtig", briefing.email.important_count));
             }
@@ -407,10 +419,16 @@ impl AgentService {
         if briefing.tasks.due_today > 0 || briefing.tasks.overdue > 0 {
             response.push_str("\n✅ **Aufgaben**\n");
             if briefing.tasks.due_today > 0 {
-                response.push_str(&format!("{} Aufgabe(n) heute fällig\n", briefing.tasks.due_today));
+                response.push_str(&format!(
+                    "{} Aufgabe(n) heute fällig\n",
+                    briefing.tasks.due_today
+                ));
             }
             if briefing.tasks.overdue > 0 {
-                response.push_str(&format!("⚠️ {} überfällige Aufgabe(n)\n", briefing.tasks.overdue));
+                response.push_str(&format!(
+                    "⚠️ {} überfällige Aufgabe(n)\n",
+                    briefing.tasks.overdue
+                ));
             }
         }
 
@@ -440,7 +458,7 @@ impl AgentService {
                 },
                 Err(e) => {
                     warn!(error = %e, "Failed to summarize inbox, falling back to placeholder");
-                }
+                },
             }
         }
 
@@ -451,8 +469,7 @@ impl AgentService {
             response: format!(
                 "📧 Inbox-Zusammenfassung (letzte {} E-Mails{}):\n\n\
                  (E-Mail-Integration nicht konfiguriert. Bitte Proton Bridge einrichten.)",
-                email_count,
-                filter_msg
+                email_count, filter_msg
             ),
         })
     }
@@ -925,8 +942,11 @@ mod async_tests {
     #[tokio::test]
     async fn execute_system_switch_model_error() {
         let mut mock = MockInferenceEngine::new();
-        mock.expect_switch_model()
-            .returning(|_| Err(ApplicationError::Configuration("Model not found".to_string())));
+        mock.expect_switch_model().returning(|_| {
+            Err(ApplicationError::Configuration(
+                "Model not found".to_string(),
+            ))
+        });
 
         let service = AgentService::new(Arc::new(mock));
 

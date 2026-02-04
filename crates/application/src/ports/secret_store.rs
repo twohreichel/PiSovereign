@@ -63,8 +63,10 @@ pub trait SecretStoreExt: SecretStorePort {
     ///
     /// # Returns
     /// The deserialized secret, or an error if not found or deserialization fails
-    async fn get_typed<T: DeserializeOwned + Send>(&self, path: &str)
-        -> Result<T, ApplicationError> {
+    async fn get_typed<T: DeserializeOwned + Send>(
+        &self,
+        path: &str,
+    ) -> Result<T, ApplicationError> {
         let value = self.get_json(path).await?;
         serde_json::from_value(value).map_err(|e| {
             ApplicationError::Configuration(format!("Failed to deserialize secret: {e}"))
@@ -77,10 +79,11 @@ impl<S: SecretStorePort + ?Sized> SecretStoreExt for S {}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::collections::HashMap;
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
+
     use tokio::sync::RwLock;
+
+    use super::*;
 
     /// Mock secret store for testing
     #[derive(Debug, Default)]
@@ -94,10 +97,7 @@ mod tests {
         }
 
         pub async fn set_secret(&self, key: impl Into<String>, value: impl Into<String>) {
-            self.secrets
-                .write()
-                .await
-                .insert(key.into(), value.into());
+            self.secrets.write().await.insert(key.into(), value.into());
         }
     }
 
@@ -114,8 +114,9 @@ mod tests {
 
         async fn get_json(&self, path: &str) -> Result<serde_json::Value, ApplicationError> {
             let value = self.get_secret(path).await?;
-            serde_json::from_str(&value)
-                .map_err(|e| ApplicationError::Configuration(format!("Failed to parse secret: {e}")))
+            serde_json::from_str(&value).map_err(|e| {
+                ApplicationError::Configuration(format!("Failed to parse secret: {e}"))
+            })
         }
 
         async fn exists(&self, key: &str) -> Result<bool, ApplicationError> {

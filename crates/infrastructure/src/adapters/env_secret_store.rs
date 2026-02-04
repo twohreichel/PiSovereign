@@ -3,9 +3,10 @@
 //! Reads secrets from environment variables. Useful for local development
 //! and containerized deployments where secrets are injected via environment.
 
+use std::env;
+
 use application::{error::ApplicationError, ports::SecretStorePort};
 use async_trait::async_trait;
-use std::env;
 use tracing::{debug, instrument, warn};
 
 /// Secret store that reads from environment variables
@@ -43,10 +44,7 @@ impl EnvSecretStore {
     ///
     /// Converts slashes to underscores, hyphens to underscores, and uppercases.
     fn key_to_env_var(&self, key: &str) -> String {
-        let normalized = key
-            .replace('/', "_")
-            .replace('-', "_")
-            .to_uppercase();
+        let normalized = key.replace('/', "_").replace('-', "_").to_uppercase();
 
         match &self.prefix {
             Some(prefix) => format!("{prefix}_{normalized}"),
@@ -66,18 +64,16 @@ impl SecretStorePort for EnvSecretStore {
             Ok(value) => {
                 debug!("Retrieved secret from environment variable");
                 Ok(value)
-            }
+            },
             Err(env::VarError::NotPresent) => {
                 warn!(env_var = %env_var, "Secret not found in environment");
                 Err(ApplicationError::NotFound(format!(
                     "Secret not found: {key} (env: {env_var})"
                 )))
-            }
-            Err(env::VarError::NotUnicode(_)) => {
-                Err(ApplicationError::Configuration(format!(
-                    "Secret contains invalid UTF-8: {env_var}"
-                )))
-            }
+            },
+            Err(env::VarError::NotUnicode(_)) => Err(ApplicationError::Configuration(format!(
+                "Secret contains invalid UTF-8: {env_var}"
+            ))),
         }
     }
 
@@ -85,9 +81,7 @@ impl SecretStorePort for EnvSecretStore {
     async fn get_json(&self, path: &str) -> Result<serde_json::Value, ApplicationError> {
         let value = self.get_secret(path).await?;
         serde_json::from_str(&value).map_err(|e| {
-            ApplicationError::Configuration(format!(
-                "Failed to parse secret as JSON: {e}"
-            ))
+            ApplicationError::Configuration(format!("Failed to parse secret as JSON: {e}"))
         })
     }
 
@@ -104,8 +98,9 @@ impl SecretStorePort for EnvSecretStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use application::ports::SecretStoreExt;
+
+    use super::*;
 
     #[test]
     fn key_transformation_simple() {
@@ -116,7 +111,10 @@ mod tests {
     #[test]
     fn key_transformation_with_slashes() {
         let store = EnvSecretStore::new();
-        assert_eq!(store.key_to_env_var("database/password"), "DATABASE_PASSWORD");
+        assert_eq!(
+            store.key_to_env_var("database/password"),
+            "DATABASE_PASSWORD"
+        );
     }
 
     #[test]

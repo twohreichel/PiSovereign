@@ -20,8 +20,10 @@
 //! }).await;
 //! ```
 
-use std::fmt;
-use std::time::{Duration, Instant};
+use std::{
+    fmt,
+    time::{Duration, Instant},
+};
 
 use parking_lot::RwLock;
 
@@ -247,8 +249,8 @@ impl CircuitBreaker {
                     state.success_count = 0;
                     state.opened_at = None;
                 }
-            }
-            CircuitState::Closed | CircuitState::Open => {}
+            },
+            CircuitState::Closed | CircuitState::Open => {},
         }
     }
 
@@ -270,7 +272,7 @@ impl CircuitBreaker {
                     state.opened_at = Some(Instant::now());
                     state.failure_count = 0;
                 }
-            }
+            },
             CircuitState::HalfOpen => {
                 tracing::warn!(
                     service = %self.name,
@@ -279,8 +281,8 @@ impl CircuitBreaker {
                 state.state = CircuitState::Open;
                 state.opened_at = Some(Instant::now());
                 state.failure_count = 0;
-            }
-            CircuitState::Open => {}
+            },
+            CircuitState::Open => {},
         }
     }
 
@@ -327,12 +329,12 @@ impl CircuitBreaker {
                 debug!(service = %self.name, "Service call succeeded");
                 self.on_success();
                 Ok(result)
-            }
+            },
             Err(e) => {
                 warn!(service = %self.name, error = ?e, "Service call failed");
                 self.on_failure();
                 Err(CircuitBreakerError::ServiceError(e))
-            }
+            },
         }
     }
 
@@ -377,12 +379,12 @@ impl CircuitBreaker {
                 debug!(service = %self.name, "Service call succeeded");
                 self.on_success();
                 Ok(result)
-            }
+            },
             Err(e) => {
                 warn!(service = %self.name, error = ?e, "Service call failed");
                 self.on_failure();
                 Err(CircuitBreakerError::ServiceError(e))
-            }
+            },
         }
     }
 }
@@ -571,10 +573,9 @@ mod tests {
             CircuitBreakerError::ServiceError("test".to_string());
         assert_eq!(err.into_service_error(), Some("test".to_string()));
 
-        let err: CircuitBreakerError<String> =
-            CircuitBreakerError::CircuitOpen(CircuitOpenError {
-                service_name: "test".to_string(),
-            });
+        let err: CircuitBreakerError<String> = CircuitBreakerError::CircuitOpen(CircuitOpenError {
+            service_name: "test".to_string(),
+        });
         assert_eq!(err.into_service_error(), None);
     }
 

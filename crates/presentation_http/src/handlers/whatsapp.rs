@@ -121,7 +121,7 @@ pub async fn handle_webhook(
                 })),
             )
                 .into_response();
-        }
+        },
         None => String::new(), // Skip verification if not required and not configured
     };
 
@@ -156,7 +156,7 @@ pub async fn handle_webhook(
                 })),
             )
                 .into_response();
-        }
+        },
     };
 
     // Extract messages
@@ -204,7 +204,7 @@ pub async fn handle_webhook(
                     success = agent_result.success,
                     "WhatsApp message processed"
                 );
-            }
+            },
             Err(e) => {
                 error!(
                     error = %e,
@@ -218,7 +218,7 @@ pub async fn handle_webhook(
                     status: "error".to_string(),
                     response: Some(format!("Processing failed: {e}")),
                 });
-            }
+            },
         }
     }
 

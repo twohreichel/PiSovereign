@@ -3,13 +3,16 @@
 //! Retrieves secrets from HashiCorp Vault using the KV v2 secrets engine.
 //! Supports AppRole and token-based authentication.
 
+use std::sync::Arc;
+
 use application::{error::ApplicationError, ports::SecretStorePort};
 use async_trait::async_trait;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
-use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
-use vaultrs::kv2;
+use vaultrs::{
+    client::{VaultClient, VaultClientSettingsBuilder},
+    kv2,
+};
 
 /// Configuration for Vault connection
 #[derive(Debug, Clone)]
@@ -143,8 +146,9 @@ impl VaultSecretStore {
             .build()
             .map_err(|e| ApplicationError::Configuration(format!("Invalid Vault config: {e}")))?;
 
-        VaultClient::new(settings)
-            .map_err(|e| ApplicationError::ExternalService(format!("Failed to create Vault client: {e}")))
+        VaultClient::new(settings).map_err(|e| {
+            ApplicationError::ExternalService(format!("Failed to create Vault client: {e}"))
+        })
     }
 
     /// Authenticate using AppRole
@@ -210,16 +214,14 @@ impl SecretStorePort for VaultSecretStore {
 
         // Try to read as a simple key-value where the value is stored under "value" key
         let secret: std::collections::HashMap<String, String> =
-            kv2::read(&*client, &mount, &path)
-                .await
-                .map_err(|e| {
-                    if e.to_string().contains("404") || e.to_string().contains("not found") {
-                        ApplicationError::NotFound(format!("Secret not found: {key}"))
-                    } else {
-                        error!(error = %e, "Failed to read secret from Vault");
-                        ApplicationError::ExternalService(format!("Vault read failed: {e}"))
-                    }
-                })?;
+            kv2::read(&*client, &mount, &path).await.map_err(|e| {
+                if e.to_string().contains("404") || e.to_string().contains("not found") {
+                    ApplicationError::NotFound(format!("Secret not found: {key}"))
+                } else {
+                    error!(error = %e, "Failed to read secret from Vault");
+                    ApplicationError::ExternalService(format!("Vault read failed: {e}"))
+                }
+            })?;
 
         // Try common key names
         secret
@@ -228,9 +230,7 @@ impl SecretStorePort for VaultSecretStore {
             .or_else(|| secret.get("secret"))
             .or_else(|| secret.values().next())
             .cloned()
-            .ok_or_else(|| {
-                ApplicationError::NotFound(format!("Secret has no value field: {key}"))
-            })
+            .ok_or_else(|| ApplicationError::NotFound(format!("Secret has no value field: {key}")))
     }
 
     #[instrument(skip(self))]
@@ -278,11 +278,11 @@ impl SecretStorePort for VaultSecretStore {
                 } else {
                     true
                 }
-            }
+            },
             Err(e) => {
                 error!(error = %e, "Vault health check failed");
                 false
-            }
+            },
         }
     }
 }
@@ -322,7 +322,7 @@ impl SecretStorePort for ChainedSecretStore {
                 Err(e) => {
                     last_error = Some(e);
                     continue;
-                }
+                },
             }
         }
 
@@ -341,7 +341,7 @@ impl SecretStorePort for ChainedSecretStore {
                 Err(e) => {
                     last_error = Some(e);
                     continue;
-                }
+                },
             }
         }
 
@@ -409,8 +409,8 @@ mod tests {
 
     #[tokio::test]
     async fn chained_store_tries_fallback() {
-        use std::collections::HashMap;
-        use std::sync::Arc;
+        use std::{collections::HashMap, sync::Arc};
+
         use tokio::sync::RwLock;
 
         // Create a mock store that always fails
@@ -521,10 +521,8 @@ mod tests {
             }
         }
 
-        let chained = ChainedSecretStore::new(vec![
-            Arc::new(UnhealthyStore),
-            Arc::new(HealthyStore),
-        ]);
+        let chained =
+            ChainedSecretStore::new(vec![Arc::new(UnhealthyStore), Arc::new(HealthyStore)]);
 
         assert!(chained.is_healthy().await);
     }

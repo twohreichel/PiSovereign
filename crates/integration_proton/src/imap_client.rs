@@ -3,8 +3,7 @@
 //! Provides async IMAP operations for reading, managing, and organizing emails.
 //! Uses the synchronous `imap` crate wrapped in `spawn_blocking` for async compatibility.
 
-use std::fs;
-use std::net::TcpStream;
+use std::{fs, net::TcpStream};
 
 use imap::Session;
 use native_tls::{Certificate, TlsConnector};
@@ -36,7 +35,9 @@ impl ProtonImapClient {
 
         // Configure certificate verification
         if !tls_config.verify_certificates {
-            warn!("⚠️ TLS certificate verification disabled - only recommended for local Proton Bridge");
+            warn!(
+                "⚠️ TLS certificate verification disabled - only recommended for local Proton Bridge"
+            );
             builder.danger_accept_invalid_certs(true);
         } else if let Some(ca_cert_path) = &tls_config.ca_cert_path {
             // Load custom CA certificate

@@ -2,8 +2,7 @@
 //!
 //! Implements the AuditLogPort using SQLite for persistent audit logging.
 
-use std::net::IpAddr;
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 
 use application::{
     error::ApplicationError,
@@ -85,7 +84,10 @@ impl AuditLogPort for SqliteAuditLog {
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
             let entries = stmt
-                .query_map(rusqlite::params_from_iter(params.iter()), row_to_audit_entry)
+                .query_map(
+                    rusqlite::params_from_iter(params.iter()),
+                    row_to_audit_entry,
+                )
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?
                 .filter_map(Result::ok)
                 .collect();
@@ -211,7 +213,9 @@ impl AuditLogPort for SqliteAuditLog {
             let (sql, params) = build_count_sql(&query);
 
             let count: i64 = conn
-                .query_row(&sql, rusqlite::params_from_iter(params.iter()), |row| row.get(0))
+                .query_row(&sql, rusqlite::params_from_iter(params.iter()), |row| {
+                    row.get(0)
+                })
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
             Ok(count as u64)
@@ -396,8 +400,7 @@ mod tests {
     use chrono::Duration;
 
     use super::*;
-    use crate::config::DatabaseConfig;
-    use crate::persistence::create_pool;
+    use crate::{config::DatabaseConfig, persistence::create_pool};
 
     fn create_test_pool() -> Arc<ConnectionPool> {
         let config = DatabaseConfig {
@@ -455,12 +458,12 @@ mod tests {
         let pool = create_test_pool();
         let audit_log = SqliteAuditLog::new(pool);
 
-        let entry1 = AuditEntry::success(AuditEventType::Authentication, "login")
-            .with_actor("user1");
-        let entry2 = AuditEntry::success(AuditEventType::CommandExecution, "echo")
-            .with_actor("user1");
-        let entry3 = AuditEntry::success(AuditEventType::Authentication, "login")
-            .with_actor("user2");
+        let entry1 =
+            AuditEntry::success(AuditEventType::Authentication, "login").with_actor("user1");
+        let entry2 =
+            AuditEntry::success(AuditEventType::CommandExecution, "echo").with_actor("user1");
+        let entry3 =
+            AuditEntry::success(AuditEventType::Authentication, "login").with_actor("user2");
 
         audit_log.log(&entry1).await.unwrap();
         audit_log.log(&entry2).await.unwrap();
@@ -520,7 +523,7 @@ mod tests {
 
         let now = Utc::now();
         let entry1 = AuditEntry::success(AuditEventType::System, "startup");
-        
+
         audit_log.log(&entry1).await.unwrap();
 
         // Query with a time range that includes now
@@ -601,11 +604,23 @@ mod tests {
 
     #[test]
     fn parse_all_event_types() {
-        assert_eq!(parse_event_type("authentication"), AuditEventType::Authentication);
-        assert_eq!(parse_event_type("authorization"), AuditEventType::Authorization);
-        assert_eq!(parse_event_type("command_execution"), AuditEventType::CommandExecution);
+        assert_eq!(
+            parse_event_type("authentication"),
+            AuditEventType::Authentication
+        );
+        assert_eq!(
+            parse_event_type("authorization"),
+            AuditEventType::Authorization
+        );
+        assert_eq!(
+            parse_event_type("command_execution"),
+            AuditEventType::CommandExecution
+        );
         assert_eq!(parse_event_type("approval"), AuditEventType::Approval);
-        assert_eq!(parse_event_type("config_change"), AuditEventType::ConfigChange);
+        assert_eq!(
+            parse_event_type("config_change"),
+            AuditEventType::ConfigChange
+        );
         assert_eq!(parse_event_type("system"), AuditEventType::System);
         assert_eq!(parse_event_type("data_access"), AuditEventType::DataAccess);
         assert_eq!(parse_event_type("integration"), AuditEventType::Integration);

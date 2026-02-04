@@ -119,12 +119,16 @@ impl RateLimiterState {
         let before_count = buckets.len();
         buckets.retain(|_, bucket| bucket.last_update > cutoff);
         let removed = before_count - buckets.len();
-        
+
         if removed > 0 {
-            debug!(removed = removed, remaining = buckets.len(), "Cleaned up stale rate limit entries");
+            debug!(
+                removed = removed,
+                remaining = buckets.len(),
+                "Cleaned up stale rate limit entries"
+            );
         }
     }
-    
+
     /// Get the current number of tracked IP addresses
     pub async fn entry_count(&self) -> usize {
         self.buckets.read().await.len()
@@ -168,10 +172,10 @@ pub fn spawn_cleanup_task(
         max_age_secs = max_age.as_secs(),
         "Starting rate limiter cleanup task"
     );
-    
+
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
-        
+
         loop {
             ticker.tick().await;
             state.cleanup(max_age).await;
@@ -450,49 +454,49 @@ mod tests {
         state.cleanup(Duration::from_secs(3600)).await;
         assert_eq!(state.buckets.read().await.len(), 1);
     }
-    
+
     #[tokio::test]
     async fn entry_count_returns_correct_count() {
         let state = RateLimiterState::new(60);
-        
+
         assert_eq!(state.entry_count().await, 0);
-        
+
         state.check("192.168.1.1".parse().unwrap()).await;
         assert_eq!(state.entry_count().await, 1);
-        
+
         state.check("192.168.1.2".parse().unwrap()).await;
         assert_eq!(state.entry_count().await, 2);
-        
+
         // Same IP again should not increase count
         state.check("192.168.1.1".parse().unwrap()).await;
         assert_eq!(state.entry_count().await, 2);
     }
-    
+
     #[tokio::test]
     async fn spawn_cleanup_task_can_be_cancelled() {
         let state = Arc::new(RateLimiterState::new(60));
         let ip: IpAddr = "192.168.1.1".parse().unwrap();
-        
+
         // Add an entry
         state.check(ip).await;
         assert_eq!(state.entry_count().await, 1);
-        
+
         // Start cleanup task with short interval
         let handle = super::spawn_cleanup_task(
             Arc::clone(&state),
             Duration::from_millis(10),
             Duration::from_millis(1),
         );
-        
+
         // Wait for at least one cleanup cycle
         tokio::time::sleep(Duration::from_millis(50)).await;
-        
+
         // Entry should have been cleaned up
         assert_eq!(state.entry_count().await, 0);
-        
+
         // Abort the task
         handle.abort();
-        
+
         // Task should be cancelled
         assert!(handle.await.unwrap_err().is_cancelled());
     }

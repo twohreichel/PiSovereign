@@ -66,10 +66,10 @@ impl HailoInferenceAdapter {
             ai_core::InferenceError::RateLimited => ApplicationError::RateLimited,
             ai_core::InferenceError::ConnectionFailed(msg) => {
                 ApplicationError::ExternalService(format!("Hailo connection failed: {msg}"))
-            }
+            },
             ai_core::InferenceError::Timeout(ms) => {
                 ApplicationError::ExternalService(format!("Inference timeout after {ms}ms"))
-            }
+            },
             other => ApplicationError::Inference(other.to_string()),
         }
     }
@@ -100,7 +100,8 @@ impl InferencePort for HailoInferenceAdapter {
         if self.is_circuit_open() {
             warn!("Hailo inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)".to_string(),
+                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                    .to_string(),
             ));
         }
 
@@ -115,20 +116,22 @@ impl InferencePort for HailoInferenceAdapter {
             Some(cb) => {
                 let engine = &self.engine;
                 let req = request.clone();
-                cb.call(|| async {
-                    engine.generate(req).await
-                })
+                cb.call(|| async { engine.generate(req).await })
+                    .await
+                    .map_err(|e| match e {
+                        super::CircuitBreakerError::CircuitOpen(_) => {
+                            ApplicationError::ExternalService(
+                                "Hailo inference service temporarily unavailable".to_string(),
+                            )
+                        },
+                        super::CircuitBreakerError::ServiceError(e) => Self::map_error(e),
+                    })?
+            },
+            None => self
+                .engine
+                .generate(request)
                 .await
-                .map_err(|e| match e {
-                    super::CircuitBreakerError::CircuitOpen(_) => {
-                        ApplicationError::ExternalService(
-                            "Hailo inference service temporarily unavailable".to_string(),
-                        )
-                    }
-                    super::CircuitBreakerError::ServiceError(e) => Self::map_error(e),
-                })?
-            }
-            None => self.engine.generate(request).await.map_err(Self::map_error)?,
+                .map_err(Self::map_error)?,
         };
 
         let latency_ms = start.elapsed().as_millis() as u64;
@@ -157,7 +160,8 @@ impl InferencePort for HailoInferenceAdapter {
         if self.is_circuit_open() {
             warn!("Hailo inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)".to_string(),
+                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                    .to_string(),
             ));
         }
 
@@ -202,11 +206,15 @@ impl InferencePort for HailoInferenceAdapter {
                             ApplicationError::ExternalService(
                                 "Hailo inference service temporarily unavailable".to_string(),
                             )
-                        }
+                        },
                         super::CircuitBreakerError::ServiceError(e) => Self::map_error(e),
                     })?
-            }
-            None => self.engine.generate(request).await.map_err(Self::map_error)?,
+            },
+            None => self
+                .engine
+                .generate(request)
+                .await
+                .map_err(Self::map_error)?,
         };
 
         let latency_ms = start.elapsed().as_millis() as u64;
@@ -229,7 +237,8 @@ impl InferencePort for HailoInferenceAdapter {
         if self.is_circuit_open() {
             warn!("Hailo inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)".to_string(),
+                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                    .to_string(),
             ));
         }
 
@@ -248,11 +257,15 @@ impl InferencePort for HailoInferenceAdapter {
                             ApplicationError::ExternalService(
                                 "Hailo inference service temporarily unavailable".to_string(),
                             )
-                        }
+                        },
                         super::CircuitBreakerError::ServiceError(e) => Self::map_error(e),
                     })?
-            }
-            None => self.engine.generate(request).await.map_err(Self::map_error)?,
+            },
+            None => self
+                .engine
+                .generate(request)
+                .await
+                .map_err(Self::map_error)?,
         };
 
         let latency_ms = start.elapsed().as_millis() as u64;
@@ -271,7 +284,8 @@ impl InferencePort for HailoInferenceAdapter {
         if self.is_circuit_open() {
             warn!("Hailo inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)".to_string(),
+                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                    .to_string(),
             ));
         }
 
@@ -312,7 +326,8 @@ impl InferencePort for HailoInferenceAdapter {
         if self.is_circuit_open() {
             warn!("Hailo inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)".to_string(),
+                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                    .to_string(),
             ));
         }
 
@@ -356,7 +371,8 @@ impl InferencePort for HailoInferenceAdapter {
         // Fast-fail if circuit is open
         if self.is_circuit_open() {
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)".to_string(),
+                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                    .to_string(),
             ));
         }
         self.engine.list_models().await.map_err(Self::map_error)
@@ -367,7 +383,8 @@ impl InferencePort for HailoInferenceAdapter {
         // Fast-fail if circuit is open
         if self.is_circuit_open() {
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)".to_string(),
+                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                    .to_string(),
             ));
         }
 

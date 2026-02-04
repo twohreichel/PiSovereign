@@ -20,7 +20,10 @@ impl std::fmt::Debug for ProtonEmailAdapter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProtonEmailAdapter")
             .field("client", &self.client)
-            .field("circuit_breaker", &self.circuit_breaker.as_ref().map(|cb| cb.name()))
+            .field(
+                "circuit_breaker",
+                &self.circuit_breaker.as_ref().map(|cb| cb.name()),
+            )
             .finish()
     }
 }
@@ -96,7 +99,7 @@ impl ProtonEmailAdapter {
             ProtonError::AuthenticationFailed => EmailError::AuthenticationFailed,
             ProtonError::BridgeUnavailable(_) | ProtonError::ConnectionFailed(_) => {
                 EmailError::ServiceUnavailable
-            }
+            },
             ProtonError::MailboxNotFound(name) => EmailError::NotFound(name),
             ProtonError::MessageNotFound(id) => EmailError::NotFound(id),
             ProtonError::InvalidAddress(addr) => EmailError::InvalidAddress(addr),
