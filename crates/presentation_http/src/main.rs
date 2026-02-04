@@ -7,7 +7,8 @@ use std::{sync::Arc, time::Duration};
 use application::{AgentService, ChatService};
 use infrastructure::{AppConfig, HailoInferenceAdapter};
 use presentation_http::{
-    ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, routes, state::AppState,
+    ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig, routes,
+    spawn_config_reload_handler, state::AppState,
 };
 use tokio::{net::TcpListener, signal};
 use tower_http::{
@@ -31,20 +32,24 @@ async fn main() -> anyhow::Result<()> {
     info!("🤖 PiSovereign v{} starting...", env!("CARGO_PKG_VERSION"));
 
     // Load configuration
-    let config = AppConfig::load().unwrap_or_else(|e| {
+    let initial_config = AppConfig::load().unwrap_or_else(|e| {
         tracing::warn!("Failed to load config, using defaults: {}", e);
         AppConfig::default()
     });
 
     info!(
-        host = %config.server.host,
-        port = %config.server.port,
-        model = %config.inference.default_model,
+        host = %initial_config.server.host,
+        port = %initial_config.server.port,
+        model = %initial_config.inference.default_model,
         "Configuration loaded"
     );
 
+    // Create reloadable config and spawn SIGHUP handler
+    let reloadable_config =
+        spawn_config_reload_handler(ReloadableConfig::new(initial_config.clone()));
+
     // Initialize inference adapter
-    let inference_adapter = HailoInferenceAdapter::new(config.inference.clone())
+    let inference_adapter = HailoInferenceAdapter::new(initial_config.inference.clone())
         .map_err(|e| anyhow::anyhow!("Failed to initialize inference: {e}"))?;
 
     let inference: Arc<dyn application::ports::InferencePort> = Arc::new(inference_adapter);
@@ -59,18 +64,18 @@ async fn main() -> anyhow::Result<()> {
 
     let agent_service = AgentService::new(Arc::clone(&inference));
 
-    // Create app state
+    // Create app state with reloadable config
     let state = AppState {
         chat_service: Arc::new(chat_service),
         agent_service: Arc::new(agent_service),
-        config: Arc::new(config.clone()),
+        config: reloadable_config,
     };
 
     // Build router
     let app = routes::create_router(state);
 
     // Configure CORS layer
-    let cors_layer = if config.server.allowed_origins.is_empty() {
+    let cors_layer = if initial_config.server.allowed_origins.is_empty() {
         // Development mode: allow all origins
         CorsLayer::new()
             .allow_origin(Any)
@@ -79,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         // Production mode: restrict to configured origins
         use axum::http::{HeaderValue, Method};
-        let origins: Vec<HeaderValue> = config
+        let origins: Vec<HeaderValue> = initial_config
             .server
             .allowed_origins
             .iter()
@@ -93,12 +98,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Configure rate limiter
     let rate_limiter = RateLimiterLayer::new(&RateLimiterConfig {
-        enabled: config.security.rate_limit_enabled,
-        requests_per_minute: config.security.rate_limit_rpm,
+        enabled: initial_config.security.rate_limit_enabled,
+        requests_per_minute: initial_config.security.rate_limit_rpm,
     });
 
     // Configure API key auth
-    let auth_layer = ApiKeyAuthLayer::new(config.security.api_key.clone());
+    let auth_layer = ApiKeyAuthLayer::new(initial_config.security.api_key.clone());
 
     // Add middleware (order matters: first added = outermost)
     let app = app
@@ -108,14 +113,19 @@ async fn main() -> anyhow::Result<()> {
         .layer(auth_layer);
 
     // Start server
-    let addr = format!("{}:{}", config.server.host, config.server.port);
+    let addr = format!(
+        "{}:{}",
+        initial_config.server.host, initial_config.server.port
+    );
     let listener = TcpListener::bind(&addr).await?;
 
     info!("🚀 Server listening on http://{}", addr);
     info!("📚 API docs: http://{}/health", addr);
+    info!("🔄 SIGHUP for config reload is enabled (Unix only)");
 
     // Graceful shutdown configuration
-    let shutdown_timeout = Duration::from_secs(config.server.shutdown_timeout_secs.unwrap_or(30));
+    let shutdown_timeout =
+        Duration::from_secs(initial_config.server.shutdown_timeout_secs.unwrap_or(30));
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(shutdown_timeout))

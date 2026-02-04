@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use application::{AgentService, ChatService};
-use infrastructure::AppConfig;
+
+use crate::config_reload::ReloadableConfig;
 
 /// Shared application state
 #[derive(Clone, Debug)]
@@ -12,7 +13,6 @@ pub struct AppState {
     pub chat_service: Arc<ChatService>,
     /// Agent service for command execution
     pub agent_service: Arc<AgentService>,
-    /// Application configuration
-    #[allow(dead_code)]
-    pub config: Arc<AppConfig>,
+    /// Reloadable application configuration
+    pub config: ReloadableConfig,
 }
