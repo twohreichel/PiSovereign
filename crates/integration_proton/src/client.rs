@@ -137,7 +137,7 @@ pub struct ProtonBridgeClient {
 
 impl ProtonBridgeClient {
     /// Create a new Proton Bridge client
-    pub fn new(config: ProtonConfig) -> Self {
+    pub const fn new(config: ProtonConfig) -> Self {
         Self { config }
     }
 

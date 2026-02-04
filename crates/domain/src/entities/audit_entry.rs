@@ -103,12 +103,14 @@ impl AuditEntry {
     }
 
     /// Set the actor
+    #[must_use]
     pub fn with_actor(mut self, actor: impl Into<String>) -> Self {
         self.actor = Some(actor.into());
         self
     }
 
     /// Set the resource
+    #[must_use]
     pub fn with_resource(
         mut self,
         resource_type: impl Into<String>,
@@ -120,18 +122,21 @@ impl AuditEntry {
     }
 
     /// Set additional details
+    #[must_use]
     pub fn with_details(mut self, details: impl Into<String>) -> Self {
         self.details = Some(details.into());
         self
     }
 
     /// Set the IP address
+    #[must_use]
     pub fn with_ip_address(mut self, ip: IpAddr) -> Self {
         self.ip_address = Some(ip);
         self
     }
 
     /// Set details from a serializable value
+    #[must_use]
     pub fn with_json_details<T: Serialize>(mut self, details: &T) -> Self {
         self.details = serde_json::to_string(details).ok();
         self

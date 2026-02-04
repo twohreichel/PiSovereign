@@ -38,6 +38,14 @@ pub enum ApplicationError {
     #[error("Configuration error: {0}")]
     Configuration(String),
 
+    /// Resource not found
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    /// Invalid operation
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
+
     /// Internal error
     #[error("Internal error: {0}")]
     Internal(String),

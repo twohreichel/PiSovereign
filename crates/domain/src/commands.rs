@@ -149,10 +149,10 @@ impl AgentCommand {
                 },
             },
             Self::Echo { message } => format!("Echo: {message}"),
-            Self::Help { command } => match command {
-                Some(cmd) => format!("Help for: {cmd}"),
-                None => "General help".to_string(),
-            },
+            Self::Help { command } => command.as_ref().map_or_else(
+                || "General help".to_string(),
+                |cmd| format!("Help for: {cmd}"),
+            ),
             Self::Unknown { original_input } => {
                 format!("Unknown command: {original_input}")
             },

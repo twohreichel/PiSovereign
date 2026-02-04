@@ -86,7 +86,8 @@ impl ApprovalRequest {
     }
 
     /// Create a request with a custom expiration time
-    pub fn with_expiration(mut self, expires_at: DateTime<Utc>) -> Self {
+    #[must_use]
+    pub const fn with_expiration(mut self, expires_at: DateTime<Utc>) -> Self {
         self.expires_at = expires_at;
         self
     }

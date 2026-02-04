@@ -91,6 +91,8 @@ impl From<ApplicationError> for ApiError {
             ApplicationError::ApprovalRequired(msg) => {
                 Self::BadRequest(format!("Approval required: {msg}"))
             },
+            ApplicationError::NotFound(msg) => Self::NotFound(msg),
+            ApplicationError::InvalidOperation(msg) => Self::BadRequest(msg),
             ApplicationError::Configuration(msg)
             | ApplicationError::CommandFailed(msg)
             | ApplicationError::Internal(msg) => Self::Internal(msg),
