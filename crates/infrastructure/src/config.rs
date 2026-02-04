@@ -17,6 +17,10 @@ pub struct AppConfig {
     /// Security configuration
     #[serde(default)]
     pub security: SecurityConfig,
+
+    /// WhatsApp configuration
+    #[serde(default)]
+    pub whatsapp: WhatsAppConfig,
 }
 
 /// HTTP server configuration
@@ -33,6 +37,10 @@ pub struct ServerConfig {
     /// Enable CORS
     #[serde(default = "default_true")]
     pub cors_enabled: bool,
+
+    /// Allowed CORS origins (empty = allow all in dev, specific origins in production)
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
 }
 
 fn default_host() -> String {
@@ -53,6 +61,7 @@ impl Default for ServerConfig {
             host: default_host(),
             port: default_port(),
             cors_enabled: true,
+            allowed_origins: Vec::new(),
         }
     }
 }
@@ -88,6 +97,51 @@ impl Default for SecurityConfig {
             api_key: None,
             rate_limit_enabled: true,
             rate_limit_rpm: default_rate_limit(),
+        }
+    }
+}
+
+/// WhatsApp integration configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhatsAppConfig {
+    /// Meta Graph API access token
+    #[serde(default)]
+    pub access_token: Option<String>,
+
+    /// Phone number ID from WhatsApp Business
+    #[serde(default)]
+    pub phone_number_id: Option<String>,
+
+    /// App secret for webhook signature verification
+    #[serde(default)]
+    pub app_secret: Option<String>,
+
+    /// Verify token for webhook setup
+    #[serde(default)]
+    pub verify_token: Option<String>,
+
+    /// Whether signature verification is required (default: true)
+    #[serde(default = "default_true")]
+    pub signature_required: bool,
+
+    /// API version (default: v18.0)
+    #[serde(default = "default_api_version")]
+    pub api_version: String,
+}
+
+fn default_api_version() -> String {
+    "v18.0".to_string()
+}
+
+impl Default for WhatsAppConfig {
+    fn default() -> Self {
+        Self {
+            access_token: None,
+            phone_number_id: None,
+            app_secret: None,
+            verify_token: None,
+            signature_required: true,
+            api_version: default_api_version(),
         }
     }
 }
