@@ -39,12 +39,18 @@ pub enum ApprovalStatus {
 pub struct AgentService {
     inference: Arc<dyn InferencePort>,
     parser: CommandParser,
+    /// Optional calendar service for briefing integration
+    calendar_service: Option<Arc<super::CalendarService>>,
+    /// Optional email service for briefing integration
+    email_service: Option<Arc<super::EmailService>>,
 }
 
 impl fmt::Debug for AgentService {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AgentService")
             .field("parser", &self.parser)
+            .field("has_calendar", &self.calendar_service.is_some())
+            .field("has_email", &self.email_service.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -55,7 +61,23 @@ impl AgentService {
         Self {
             inference,
             parser: CommandParser::new(),
+            calendar_service: None,
+            email_service: None,
         }
+    }
+
+    /// Add calendar service for briefing integration
+    #[must_use]
+    pub fn with_calendar_service(mut self, service: Arc<super::CalendarService>) -> Self {
+        self.calendar_service = Some(service);
+        self
+    }
+
+    /// Add email service for briefing integration
+    #[must_use]
+    pub fn with_email_service(mut self, service: Arc<super::EmailService>) -> Self {
+        self.email_service = Some(service);
+        self
     }
 
     /// Parse and execute a command from natural language input
@@ -126,40 +148,14 @@ impl AgentService {
             },
 
             AgentCommand::MorningBriefing { date } => {
-                let date_str = date
-                    .map(|d| d.to_string())
-                    .unwrap_or_else(|| "heute".to_string());
-
-                // TODO: Implement actual briefing with calendar/email integration
-                Ok(ExecutionResult {
-                    success: true,
-                    response: format!(
-                        "☀️ Guten Morgen! Hier ist dein Briefing für {date_str}:\n\n\
-                         📅 Termine: (noch nicht implementiert)\n\
-                         📧 E-Mails: (noch nicht implementiert)\n\
-                         ✅ Aufgaben: (noch nicht implementiert)"
-                    ),
-                })
+                self.handle_morning_briefing(*date).await
             },
 
             AgentCommand::SummarizeInbox {
                 count,
                 only_important,
             } => {
-                // TODO: Implement with Proton Mail integration
-                Ok(ExecutionResult {
-                    success: true,
-                    response: format!(
-                        "📧 Inbox-Zusammenfassung (letzte {} E-Mails{}): \n\n\
-                         (Proton Mail Integration noch nicht implementiert)",
-                        count.unwrap_or(10),
-                        if *only_important == Some(true) {
-                            ", nur wichtige"
-                        } else {
-                            ""
-                        }
-                    ),
-                })
+                self.handle_summarize_inbox(*count, *only_important).await
             },
 
             AgentCommand::Unknown { original_input } => {
@@ -291,6 +287,161 @@ impl AgentService {
                  Du kannst auch einfach Fragen stellen!"
                 .to_string(),
         }
+    }
+
+    /// Handle morning briefing command
+    async fn handle_morning_briefing(
+        &self,
+        date: Option<chrono::NaiveDate>,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        use chrono::Local;
+        use super::briefing_service::{BriefingService, CalendarBrief, EmailBrief, EmailHighlight, TaskBrief};
+
+        let briefing_date = date.unwrap_or_else(|| Local::now().date_naive());
+        let date_str = if date.is_none() {
+            "heute".to_string()
+        } else {
+            briefing_date.format("%d.%m.%Y").to_string()
+        };
+
+        // Collect calendar data if service available
+        let calendar_brief = if let Some(ref calendar_svc) = self.calendar_service {
+            match calendar_svc.get_calendar_brief(briefing_date).await {
+                Ok(brief) => brief,
+                Err(e) => {
+                    warn!(error = %e, "Failed to get calendar brief");
+                    CalendarBrief::default()
+                }
+            }
+        } else {
+            CalendarBrief::default()
+        };
+
+        // Collect email data if service available
+        let email_brief = if let Some(ref email_svc) = self.email_service {
+            match email_svc.get_inbox_summary(5, false).await {
+                Ok(summary) => EmailBrief {
+                    unread_count: summary.unread_count,
+                    important_count: summary.emails.iter().filter(|e| e.is_starred).count() as u32,
+                    top_senders: summary.emails.iter()
+                        .take(3)
+                        .map(|e| e.from.clone())
+                        .collect(),
+                    highlights: summary.emails.iter()
+                        .take(3)
+                        .map(|e| EmailHighlight {
+                            from: e.from.clone(),
+                            subject: e.subject.clone(),
+                            preview: e.snippet.clone(),
+                        })
+                        .collect(),
+                },
+                Err(e) => {
+                    warn!(error = %e, "Failed to get email summary");
+                    EmailBrief::default()
+                }
+            }
+        } else {
+            EmailBrief::default()
+        };
+
+        // Generate briefing using BriefingService
+        let briefing_service = BriefingService::new(1); // Central European timezone
+        let briefing = briefing_service.generate_briefing(
+            calendar_brief,
+            email_brief,
+            TaskBrief::default(), // TODO: Implement task integration
+            None, // TODO: Implement weather integration
+        );
+
+        // Format briefing response
+        let mut response = format!("☀️ Guten Morgen! Hier ist dein Briefing für {date_str}:\n\n");
+
+        // Add calendar section
+        response.push_str("📅 **Termine**\n");
+        if briefing.calendar.event_count == 0 {
+            response.push_str("Heute stehen keine Termine an.\n");
+        } else {
+            response.push_str(&format!("{} Termin(e) heute:\n", briefing.calendar.event_count));
+            for event in &briefing.calendar.events {
+                if event.all_day {
+                    response.push_str(&format!("  • {} (ganztägig)\n", event.title));
+                } else {
+                    response.push_str(&format!("  • {} um {}\n", event.title, event.start_time));
+                }
+            }
+            if !briefing.calendar.conflicts.is_empty() {
+                response.push_str(&format!("  ⚠️ {} Konflikt(e) erkannt\n", briefing.calendar.conflicts.len()));
+            }
+        }
+
+        // Add email section
+        response.push_str("\n📧 **E-Mails**\n");
+        if briefing.email.unread_count == 0 {
+            response.push_str("Keine ungelesenen E-Mails.\n");
+        } else {
+            response.push_str(&format!("{} ungelesene E-Mail(s)", briefing.email.unread_count));
+            if briefing.email.important_count > 0 {
+                response.push_str(&format!(", {} wichtig", briefing.email.important_count));
+            }
+            response.push_str("\n");
+            for highlight in &briefing.email.highlights {
+                response.push_str(&format!("  • {}: {}\n", highlight.from, highlight.subject));
+            }
+        }
+
+        // Add task section if available
+        if briefing.tasks.due_today > 0 || briefing.tasks.overdue > 0 {
+            response.push_str("\n✅ **Aufgaben**\n");
+            if briefing.tasks.due_today > 0 {
+                response.push_str(&format!("{} Aufgabe(n) heute fällig\n", briefing.tasks.due_today));
+            }
+            if briefing.tasks.overdue > 0 {
+                response.push_str(&format!("⚠️ {} überfällige Aufgabe(n)\n", briefing.tasks.overdue));
+            }
+        }
+
+        Ok(ExecutionResult {
+            success: true,
+            response,
+        })
+    }
+
+    /// Handle inbox summarization command
+    async fn handle_summarize_inbox(
+        &self,
+        count: Option<u32>,
+        only_important: Option<bool>,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        let email_count = count.unwrap_or(10);
+        let important_only = only_important.unwrap_or(false);
+
+        // Use email service if available
+        if let Some(ref email_svc) = self.email_service {
+            match email_svc.summarize_inbox(email_count, important_only).await {
+                Ok(summary) => {
+                    return Ok(ExecutionResult {
+                        success: true,
+                        response: summary,
+                    });
+                },
+                Err(e) => {
+                    warn!(error = %e, "Failed to summarize inbox, falling back to placeholder");
+                }
+            }
+        }
+
+        // Fallback when service not available
+        let filter_msg = if important_only { ", nur wichtige" } else { "" };
+        Ok(ExecutionResult {
+            success: true,
+            response: format!(
+                "📧 Inbox-Zusammenfassung (letzte {} E-Mails{}):\n\n\
+                 (E-Mail-Integration nicht konfiguriert. Bitte Proton Bridge einrichten.)",
+                email_count,
+                filter_msg
+            ),
+        })
     }
 }
 
@@ -615,7 +766,7 @@ mod async_tests {
             .unwrap();
 
         assert!(result.success);
-        assert!(result.response.contains("2025-01-15"));
+        assert!(result.response.contains("15.01.2025"));
     }
 
     #[tokio::test]
