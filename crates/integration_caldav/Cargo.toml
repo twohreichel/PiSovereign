@@ -19,6 +19,7 @@ serde.workspace = true
 reqwest.workspace = true
 chrono.workspace = true
 icalendar = "0.16"
+quick-xml = "0.37"
 
 [dev-dependencies]
 tokio-test.workspace = true

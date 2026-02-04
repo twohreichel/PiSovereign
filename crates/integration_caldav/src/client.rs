@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use quick_xml::{Reader, events::Event};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -200,6 +201,68 @@ impl HttpCalDavClient {
         Ok(events)
     }
 
+    /// Extract calendar data from CalDAV XML response
+    ///
+    /// Properly parses XML and decodes CDATA sections containing iCalendar data
+    fn extract_calendar_data_from_xml(xml_body: &str) -> Vec<String> {
+        let mut reader = Reader::from_str(xml_body);
+        reader.config_mut().trim_text(true);
+
+        let mut ical_data_list = Vec::new();
+        let mut buf = Vec::new();
+        let mut inside_calendar_data = false;
+        let mut current_ical = String::new();
+
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) => {
+                    if e.name().as_ref() == b"C:calendar-data"
+                        || e.name().as_ref() == b"calendar-data"
+                        || e.name().as_ref() == b"D:calendar-data"
+                    {
+                        inside_calendar_data = true;
+                        current_ical.clear();
+                    }
+                },
+                Ok(Event::Text(e)) => {
+                    if inside_calendar_data {
+                        if let Ok(text) = e.unescape() {
+                            current_ical.push_str(&text);
+                        }
+                    }
+                },
+                Ok(Event::CData(e)) => {
+                    if inside_calendar_data {
+                        if let Ok(text) = std::str::from_utf8(e.as_ref()) {
+                            current_ical.push_str(text);
+                        }
+                    }
+                },
+                Ok(Event::End(e)) => {
+                    if inside_calendar_data
+                        && (e.name().as_ref() == b"C:calendar-data"
+                            || e.name().as_ref() == b"calendar-data"
+                            || e.name().as_ref() == b"D:calendar-data")
+                    {
+                        inside_calendar_data = false;
+                        if !current_ical.trim().is_empty() {
+                            ical_data_list.push(current_ical.clone());
+                        }
+                    }
+                },
+                Ok(Event::Eof) => break,
+                Err(e) => {
+                    debug!(error = ?e, "XML parsing error, falling back to string search");
+                    break;
+                },
+                _ => {},
+            }
+            buf.clear();
+        }
+
+        ical_data_list
+    }
+
     /// Build iCalendar VEVENT from `CalendarEvent`
     #[allow(clippy::unused_self)]
     fn build_icalendar(&self, event: &CalendarEvent) -> String {
@@ -360,30 +423,13 @@ impl CalDavClient for HttpCalDavClient {
 
         debug!(response_len = body.len(), "REPORT response received");
 
-        // Extract iCalendar data from CDATA sections
+        // Extract iCalendar data using proper XML parsing
+        let ical_data_list = Self::extract_calendar_data_from_xml(&body);
+
         let mut all_events = Vec::new();
-        let ical_start = "<C:calendar-data>";
-        let ical_end = "</C:calendar-data>";
-
-        let mut search_from = 0;
-        while let Some(start_idx) = body[search_from..].find(ical_start) {
-            let absolute_start = search_from + start_idx + ical_start.len();
-            if let Some(end_idx) = body[absolute_start..].find(ical_end) {
-                let ical_data = &body[absolute_start..absolute_start + end_idx];
-                // Decode XML entities
-                let ical_decoded = ical_data
-                    .replace("&lt;", "<")
-                    .replace("&gt;", ">")
-                    .replace("&amp;", "&")
-                    .replace("&#13;", "\r")
-                    .replace("&#10;", "\n");
-
-                if let Ok(events) = self.parse_icalendar(&ical_decoded) {
-                    all_events.extend(events);
-                }
-                search_from = absolute_start + end_idx;
-            } else {
-                break;
+        for ical_data in ical_data_list {
+            if let Ok(events) = self.parse_icalendar(&ical_data) {
+                all_events.extend(events);
             }
         }
 
@@ -812,6 +858,119 @@ END:VCALENDAR";
         let result = client.parse_icalendar("not valid icalendar data");
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn extract_calendar_data_from_xml_single_event() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let _client = HttpCalDavClient::new(config).unwrap();
+
+        let xml_response = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:response>
+    <C:calendar-data><![CDATA[BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:test-123
+SUMMARY:Test Event
+DTSTART:20240215T100000Z
+DTEND:20240215T110000Z
+END:VEVENT
+END:VCALENDAR]]></C:calendar-data>
+  </D:response>
+</D:multistatus>"#;
+
+        let ical_data = HttpCalDavClient::extract_calendar_data_from_xml(xml_response);
+        assert_eq!(ical_data.len(), 1);
+        assert!(ical_data[0].contains("BEGIN:VCALENDAR"));
+        assert!(ical_data[0].contains("SUMMARY:Test Event"));
+    }
+
+    #[test]
+    fn extract_calendar_data_from_xml_multiple_events() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let _client = HttpCalDavClient::new(config).unwrap();
+
+        let xml_response = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:response>
+    <C:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:event-1
+SUMMARY:Event 1
+END:VEVENT
+END:VCALENDAR</C:calendar-data>
+  </D:response>
+  <D:response>
+    <C:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:event-2
+SUMMARY:Event 2
+END:VEVENT
+END:VCALENDAR</C:calendar-data>
+  </D:response>
+</D:multistatus>"#;
+
+        let ical_data = HttpCalDavClient::extract_calendar_data_from_xml(xml_response);
+        assert_eq!(ical_data.len(), 2);
+        assert!(ical_data[0].contains("Event 1"));
+        assert!(ical_data[1].contains("Event 2"));
+    }
+
+    #[test]
+    fn extract_calendar_data_from_xml_with_entities() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let _client = HttpCalDavClient::new(config).unwrap();
+
+        let xml_response = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:response>
+    <C:calendar-data>BEGIN:VCALENDAR
+DESCRIPTION:Meeting &lt;important&gt; &amp; urgent
+END:VCALENDAR</C:calendar-data>
+  </D:response>
+</D:multistatus>"#;
+
+        let ical_data = HttpCalDavClient::extract_calendar_data_from_xml(xml_response);
+        assert_eq!(ical_data.len(), 1);
+        // XML entities should be decoded by quick-xml
+        assert!(ical_data[0].contains("<important>"));
+        assert!(ical_data[0].contains("& urgent"));
+    }
+
+    #[test]
+    fn extract_calendar_data_from_xml_empty_response() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let _client = HttpCalDavClient::new(config).unwrap();
+
+        let xml_response = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:multistatus xmlns:D="DAV:">
+</D:multistatus>"#;
+
+        let ical_data = HttpCalDavClient::extract_calendar_data_from_xml(xml_response);
+        assert_eq!(ical_data.len(), 0);
     }
 
     #[test]
