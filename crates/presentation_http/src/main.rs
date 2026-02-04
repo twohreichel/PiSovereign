@@ -7,8 +7,8 @@ use std::{sync::Arc, time::Duration};
 use application::{AgentService, ChatService};
 use infrastructure::{AppConfig, HailoInferenceAdapter};
 use presentation_http::{
-    ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig, routes,
-    spawn_config_reload_handler, state::AppState,
+    ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig,
+    handlers::metrics::MetricsCollector, routes, spawn_config_reload_handler, state::AppState,
 };
 use tokio::{net::TcpListener, signal};
 use tower_http::{
@@ -64,11 +64,15 @@ async fn main() -> anyhow::Result<()> {
 
     let agent_service = AgentService::new(Arc::clone(&inference));
 
+    // Initialize metrics collector
+    let metrics = Arc::new(MetricsCollector::new());
+
     // Create app state with reloadable config
     let state = AppState {
         chat_service: Arc::new(chat_service),
         agent_service: Arc::new(agent_service),
         config: reloadable_config,
+        metrics,
     };
 
     // Build router

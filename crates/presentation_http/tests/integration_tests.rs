@@ -12,7 +12,9 @@ use async_trait::async_trait;
 use axum_test::TestServer;
 use domain::Conversation;
 use infrastructure::AppConfig;
-use presentation_http::{routes::create_router, state::AppState};
+use presentation_http::{
+    handlers::metrics::MetricsCollector, routes::create_router, state::AppState,
+};
 use serde_json::json;
 
 /// Mock inference engine for testing
@@ -115,6 +117,7 @@ fn create_test_state() -> AppState {
         chat_service: Arc::new(ChatService::new(inference.clone())),
         agent_service: Arc::new(AgentService::new(inference)),
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
+        metrics: Arc::new(MetricsCollector::new()),
     }
 }
 
@@ -124,6 +127,7 @@ fn create_unhealthy_test_state() -> AppState {
         chat_service: Arc::new(ChatService::new(inference.clone())),
         agent_service: Arc::new(AgentService::new(inference)),
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
+        metrics: Arc::new(MetricsCollector::new()),
     }
 }
 

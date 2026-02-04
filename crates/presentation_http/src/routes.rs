@@ -13,6 +13,9 @@ pub fn create_router(state: AppState) -> Router {
         // Health and status endpoints
         .route("/health", get(handlers::health::health_check))
         .route("/ready", get(handlers::health::readiness_check))
+        // Metrics endpoints
+        .route("/metrics", get(handlers::metrics::get_metrics))
+        .route("/metrics/prometheus", get(handlers::metrics::get_metrics_prometheus))
         // Chat API (v1)
         .route("/v1/chat", post(handlers::chat::chat))
         .route("/v1/chat/stream", post(handlers::chat::chat_stream))
