@@ -110,6 +110,11 @@ impl ChatService {
         self.inference.current_model()
     }
 
+    /// List available models on the system
+    pub async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError> {
+        self.inference.list_available_models().await
+    }
+
     /// Handle a streaming chat message (stateless)
     ///
     /// Returns a stream of chunks that can be forwarded directly to SSE
@@ -144,6 +149,7 @@ mod tests {
             async fn generate_stream_with_system(&self, system_prompt: &str, message: &str) -> Result<InferenceStream, ApplicationError>;
             async fn is_healthy(&self) -> bool;
             fn current_model(&self) -> &'static str;
+            async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError>;
         }
     }
 

@@ -397,6 +397,10 @@ mod tests {
         fn current_model(&self) -> &str {
             "test-model"
         }
+
+        async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError> {
+            Ok(vec!["test-model".to_string()])
+        }
     }
 
     #[test]

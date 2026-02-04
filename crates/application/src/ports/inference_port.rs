@@ -72,4 +72,10 @@ pub trait InferencePort: Send + Sync {
 
     /// Get the name of the current model
     fn current_model(&self) -> &str;
+
+    /// List available models on the system
+    ///
+    /// # Returns
+    /// Vector of available model names
+    async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError>;
 }

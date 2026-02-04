@@ -43,24 +43,41 @@ pub struct ModelInfo {
 
 /// List available models
 pub async fn list_models(State(state): State<AppState>) -> Json<ModelsResponse> {
-    // TODO: Query actual available models from Hailo
-    let available = vec![
-        ModelInfo {
-            name: "qwen2.5-1.5b-instruct".to_string(),
-            description: "Qwen 2.5 1.5B Instruct - General purpose".to_string(),
-            parameters: "1.5B".to_string(),
-        },
-        ModelInfo {
-            name: "llama3.2-1b-instruct".to_string(),
-            description: "Llama 3.2 1B Instruct - Fast responses".to_string(),
-            parameters: "1B".to_string(),
-        },
-        ModelInfo {
-            name: "qwen2-1.5b-function-calling".to_string(),
-            description: "Qwen 2 1.5B Function Calling - Optimized for tools".to_string(),
-            parameters: "1.5B".to_string(),
-        },
-    ];
+    // Query actual available models from Hailo
+    let model_names = state
+        .chat_service
+        .list_available_models()
+        .await
+        .unwrap_or_else(|_| vec![state.chat_service.current_model().to_string()]);
+
+    let available = model_names
+        .into_iter()
+        .map(|name| {
+            // Extract parameter size from model name (e.g., "qwen2.5-1.5b-instruct" → "1.5B")
+            let parameters = name
+                .split('-')
+                .find(|part| part.ends_with('b'))
+                .map(|s| s.to_uppercase())
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            // Create description based on model name
+            let description = if name.contains("qwen") {
+                format!("Qwen {parameters} - General purpose language model")
+            } else if name.contains("llama") {
+                format!("Llama {parameters} - Meta's language model")
+            } else if name.contains("phi") {
+                format!("Phi {parameters} - Microsoft's small language model")
+            } else {
+                format!("{name} - Language model")
+            };
+
+            ModelInfo {
+                name,
+                description,
+                parameters,
+            }
+        })
+        .collect();
 
     Json(ModelsResponse {
         current: state.chat_service.current_model().to_string(),

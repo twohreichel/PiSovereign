@@ -229,6 +229,11 @@ impl InferencePort for HailoInferenceAdapter {
     fn current_model(&self) -> &str {
         self.engine.default_model()
     }
+
+    #[instrument(skip(self))]
+    async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError> {
+        self.engine.list_models().await.map_err(Self::map_error)
+    }
 }
 
 #[cfg(test)]
