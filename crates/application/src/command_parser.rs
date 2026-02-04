@@ -2,10 +2,68 @@
 
 use std::{fmt, sync::Arc};
 
+use chrono::{NaiveDate, NaiveTime};
 use domain::AgentCommand;
-use tracing::{debug, instrument};
+use serde::Deserialize;
+use tracing::{debug, instrument, warn};
 
 use crate::{error::ApplicationError, ports::InferencePort};
+
+/// System prompt for intent detection
+const INTENT_SYSTEM_PROMPT: &str = r#"Du bist ein Intent-Classifier für einen persönlichen Assistenten.
+Analysiere die Benutzereingabe und extrahiere den Intent als JSON.
+
+Mögliche Intents:
+- "morning_briefing": Morgenbriefing anfordern (z.B. "Was steht heute an?", "Briefing")
+- "create_calendar_event": Termin erstellen (braucht: date, time, title)
+- "summarize_inbox": E-Mail-Zusammenfassung (z.B. "Was gibt es Neues?", "Mails")
+- "draft_email": E-Mail-Entwurf (braucht: to, body; optional: subject)
+- "send_email": E-Mail senden (braucht: draft_id)
+- "ask": Allgemeine Frage (wenn nichts anderes passt)
+
+Antworte NUR mit validem JSON:
+{
+  "intent": "<intent_name>",
+  "date": "YYYY-MM-DD" (optional, nur für Termine),
+  "time": "HH:MM" (optional, nur für Termine),
+  "title": "..." (optional, für Termine),
+  "to": "email@example.com" (optional, für E-Mails),
+  "subject": "..." (optional, für E-Mails),
+  "body": "..." (optional, für E-Mails),
+  "question": "..." (nur für ask-Intent),
+  "count": 10 (optional, für inbox),
+  "draft_id": "..." (optional, für send_email)
+}
+
+Beispiele:
+- "Briefing für morgen" → {"intent":"morning_briefing","date":"2025-02-02"}
+- "Termin morgen 14:00 Team Meeting" → {"intent":"create_calendar_event","date":"2025-02-02","time":"14:00","title":"Team Meeting"}
+- "Fasse meine Mails zusammen" → {"intent":"summarize_inbox"}
+- "Wie wird das Wetter?" → {"intent":"ask","question":"Wie wird das Wetter?"}"#;
+
+/// Parsed intent from LLM
+#[derive(Debug, Deserialize)]
+struct ParsedIntent {
+    intent: String,
+    #[serde(default)]
+    date: Option<String>,
+    #[serde(default)]
+    time: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    to: Option<String>,
+    #[serde(default)]
+    subject: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    question: Option<String>,
+    #[serde(default)]
+    count: Option<u32>,
+    #[serde(default)]
+    draft_id: Option<String>,
+}
 
 /// Parser for converting natural language to AgentCommand
 pub struct CommandParser {
@@ -161,10 +219,10 @@ impl CommandParser {
     }
 
     /// Parse using LLM for complex commands
-    #[instrument(skip(self, _inference, input), fields(input_len = input.len()))]
+    #[instrument(skip(self, inference, input), fields(input_len = input.len()))]
     pub async fn parse_with_llm(
         &self,
-        _inference: &Arc<dyn InferencePort>,
+        inference: &Arc<dyn InferencePort>,
         input: &str,
     ) -> Result<AgentCommand, ApplicationError> {
         // First, try quick parsing
@@ -172,13 +230,157 @@ impl CommandParser {
             return Ok(cmd);
         }
 
-        // For now, treat unrecognized input as a question
-        // TODO: Implement proper LLM-based intent detection
-        debug!("No quick match, treating as question");
+        // Use LLM for intent detection
+        debug!("No quick match, using LLM for intent detection");
 
-        Ok(AgentCommand::Ask {
-            question: input.to_string(),
-        })
+        let result = inference
+            .generate_with_system(INTENT_SYSTEM_PROMPT, input)
+            .await?;
+
+        // Try to parse the LLM response as JSON
+        match self.parse_llm_response(&result.content, input) {
+            Ok(cmd) => {
+                debug!(command = ?cmd, "LLM-parsed command");
+                Ok(cmd)
+            },
+            Err(e) => {
+                warn!(error = %e, response = %result.content, "Failed to parse LLM intent response");
+                // Fall back to Ask intent
+                Ok(AgentCommand::Ask {
+                    question: input.to_string(),
+                })
+            },
+        }
+    }
+
+    /// Parse the LLM response JSON into an AgentCommand
+    fn parse_llm_response(
+        &self,
+        response: &str,
+        original_input: &str,
+    ) -> Result<AgentCommand, String> {
+        // Extract JSON from response (handle markdown code blocks)
+        let json_str = Self::extract_json(response);
+
+        let parsed: ParsedIntent =
+            serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {e}"))?;
+
+        self.intent_to_command(parsed, original_input)
+    }
+
+    /// Extract JSON from potentially markdown-wrapped response
+    fn extract_json(response: &str) -> &str {
+        let response = response.trim();
+
+        // Handle ```json ... ``` blocks
+        if let Some(start) = response.find("```json") {
+            if let Some(end) = response[start + 7..].find("```") {
+                return response[start + 7..start + 7 + end].trim();
+            }
+        }
+
+        // Handle ``` ... ``` blocks
+        if let Some(start) = response.find("```") {
+            if let Some(end) = response[start + 3..].find("```") {
+                return response[start + 3..start + 3 + end].trim();
+            }
+        }
+
+        // Handle { ... } directly
+        if let Some(start) = response.find('{') {
+            if let Some(end) = response.rfind('}') {
+                return &response[start..=end];
+            }
+        }
+
+        response
+    }
+
+    /// Convert parsed intent to AgentCommand
+    #[allow(clippy::unused_self)]
+    fn intent_to_command(
+        &self,
+        parsed: ParsedIntent,
+        original_input: &str,
+    ) -> Result<AgentCommand, String> {
+        match parsed.intent.as_str() {
+            "morning_briefing" => {
+                let date = parsed
+                    .date
+                    .as_ref()
+                    .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
+                Ok(AgentCommand::MorningBriefing { date })
+            },
+
+            "create_calendar_event" => {
+                let date = parsed
+                    .date
+                    .as_ref()
+                    .ok_or("Missing date for calendar event")?;
+                let time = parsed
+                    .time
+                    .as_ref()
+                    .ok_or("Missing time for calendar event")?;
+                let title = parsed
+                    .title
+                    .as_ref()
+                    .ok_or("Missing title for calendar event")?;
+
+                let date = NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                    .map_err(|e| format!("Invalid date format: {e}"))?;
+                let time = NaiveTime::parse_from_str(time, "%H:%M")
+                    .or_else(|_| NaiveTime::parse_from_str(time, "%H:%M:%S"))
+                    .map_err(|e| format!("Invalid time format: {e}"))?;
+
+                Ok(AgentCommand::CreateCalendarEvent {
+                    date,
+                    time,
+                    title: title.clone(),
+                    duration_minutes: Some(60),
+                    attendees: None,
+                    location: None,
+                })
+            },
+
+            "summarize_inbox" => Ok(AgentCommand::SummarizeInbox {
+                count: parsed.count,
+                only_important: None,
+            }),
+
+            "draft_email" => {
+                let to_str = parsed.to.as_ref().ok_or("Missing recipient for email")?;
+                let to = domain::EmailAddress::new(to_str)
+                    .map_err(|e| format!("Invalid email address: {e}"))?;
+                let body = parsed
+                    .body
+                    .as_ref()
+                    .ok_or("Missing body for email")?
+                    .clone();
+
+                Ok(AgentCommand::DraftEmail {
+                    to,
+                    subject: parsed.subject,
+                    body,
+                })
+            },
+
+            "send_email" => {
+                let draft_id = parsed
+                    .draft_id
+                    .as_ref()
+                    .ok_or("Missing draft_id for send_email")?
+                    .clone();
+                Ok(AgentCommand::SendEmail { draft_id })
+            },
+
+            _ => {
+                // "ask" or any unknown intent falls back to Ask command
+                let question = parsed
+                    .question
+                    .unwrap_or_else(|| original_input.to_string());
+                Ok(AgentCommand::Ask { question })
+            },
+        }
     }
 }
 
@@ -532,7 +734,18 @@ mod async_tests {
     #[tokio::test]
     async fn parse_with_llm_unknown_becomes_ask() {
         let parser = CommandParser::new();
-        let mock = MockInferenceEngine::new();
+        let mut mock = MockInferenceEngine::new();
+
+        // Set up expectation for generate_with_system
+        mock.expect_generate_with_system().returning(|_, msg| {
+            Ok(InferenceResult {
+                content: format!(r#"{{"intent":"ask","question":"{}"}}"#, msg),
+                model: "test".to_string(),
+                tokens_used: Some(10),
+                latency_ms: 50,
+            })
+        });
+
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
         let result = parser
@@ -591,5 +804,240 @@ mod async_tests {
 
         let result = parser.parse_with_llm(&inference, "inbox").await.unwrap();
         assert!(matches!(result, AgentCommand::SummarizeInbox { .. }));
+    }
+
+    // Tests for LLM response parsing
+
+    #[test]
+    fn extract_json_plain() {
+        let json = r#"{"intent":"ask","question":"test"}"#;
+        assert_eq!(CommandParser::extract_json(json), json);
+    }
+
+    #[test]
+    fn extract_json_with_code_block() {
+        let response = r#"```json
+{"intent":"ask","question":"test"}
+```"#;
+        assert_eq!(
+            CommandParser::extract_json(response),
+            r#"{"intent":"ask","question":"test"}"#
+        );
+    }
+
+    #[test]
+    fn extract_json_with_plain_code_block() {
+        let response = r#"```
+{"intent":"morning_briefing"}
+```"#;
+        assert_eq!(
+            CommandParser::extract_json(response),
+            r#"{"intent":"morning_briefing"}"#
+        );
+    }
+
+    #[test]
+    fn extract_json_with_surrounding_text() {
+        let response = r#"Here is the result: {"intent":"ask","question":"hello"} as requested."#;
+        assert_eq!(
+            CommandParser::extract_json(response),
+            r#"{"intent":"ask","question":"hello"}"#
+        );
+    }
+
+    #[test]
+    fn parse_llm_response_morning_briefing() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"morning_briefing"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        assert!(matches!(cmd, AgentCommand::MorningBriefing { date: None }));
+    }
+
+    #[test]
+    fn parse_llm_response_morning_briefing_with_date() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"morning_briefing","date":"2025-02-15"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::MorningBriefing { date } = cmd else {
+            unreachable!("Expected MorningBriefing")
+        };
+        assert!(date.is_some());
+        assert_eq!(date.unwrap().to_string(), "2025-02-15");
+    }
+
+    #[test]
+    fn parse_llm_response_summarize_inbox() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"summarize_inbox","count":5}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::SummarizeInbox { count, .. } = cmd else {
+            unreachable!("Expected SummarizeInbox")
+        };
+        assert_eq!(count, Some(5));
+    }
+
+    #[test]
+    fn parse_llm_response_ask() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"ask","question":"What is the weather?"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::Ask { question } = cmd else {
+            unreachable!("Expected Ask")
+        };
+        assert_eq!(question, "What is the weather?");
+    }
+
+    #[test]
+    fn parse_llm_response_ask_fallback() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"unknown_intent"}"#;
+        let cmd = parser
+            .parse_llm_response(response, "original input")
+            .unwrap();
+        let AgentCommand::Ask { question } = cmd else {
+            unreachable!("Expected Ask")
+        };
+        assert_eq!(question, "original input");
+    }
+
+    #[test]
+    fn parse_llm_response_create_calendar_event() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_calendar_event","date":"2025-02-20","time":"14:00","title":"Team Meeting"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::CreateCalendarEvent {
+            date, time, title, ..
+        } = cmd
+        else {
+            unreachable!("Expected CreateCalendarEvent")
+        };
+        assert_eq!(date.to_string(), "2025-02-20");
+        assert_eq!(time.to_string(), "14:00:00");
+        assert_eq!(title, "Team Meeting");
+    }
+
+    #[test]
+    fn parse_llm_response_create_calendar_event_missing_date() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_calendar_event","time":"14:00","title":"Meeting"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing date"));
+    }
+
+    #[test]
+    fn parse_llm_response_create_calendar_event_missing_time() {
+        let parser = CommandParser::new();
+        let response =
+            r#"{"intent":"create_calendar_event","date":"2025-02-20","title":"Meeting"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing time"));
+    }
+
+    #[test]
+    fn parse_llm_response_create_calendar_event_missing_title() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_calendar_event","date":"2025-02-20","time":"14:00"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing title"));
+    }
+
+    #[test]
+    fn parse_llm_response_draft_email() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"draft_email","to":"test@example.com","subject":"Hello","body":"Test message"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::DraftEmail { to, subject, body } = cmd else {
+            unreachable!("Expected DraftEmail")
+        };
+        assert_eq!(to.to_string(), "test@example.com");
+        assert_eq!(subject, Some("Hello".to_string()));
+        assert_eq!(body, "Test message");
+    }
+
+    #[test]
+    fn parse_llm_response_draft_email_missing_to() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"draft_email","body":"Test message"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing recipient"));
+    }
+
+    #[test]
+    fn parse_llm_response_draft_email_invalid_email() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"draft_email","to":"invalid-email","body":"Test"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid email"));
+    }
+
+    #[test]
+    fn parse_llm_response_send_email() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"send_email","draft_id":"draft-123"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::SendEmail { draft_id } = cmd else {
+            unreachable!("Expected SendEmail")
+        };
+        assert_eq!(draft_id, "draft-123");
+    }
+
+    #[test]
+    fn parse_llm_response_send_email_missing_draft_id() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"send_email"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing draft_id"));
+    }
+
+    #[test]
+    fn parse_llm_response_invalid_json() {
+        let parser = CommandParser::new();
+        let response = "not json at all";
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("JSON parse error"));
+    }
+
+    #[test]
+    fn parse_llm_response_invalid_date_format() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_calendar_event","date":"20-02-2025","time":"14:00","title":"Meeting"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid date format"));
+    }
+
+    #[test]
+    fn parse_llm_response_invalid_time_format() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_calendar_event","date":"2025-02-20","time":"2pm","title":"Meeting"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid time format"));
+    }
+
+    #[test]
+    fn parse_llm_response_time_with_seconds() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_calendar_event","date":"2025-02-20","time":"14:30:00","title":"Meeting"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::CreateCalendarEvent { time, .. } = cmd else {
+            unreachable!("Expected CreateCalendarEvent")
+        };
+        assert_eq!(time.to_string(), "14:30:00");
+    }
+
+    #[test]
+    fn intent_system_prompt_is_valid() {
+        // Check prompt has required content
+        assert!(INTENT_SYSTEM_PROMPT.len() > 100);
+        assert!(INTENT_SYSTEM_PROMPT.contains("intent"));
+        assert!(INTENT_SYSTEM_PROMPT.contains("JSON"));
     }
 }
