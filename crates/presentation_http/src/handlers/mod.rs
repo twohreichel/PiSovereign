@@ -5,3 +5,4 @@ pub mod commands;
 pub mod health;
 pub mod metrics;
 pub mod system;
+pub mod whatsapp;

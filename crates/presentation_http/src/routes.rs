@@ -25,6 +25,11 @@ pub fn create_router(state: AppState) -> Router {
         // System API
         .route("/v1/system/status", get(handlers::system::status))
         .route("/v1/system/models", get(handlers::system::list_models))
+        // WhatsApp webhook
+        .route(
+            "/webhook/whatsapp",
+            get(handlers::whatsapp::verify_webhook).post(handlers::whatsapp::handle_webhook),
+        )
         // Attach state
         .with_state(state)
 }

@@ -125,3 +125,4 @@ infrastructure = { path = "crates/infrastructure" }
 ai_core = { path = "crates/ai_core" }
 integration_proton = { path = "crates/integration_proton" }
 integration_caldav = { path = "crates/integration_caldav" }
+integration_whatsapp = { path = "crates/integration_whatsapp" }
