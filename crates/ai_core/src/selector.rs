@@ -215,8 +215,12 @@ impl<E: InferenceEngine + 'static> InferenceEngine for ModelSelector<E> {
         self.engine.list_models().await
     }
 
-    fn default_model(&self) -> &str {
+    fn default_model(&self) -> String {
         self.engine.default_model()
+    }
+
+    fn set_default_model(&self, model_name: &str) {
+        self.engine.set_default_model(model_name);
     }
 }
 
@@ -280,8 +284,12 @@ mod tests {
             ])
         }
 
-        fn default_model(&self) -> &str {
-            "qwen2.5-1.5b-instruct"
+        fn default_model(&self) -> String {
+            "qwen2.5-1.5b-instruct".to_string()
+        }
+
+        fn set_default_model(&self, _model_name: &str) {
+            // No-op for tests
         }
     }
 

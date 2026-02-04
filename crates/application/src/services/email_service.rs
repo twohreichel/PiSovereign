@@ -393,13 +393,16 @@ mod tests {
             true
         }
 
-        #[allow(clippy::unnecessary_literal_bound)]
-        fn current_model(&self) -> &str {
-            "test-model"
+        fn current_model(&self) -> String {
+            "test-model".to_string()
         }
 
         async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError> {
             Ok(vec!["test-model".to_string()])
+        }
+
+        async fn switch_model(&self, _model_name: &str) -> Result<(), ApplicationError> {
+            Ok(())
         }
     }
 

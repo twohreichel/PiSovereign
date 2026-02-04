@@ -10,7 +10,7 @@ use application::{
 use async_trait::async_trait;
 use domain::Conversation;
 use futures::StreamExt;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use super::{CircuitBreaker, CircuitBreakerConfig};
 
@@ -347,7 +347,7 @@ impl InferencePort for HailoInferenceAdapter {
         self.engine.health_check().await.unwrap_or(false)
     }
 
-    fn current_model(&self) -> &str {
+    fn current_model(&self) -> String {
         self.engine.default_model()
     }
 
@@ -360,6 +360,32 @@ impl InferencePort for HailoInferenceAdapter {
             ));
         }
         self.engine.list_models().await.map_err(Self::map_error)
+    }
+
+    #[instrument(skip(self), fields(model = %model_name, circuit = %self.circuit_state_desc()))]
+    async fn switch_model(&self, model_name: &str) -> Result<(), ApplicationError> {
+        // Fast-fail if circuit is open
+        if self.is_circuit_open() {
+            return Err(ApplicationError::ExternalService(
+                "Hailo inference service temporarily unavailable (circuit breaker open)".to_string(),
+            ));
+        }
+
+        // Check if model is available
+        let available_models = self.engine.list_models().await.map_err(Self::map_error)?;
+        if !available_models.iter().any(|m| m == model_name) {
+            return Err(ApplicationError::NotFound(format!(
+                "Model '{}' not found. Available models: {}",
+                model_name,
+                available_models.join(", ")
+            )));
+        }
+
+        // Switch the model in the engine
+        self.engine.set_default_model(model_name);
+        info!(model = %model_name, "Switched to model");
+
+        Ok(())
     }
 }
 

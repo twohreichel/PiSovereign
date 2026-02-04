@@ -106,7 +106,7 @@ impl ChatService {
     }
 
     /// Get the current model name
-    pub fn current_model(&self) -> &str {
+    pub fn current_model(&self) -> String {
         self.inference.current_model()
     }
 
@@ -148,8 +148,9 @@ mod tests {
             async fn generate_stream(&self, message: &str) -> Result<InferenceStream, ApplicationError>;
             async fn generate_stream_with_system(&self, system_prompt: &str, message: &str) -> Result<InferenceStream, ApplicationError>;
             async fn is_healthy(&self) -> bool;
-            fn current_model(&self) -> &'static str;
+            fn current_model(&self) -> String;
             async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError>;
+            async fn switch_model(&self, model_name: &str) -> Result<(), ApplicationError>;
         }
     }
 
@@ -271,7 +272,8 @@ mod tests {
     #[tokio::test]
     async fn current_model() {
         let mut mock = MockInferenceEngine::new();
-        mock.expect_current_model().returning(|| "qwen2.5-1.5b");
+        mock.expect_current_model()
+            .returning(|| "qwen2.5-1.5b".to_string());
 
         let service = ChatService::new(Arc::new(mock));
         assert_eq!(service.current_model(), "qwen2.5-1.5b");

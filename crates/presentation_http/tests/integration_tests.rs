@@ -106,12 +106,16 @@ impl InferencePort for MockInference {
         self.healthy
     }
 
-    fn current_model(&self) -> &str {
-        &self.model
+    fn current_model(&self) -> String {
+        self.model.clone()
     }
 
     async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError> {
         Ok(vec![self.model.clone()])
+    }
+
+    async fn switch_model(&self, _model_name: &str) -> Result<(), ApplicationError> {
+        Ok(())
     }
 }
 

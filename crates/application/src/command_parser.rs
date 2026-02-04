@@ -689,8 +689,9 @@ mod async_tests {
             async fn generate_stream(&self, message: &str) -> Result<crate::ports::InferenceStream, ApplicationError>;
             async fn generate_stream_with_system(&self, system_prompt: &str, message: &str) -> Result<crate::ports::InferenceStream, ApplicationError>;
             async fn is_healthy(&self) -> bool;
-            fn current_model(&self) -> &'static str;
+            fn current_model(&self) -> String;
             async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError>;
+            async fn switch_model(&self, model_name: &str) -> Result<(), ApplicationError>;
         }
     }
 

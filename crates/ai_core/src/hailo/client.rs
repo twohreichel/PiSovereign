@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
@@ -15,10 +16,20 @@ use crate::{
 };
 
 /// Hailo-10H inference engine using hailo-ollama
-#[derive(Debug)]
 pub struct HailoInferenceEngine {
     client: Client,
     config: InferenceConfig,
+    /// Current model name (can be switched at runtime)
+    current_model: RwLock<String>,
+}
+
+impl std::fmt::Debug for HailoInferenceEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HailoInferenceEngine")
+            .field("config", &self.config)
+            .field("current_model", &*self.current_model.read())
+            .finish()
+    }
 }
 
 impl HailoInferenceEngine {
@@ -35,7 +46,13 @@ impl HailoInferenceEngine {
             "Initialized Hailo inference engine"
         );
 
-        Ok(Self { client, config })
+        let current_model = RwLock::new(config.default_model.clone());
+
+        Ok(Self {
+            client,
+            config,
+            current_model,
+        })
     }
 
     /// Create with default configuration for Hailo-10H
@@ -53,11 +70,17 @@ impl HailoInferenceEngine {
     }
 
     /// Get the model to use for a request
-    fn resolve_model<'a>(&'a self, request: &'a InferenceRequest) -> &'a str {
+    fn resolve_model(&self, request: &InferenceRequest) -> String {
         request
             .model
-            .as_deref()
-            .unwrap_or(&self.config.default_model)
+            .clone()
+            .unwrap_or_else(|| self.current_model.read().clone())
+    }
+
+    /// Set the default model to use for requests
+    pub fn set_default_model(&self, model_name: &str) {
+        *self.current_model.write() = model_name.to_string();
+        info!(model = %model_name, "Changed default model");
     }
 }
 
@@ -278,8 +301,13 @@ impl InferenceEngine for HailoInferenceEngine {
         Ok(models_response.models.into_iter().map(|m| m.name).collect())
     }
 
-    fn default_model(&self) -> &str {
-        &self.config.default_model
+    fn default_model(&self) -> String {
+        self.current_model.read().clone()
+    }
+
+    fn set_default_model(&self, model_name: &str) {
+        *self.current_model.write() = model_name.to_string();
+        info!(model = %model_name, "Changed default model via trait");
     }
 }
 

@@ -17,6 +17,7 @@ tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
+parking_lot.workspace = true
 tokio-stream = "0.1"
 futures = "0.3"
 

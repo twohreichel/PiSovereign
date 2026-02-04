@@ -71,11 +71,20 @@ pub trait InferencePort: Send + Sync {
     async fn is_healthy(&self) -> bool;
 
     /// Get the name of the current model
-    fn current_model(&self) -> &str;
+    fn current_model(&self) -> String;
 
     /// List available models on the system
     ///
     /// # Returns
     /// Vector of available model names
     async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError>;
+
+    /// Switch to a different model
+    ///
+    /// # Arguments
+    /// * `model_name` - Name of the model to switch to
+    ///
+    /// # Returns
+    /// Result indicating success or failure
+    async fn switch_model(&self, model_name: &str) -> Result<(), ApplicationError>;
 }

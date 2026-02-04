@@ -166,7 +166,10 @@ pub trait InferenceEngine: Send + Sync {
     async fn list_models(&self) -> Result<Vec<String>, InferenceError>;
 
     /// Get the current default model
-    fn default_model(&self) -> &str;
+    fn default_model(&self) -> String;
+
+    /// Set the default model (for model switching)
+    fn set_default_model(&self, model_name: &str);
 }
 
 #[cfg(test)]
