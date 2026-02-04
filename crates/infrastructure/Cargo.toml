@@ -27,6 +27,8 @@ r2d2.workspace = true
 r2d2_sqlite.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+vaultrs.workspace = true
+recloser.workspace = true
 futures = "0.3"
 
 [dev-dependencies]
