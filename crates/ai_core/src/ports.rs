@@ -86,18 +86,21 @@ impl InferenceRequest {
     }
 
     /// Enable streaming for this request
+    #[must_use]
     pub const fn streaming(mut self) -> Self {
         self.stream = true;
         self
     }
 
     /// Set the model for this request
+    #[must_use]
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
         self
     }
 
     /// Set temperature
+    #[must_use]
     pub const fn with_temperature(mut self, temp: f32) -> Self {
         self.temperature = Some(temp);
         self
