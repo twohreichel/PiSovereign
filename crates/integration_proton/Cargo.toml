@@ -20,6 +20,26 @@ reqwest.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 
+# IMAP client for reading emails (sync, wrapped in spawn_blocking)
+imap = "3.0.0-alpha.15"
+native-tls = "0.2"
+
+# Mailparse for parsing email content
+mailparse = "0.15"
+
+# Futures utilities
+futures = "0.3"
+
+# Base64 encoding for SMTP AUTH
+base64 = "0.22"
+
+# Hostname detection for EHLO
+hostname = "0.4"
+
+# TLS for SMTP (tokio-compatible)
+tokio-native-tls = "0.3"
+
 [dev-dependencies]
 tokio-test.workspace = true
 serde_json.workspace = true
+mockall.workspace = true

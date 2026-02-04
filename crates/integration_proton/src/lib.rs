@@ -8,6 +8,11 @@
 //! application. The Bridge must be running locally and exposes IMAP/SMTP
 //! servers on configurable ports (default 1143/1025).
 //!
+//! The integration consists of:
+//! - `ProtonImapClient` - IMAP client for reading and managing emails
+//! - `ProtonSmtpClient` - SMTP client for sending emails
+//! - `ProtonBridgeClient` - Unified client implementing `ProtonClient` trait
+//!
 //! ## Usage
 //!
 //! ```no_run
@@ -15,12 +20,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let config = ProtonConfig {
-//!         email: "user@proton.me".to_string(),
-//!         password: "bridge-password".to_string(),
-//!         ..Default::default()
-//!     };
-//!
+//!     let config = ProtonConfig::with_credentials("user@proton.me", "bridge-password");
 //!     let client = ProtonBridgeClient::new(config);
 //!
 //!     // Check if Bridge is running
@@ -32,7 +32,11 @@
 //! ```
 
 mod client;
+mod imap_client;
+mod smtp_client;
 
 pub use client::{
     EmailComposition, EmailSummary, ProtonBridgeClient, ProtonClient, ProtonConfig, ProtonError,
 };
+pub use imap_client::ProtonImapClient;
+pub use smtp_client::ProtonSmtpClient;

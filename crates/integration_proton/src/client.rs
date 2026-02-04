@@ -1,51 +1,85 @@
 //! Proton Mail client implementation
 //!
-//! Connects to Proton Bridge's local IMAP/SMTP server.
+//! Connects to Proton Bridge's local IMAP/SMTP server for email operations.
+//!
+//! ## Architecture
+//!
+//! This module provides the main `ProtonBridgeClient` which implements the
+//! `ProtonClient` trait. It internally uses:
+//! - `ProtonImapClient` for reading and managing emails (IMAP)
+//! - `ProtonSmtpClient` for sending emails (SMTP)
+//!
+//! ## Requirements
+//!
+//! - Proton Bridge must be running locally
+//! - Default IMAP port: 1143 (STARTTLS)
+//! - Default SMTP port: 1025 (STARTTLS)
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, instrument};
+
+use crate::{imap_client::ProtonImapClient, smtp_client::ProtonSmtpClient};
 
 /// Proton integration errors
 #[derive(Debug, Error)]
 pub enum ProtonError {
+    /// Bridge application is not running or not reachable
     #[error("Bridge not available: {0}")]
     BridgeUnavailable(String),
 
+    /// Invalid credentials or authentication failure
     #[error("Authentication failed")]
     AuthenticationFailed,
 
+    /// Requested mailbox does not exist
     #[error("Mailbox not found: {0}")]
     MailboxNotFound(String),
 
+    /// Requested message does not exist
     #[error("Message not found: {0}")]
     MessageNotFound(String),
 
+    /// Network connection error
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
 
+    /// General request failure
     #[error("Request failed: {0}")]
     RequestFailed(String),
 
+    /// SMTP-specific error
     #[error("SMTP error: {0}")]
     SmtpError(String),
+
+    /// IMAP-specific error
+    #[error("IMAP error: {0}")]
+    ImapError(String),
+
+    /// Invalid email address format
+    #[error("Invalid email address: {0}")]
+    InvalidAddress(String),
 }
 
 /// Proton Bridge configuration
+///
+/// Contains connection settings for both IMAP and SMTP services.
+/// Default values are configured for standard Proton Bridge setup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtonConfig {
-    /// IMAP host (default: 127.0.0.1)
+    /// IMAP server host (default: 127.0.0.1)
     pub imap_host: String,
-    /// IMAP port (default: 1143)
+    /// IMAP server port (default: 1143 for STARTTLS)
     pub imap_port: u16,
-    /// SMTP host (default: 127.0.0.1)
+    /// SMTP server host (default: 127.0.0.1)
     pub smtp_host: String,
-    /// SMTP port (default: 1025)
+    /// SMTP server port (default: 1025 for STARTTLS)
     pub smtp_port: u16,
     /// Email address (Bridge account email)
     pub email: String,
-    /// Bridge password (from Bridge UI, not Proton password)
+    /// Bridge password (from Bridge UI, not Proton account password)
+    #[serde(skip_serializing)]
     pub password: String,
 }
 
@@ -62,18 +96,66 @@ impl Default for ProtonConfig {
     }
 }
 
+impl ProtonConfig {
+    /// Creates a new configuration with the specified credentials
+    pub fn with_credentials(email: impl Into<String>, password: impl Into<String>) -> Self {
+        Self {
+            email: email.into(),
+            password: password.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Sets the IMAP connection details
+    #[must_use]
+    pub fn with_imap(mut self, host: impl Into<String>, port: u16) -> Self {
+        self.imap_host = host.into();
+        self.imap_port = port;
+        self
+    }
+
+    /// Sets the SMTP connection details
+    #[must_use]
+    pub fn with_smtp(mut self, host: impl Into<String>, port: u16) -> Self {
+        self.smtp_host = host.into();
+        self.smtp_port = port;
+        self
+    }
+
+    /// Validates the configuration
+    pub fn validate(&self) -> Result<(), ProtonError> {
+        if self.email.is_empty() {
+            return Err(ProtonError::InvalidAddress(
+                "Email address is required".to_string(),
+            ));
+        }
+        if !self.email.contains('@') {
+            return Err(ProtonError::InvalidAddress(format!(
+                "Invalid email format: {}",
+                self.email
+            )));
+        }
+        if self.password.is_empty() {
+            return Err(ProtonError::AuthenticationFailed);
+        }
+        Ok(())
+    }
+}
+
 /// Email summary for display
+///
+/// Contains essential information about an email without the full body.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EmailSummary {
-    /// Message ID
+    /// Unique message identifier (UID)
     pub id: String,
     /// Sender email address
     pub from: String,
-    /// Email subject
+    /// Email subject line
     pub subject: String,
-    /// Preview snippet (first 100 chars)
+    /// Preview snippet (first ~200 characters of body)
     pub snippet: String,
-    /// Received timestamp (ISO 8601)
+    /// Received timestamp (RFC 2822 or ISO 8601 format)
     pub received_at: String,
     /// Whether the email has been read
     pub is_read: bool,
@@ -81,7 +163,52 @@ pub struct EmailSummary {
     pub is_important: bool,
 }
 
+impl EmailSummary {
+    /// Creates a new email summary
+    pub fn new(id: impl Into<String>, from: impl Into<String>, subject: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            from: from.into(),
+            subject: subject.into(),
+            snippet: String::new(),
+            received_at: chrono::Utc::now().to_rfc3339(),
+            is_read: false,
+            is_important: false,
+        }
+    }
+
+    /// Sets the snippet
+    #[must_use]
+    pub fn with_snippet(mut self, snippet: impl Into<String>) -> Self {
+        self.snippet = snippet.into();
+        self
+    }
+
+    /// Sets the received timestamp
+    #[must_use]
+    pub fn with_received_at(mut self, received_at: impl Into<String>) -> Self {
+        self.received_at = received_at.into();
+        self
+    }
+
+    /// Sets the read status
+    #[must_use]
+    pub const fn with_read(mut self, is_read: bool) -> Self {
+        self.is_read = is_read;
+        self
+    }
+
+    /// Sets the important flag
+    #[must_use]
+    pub const fn with_important(mut self, is_important: bool) -> Self {
+        self.is_important = is_important;
+        self
+    }
+}
+
 /// Email composition for sending
+///
+/// Contains all fields needed to compose and send an email.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmailComposition {
     /// Recipient email address
@@ -94,61 +221,168 @@ pub struct EmailComposition {
     pub body: String,
 }
 
+impl EmailComposition {
+    /// Creates a new email composition
+    pub fn new(to: impl Into<String>, subject: impl Into<String>, body: impl Into<String>) -> Self {
+        Self {
+            to: to.into(),
+            cc: Vec::new(),
+            subject: subject.into(),
+            body: body.into(),
+        }
+    }
+
+    /// Adds a CC recipient
+    #[must_use]
+    pub fn with_cc(mut self, cc: impl Into<String>) -> Self {
+        self.cc.push(cc.into());
+        self
+    }
+
+    /// Adds multiple CC recipients
+    #[must_use]
+    pub fn with_cc_list(mut self, cc_list: Vec<String>) -> Self {
+        self.cc.extend(cc_list);
+        self
+    }
+
+    /// Validates the composition
+    pub fn validate(&self) -> Result<(), ProtonError> {
+        if self.to.is_empty() || !self.to.contains('@') {
+            return Err(ProtonError::InvalidAddress(format!(
+                "Invalid recipient: {}",
+                self.to
+            )));
+        }
+        for cc in &self.cc {
+            if cc.is_empty() || !cc.contains('@') {
+                return Err(ProtonError::InvalidAddress(format!("Invalid CC: {cc}")));
+            }
+        }
+        if self.subject.is_empty() {
+            return Err(ProtonError::RequestFailed(
+                "Subject is required".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Proton Mail client trait
+///
+/// Defines the interface for interacting with Proton Mail via Bridge.
+/// Implementations should handle both IMAP (read) and SMTP (send) operations.
 #[async_trait]
 pub trait ProtonClient: Send + Sync {
     /// Get recent emails from inbox
+    ///
+    /// # Arguments
+    /// * `count` - Maximum number of emails to retrieve
+    ///
+    /// # Returns
+    /// Vector of email summaries, newest first
     async fn get_inbox(&self, count: u32) -> Result<Vec<EmailSummary>, ProtonError>;
 
     /// Get emails from a specific mailbox
+    ///
+    /// # Arguments
+    /// * `mailbox` - Mailbox name (e.g., "INBOX", "Sent", "Archive", "Trash")
+    /// * `count` - Maximum number of emails to retrieve
     async fn get_mailbox(
         &self,
         mailbox: &str,
         count: u32,
     ) -> Result<Vec<EmailSummary>, ProtonError>;
 
-    /// Get unread count
+    /// Get unread email count in inbox
     async fn get_unread_count(&self) -> Result<u32, ProtonError>;
 
-    /// Mark email as read
+    /// Mark an email as read
+    ///
+    /// # Arguments
+    /// * `email_id` - Message UID to mark as read
     async fn mark_read(&self, email_id: &str) -> Result<(), ProtonError>;
 
-    /// Mark email as unread
+    /// Mark an email as unread
+    ///
+    /// # Arguments
+    /// * `email_id` - Message UID to mark as unread
     async fn mark_unread(&self, email_id: &str) -> Result<(), ProtonError>;
 
     /// Delete an email (move to trash)
+    ///
+    /// # Arguments
+    /// * `email_id` - Message UID to delete
     async fn delete(&self, email_id: &str) -> Result<(), ProtonError>;
 
     /// Send an email
+    ///
+    /// # Arguments
+    /// * `email` - Email composition with recipient, subject, and body
+    ///
+    /// # Returns
+    /// Message ID of the sent email
     async fn send_email(&self, email: &EmailComposition) -> Result<String, ProtonError>;
 
-    /// Check if Bridge is available
+    /// Check if Proton Bridge is available
+    ///
+    /// # Returns
+    /// `true` if both IMAP and SMTP servers are reachable
     async fn check_connection(&self) -> Result<bool, ProtonError>;
+
+    /// List available mailboxes
+    async fn list_mailboxes(&self) -> Result<Vec<String>, ProtonError>;
 }
 
 /// Proton Bridge client implementation
 ///
-/// Connects to Proton Bridge's local IMAP/SMTP server.
-/// Note: Proton Bridge must be running and configured.
+/// Full implementation of the `ProtonClient` trait using IMAP for reading
+/// emails and SMTP for sending. Connects to locally running Proton Bridge.
+///
+/// # Example
+///
+/// ```no_run
+/// use integration_proton::{ProtonBridgeClient, ProtonClient, ProtonConfig};
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let config = ProtonConfig::with_credentials("user@proton.me", "bridge-password");
+///     let client = ProtonBridgeClient::new(config);
+///
+///     if client.check_connection().await.unwrap_or(false) {
+///         let emails = client.get_inbox(10).await.unwrap();
+///         println!("Found {} emails", emails.len());
+///     }
+/// }
+/// ```
 #[derive(Debug)]
 pub struct ProtonBridgeClient {
+    imap: ProtonImapClient,
+    smtp: ProtonSmtpClient,
     config: ProtonConfig,
 }
 
 impl ProtonBridgeClient {
     /// Create a new Proton Bridge client
-    pub const fn new(config: ProtonConfig) -> Self {
-        Self { config }
+    pub fn new(config: ProtonConfig) -> Self {
+        let imap = ProtonImapClient::new(config.clone());
+        let smtp = ProtonSmtpClient::new(config.clone());
+        Self { imap, smtp, config }
     }
 
-    /// Get IMAP connection string
+    /// Get IMAP connection string (for logging)
     fn imap_addr(&self) -> String {
         format!("{}:{}", self.config.imap_host, self.config.imap_port)
     }
 
-    /// Get SMTP connection string
+    /// Get SMTP connection string (for logging)
     fn smtp_addr(&self) -> String {
         format!("{}:{}", self.config.smtp_host, self.config.smtp_port)
+    }
+
+    /// Validates configuration before operations
+    fn validate_config(&self) -> Result<(), ProtonError> {
+        self.config.validate()
     }
 }
 
@@ -156,7 +390,8 @@ impl ProtonBridgeClient {
 impl ProtonClient for ProtonBridgeClient {
     #[instrument(skip(self))]
     async fn get_inbox(&self, count: u32) -> Result<Vec<EmailSummary>, ProtonError> {
-        self.get_mailbox("INBOX", count).await
+        self.validate_config()?;
+        self.imap.fetch_mailbox("INBOX", count).await
     }
 
     #[instrument(skip(self))]
@@ -165,93 +400,61 @@ impl ProtonClient for ProtonBridgeClient {
         mailbox: &str,
         count: u32,
     ) -> Result<Vec<EmailSummary>, ProtonError> {
-        // Note: This is a placeholder implementation
-        // Full IMAP implementation would require async-imap or similar crate
-        debug!(
-            mailbox = %mailbox,
-            count = %count,
-            addr = %self.imap_addr(),
-            "Fetching emails from mailbox"
-        );
-
-        // Return empty for now - actual implementation needs IMAP library
-        warn!("IMAP implementation pending - returning empty mailbox");
-        Ok(Vec::new())
+        self.validate_config()?;
+        self.imap.fetch_mailbox(mailbox, count).await
     }
 
     #[instrument(skip(self))]
     async fn get_unread_count(&self) -> Result<u32, ProtonError> {
-        debug!(addr = %self.imap_addr(), "Getting unread count");
-
-        // Placeholder - needs IMAP STATUS command
-        warn!("IMAP implementation pending - returning 0 unread");
-        Ok(0)
+        self.validate_config()?;
+        self.imap.get_unread_count().await
     }
 
     #[instrument(skip(self))]
     async fn mark_read(&self, email_id: &str) -> Result<(), ProtonError> {
-        debug!(email_id = %email_id, "Marking email as read");
-
-        // Placeholder - needs IMAP STORE +FLAGS \Seen
-        warn!("IMAP implementation pending - mark_read not implemented");
-        Ok(())
+        self.validate_config()?;
+        self.imap.mark_read(email_id).await
     }
 
     #[instrument(skip(self))]
     async fn mark_unread(&self, email_id: &str) -> Result<(), ProtonError> {
-        debug!(email_id = %email_id, "Marking email as unread");
-
-        // Placeholder - needs IMAP STORE -FLAGS \Seen
-        warn!("IMAP implementation pending - mark_unread not implemented");
-        Ok(())
+        self.validate_config()?;
+        self.imap.mark_unread(email_id).await
     }
 
     #[instrument(skip(self))]
     async fn delete(&self, email_id: &str) -> Result<(), ProtonError> {
-        debug!(email_id = %email_id, "Deleting email");
-
-        // Placeholder - needs IMAP COPY to Trash + EXPUNGE
-        warn!("IMAP implementation pending - delete not implemented");
-        Ok(())
+        self.validate_config()?;
+        self.imap.delete(email_id).await
     }
 
     #[instrument(skip(self, email))]
     async fn send_email(&self, email: &EmailComposition) -> Result<String, ProtonError> {
-        debug!(
-            to = %email.to,
-            subject = %email.subject,
-            addr = %self.smtp_addr(),
-            "Sending email"
-        );
-
-        // Placeholder - needs SMTP library (lettre or similar)
-        warn!("SMTP implementation pending - send_email not implemented");
-
-        // Generate a fake message ID for now
-        let message_id = format!(
-            "<{}.{}@pisovereign.local>",
-            chrono::Utc::now().timestamp(),
-            uuid::Uuid::new_v4()
-        );
-        Ok(message_id)
+        self.validate_config()?;
+        email.validate()?;
+        self.smtp.send_email(email).await
     }
 
     #[instrument(skip(self))]
     async fn check_connection(&self) -> Result<bool, ProtonError> {
-        // Try TCP connection to IMAP port
-        let addr = self.imap_addr();
-        debug!(addr = %addr, "Checking Bridge connection");
+        let imap_ok = self.imap.check_connection().await.unwrap_or(false);
+        let smtp_ok = self.smtp.check_connection().await.unwrap_or(false);
 
-        match tokio::net::TcpStream::connect(&addr).await {
-            Ok(_) => {
-                debug!("Bridge connection successful");
-                Ok(true)
-            },
-            Err(e) => {
-                debug!(error = %e, "Bridge connection failed");
-                Ok(false)
-            },
-        }
+        debug!(
+            imap = %imap_ok,
+            smtp = %smtp_ok,
+            imap_addr = %self.imap_addr(),
+            smtp_addr = %self.smtp_addr(),
+            "Bridge connection check"
+        );
+
+        Ok(imap_ok && smtp_ok)
+    }
+
+    #[instrument(skip(self))]
+    async fn list_mailboxes(&self) -> Result<Vec<String>, ProtonError> {
+        self.validate_config()?;
+        self.imap.list_mailboxes().await
     }
 }
 
@@ -302,6 +505,18 @@ mod tests {
     }
 
     #[test]
+    fn proton_error_imap_error() {
+        let err = ProtonError::ImapError("connection reset".to_string());
+        assert_eq!(err.to_string(), "IMAP error: connection reset");
+    }
+
+    #[test]
+    fn proton_error_invalid_address() {
+        let err = ProtonError::InvalidAddress("not-an-email".to_string());
+        assert_eq!(err.to_string(), "Invalid email address: not-an-email");
+    }
+
+    #[test]
     fn proton_error_has_debug() {
         let err = ProtonError::AuthenticationFailed;
         let debug = format!("{err:?}");
@@ -320,24 +535,75 @@ mod tests {
     }
 
     #[test]
-    fn proton_config_creation() {
-        let config = ProtonConfig {
-            imap_host: "localhost".to_string(),
-            imap_port: 993,
-            smtp_host: "localhost".to_string(),
-            smtp_port: 587,
-            email: "user@proton.me".to_string(),
-            password: "bridge-password".to_string(),
-        };
+    fn proton_config_with_credentials() {
+        let config = ProtonConfig::with_credentials("user@proton.me", "secret");
         assert_eq!(config.email, "user@proton.me");
+        assert_eq!(config.password, "secret");
+    }
+
+    #[test]
+    fn proton_config_builder_pattern() {
+        let config = ProtonConfig::with_credentials("user@proton.me", "secret")
+            .with_imap("localhost", 993)
+            .with_smtp("localhost", 587);
+
+        assert_eq!(config.imap_host, "localhost");
+        assert_eq!(config.imap_port, 993);
+        assert_eq!(config.smtp_host, "localhost");
+        assert_eq!(config.smtp_port, 587);
+    }
+
+    #[test]
+    fn proton_config_validation_empty_email() {
+        let config = ProtonConfig::default();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ProtonError::InvalidAddress(_)
+        ));
+    }
+
+    #[test]
+    fn proton_config_validation_invalid_email() {
+        let config = ProtonConfig {
+            email: "not-an-email".to_string(),
+            password: "secret".to_string(),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn proton_config_validation_empty_password() {
+        let config = ProtonConfig {
+            email: "user@proton.me".to_string(),
+            password: String::new(),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ProtonError::AuthenticationFailed
+        ));
+    }
+
+    #[test]
+    fn proton_config_validation_success() {
+        let config = ProtonConfig::with_credentials("user@proton.me", "secret");
+        assert!(config.validate().is_ok());
     }
 
     #[test]
     fn proton_config_serialization() {
-        let config = ProtonConfig::default();
+        let config = ProtonConfig::with_credentials("user@proton.me", "secret");
         let json = serde_json::to_string(&config).unwrap();
         assert!(json.contains("imap_host"));
         assert!(json.contains("smtp_port"));
+        // Password should be skipped during serialization
+        assert!(!json.contains("secret"));
     }
 
     #[test]
@@ -349,18 +615,10 @@ mod tests {
 
     #[test]
     fn proton_config_clone() {
-        let config = ProtonConfig {
-            imap_host: "host".to_string(),
-            imap_port: 993,
-            smtp_host: "host".to_string(),
-            smtp_port: 587,
-            email: "a@b.com".to_string(),
-            password: "pass".to_string(),
-        };
+        let config = ProtonConfig::with_credentials("a@b.com", "pass");
         #[allow(clippy::redundant_clone)]
         let cloned = config.clone();
         assert_eq!(config.email, cloned.email);
-        assert_eq!(config.imap_port, cloned.imap_port);
     }
 
     #[test]
@@ -372,31 +630,30 @@ mod tests {
 
     #[test]
     fn email_summary_creation() {
-        let email = EmailSummary {
-            id: "mail123".to_string(),
-            from: "sender@example.com".to_string(),
-            subject: "Hello".to_string(),
-            snippet: "This is a test...".to_string(),
-            received_at: "2025-02-01T10:00:00Z".to_string(),
-            is_read: false,
-            is_important: true,
-        };
+        let email = EmailSummary::new("mail123", "sender@example.com", "Hello");
         assert_eq!(email.id, "mail123");
+        assert_eq!(email.from, "sender@example.com");
+        assert_eq!(email.subject, "Hello");
         assert!(!email.is_read);
+        assert!(!email.is_important);
+    }
+
+    #[test]
+    fn email_summary_builder_pattern() {
+        let email = EmailSummary::new("1", "a@b.com", "Test")
+            .with_snippet("Preview text...")
+            .with_received_at("2026-02-01T10:00:00Z")
+            .with_read(true)
+            .with_important(true);
+
+        assert_eq!(email.snippet, "Preview text...");
+        assert!(email.is_read);
         assert!(email.is_important);
     }
 
     #[test]
     fn email_summary_serialization() {
-        let email = EmailSummary {
-            id: "1".to_string(),
-            from: "a@b.com".to_string(),
-            subject: "Test".to_string(),
-            snippet: "...".to_string(),
-            received_at: "2025-01-01T00:00:00Z".to_string(),
-            is_read: true,
-            is_important: false,
-        };
+        let email = EmailSummary::new("1", "a@b.com", "Test");
         let json = serde_json::to_string(&email).unwrap();
         assert!(json.contains("subject"));
         assert!(json.contains("is_read"));
@@ -412,31 +669,14 @@ mod tests {
 
     #[test]
     fn email_summary_has_debug() {
-        let email = EmailSummary {
-            id: "1".to_string(),
-            from: "a@b.com".to_string(),
-            subject: "Test".to_string(),
-            snippet: "...".to_string(),
-            received_at: "2025-01-01T00:00:00Z".to_string(),
-            is_read: false,
-            is_important: false,
-        };
+        let email = EmailSummary::new("1", "a@b.com", "Test");
         let debug = format!("{email:?}");
         assert!(debug.contains("EmailSummary"));
-        assert!(debug.contains("subject"));
     }
 
     #[test]
     fn email_summary_clone() {
-        let email = EmailSummary {
-            id: "1".to_string(),
-            from: "a@b.com".to_string(),
-            subject: "Test".to_string(),
-            snippet: "...".to_string(),
-            received_at: "2025-01-01T00:00:00Z".to_string(),
-            is_read: false,
-            is_important: true,
-        };
+        let email = EmailSummary::new("1", "a@b.com", "Test").with_important(true);
         #[allow(clippy::redundant_clone)]
         let cloned = email.clone();
         assert_eq!(email.id, cloned.id);
@@ -445,15 +685,7 @@ mod tests {
 
     #[test]
     fn email_summary_equality() {
-        let email1 = EmailSummary {
-            id: "1".to_string(),
-            from: "a@b.com".to_string(),
-            subject: "Test".to_string(),
-            snippet: "...".to_string(),
-            received_at: "2025-01-01T00:00:00Z".to_string(),
-            is_read: false,
-            is_important: false,
-        };
+        let email1 = EmailSummary::new("1", "a@b.com", "Test");
         #[allow(clippy::redundant_clone)]
         let email2 = email1.clone();
         assert_eq!(email1, email2);
@@ -461,24 +693,58 @@ mod tests {
 
     #[test]
     fn email_composition_creation() {
-        let email = EmailComposition {
-            to: "recipient@example.com".to_string(),
-            cc: vec!["cc@example.com".to_string()],
-            subject: "Hello".to_string(),
-            body: "Body text".to_string(),
-        };
+        let email = EmailComposition::new("recipient@example.com", "Hello", "Body text");
         assert_eq!(email.to, "recipient@example.com");
-        assert_eq!(email.cc.len(), 1);
+        assert_eq!(email.subject, "Hello");
+        assert_eq!(email.body, "Body text");
+        assert!(email.cc.is_empty());
+    }
+
+    #[test]
+    fn email_composition_with_cc() {
+        let email = EmailComposition::new("a@b.com", "Hi", "Hello")
+            .with_cc("cc1@example.com")
+            .with_cc("cc2@example.com");
+
+        assert_eq!(email.cc.len(), 2);
+        assert!(email.cc.contains(&"cc1@example.com".to_string()));
+    }
+
+    #[test]
+    fn email_composition_with_cc_list() {
+        let cc_list = vec!["cc1@example.com".to_string(), "cc2@example.com".to_string()];
+        let email = EmailComposition::new("a@b.com", "Hi", "Hello").with_cc_list(cc_list);
+
+        assert_eq!(email.cc.len(), 2);
+    }
+
+    #[test]
+    fn email_composition_validation_invalid_to() {
+        let email = EmailComposition::new("not-an-email", "Hi", "Hello");
+        assert!(email.validate().is_err());
+    }
+
+    #[test]
+    fn email_composition_validation_empty_subject() {
+        let email = EmailComposition::new("a@b.com", "", "Hello");
+        assert!(email.validate().is_err());
+    }
+
+    #[test]
+    fn email_composition_validation_invalid_cc() {
+        let email = EmailComposition::new("a@b.com", "Hi", "Hello").with_cc("not-valid");
+        assert!(email.validate().is_err());
+    }
+
+    #[test]
+    fn email_composition_validation_success() {
+        let email = EmailComposition::new("a@b.com", "Hi", "Hello").with_cc("cc@example.com");
+        assert!(email.validate().is_ok());
     }
 
     #[test]
     fn email_composition_serialization() {
-        let email = EmailComposition {
-            to: "a@b.com".to_string(),
-            cc: vec![],
-            subject: "Hi".to_string(),
-            body: "Hello".to_string(),
-        };
+        let email = EmailComposition::new("a@b.com", "Hi", "Hello");
         let json = serde_json::to_string(&email).unwrap();
         assert!(json.contains("to"));
         assert!(json.contains("subject"));
@@ -494,24 +760,14 @@ mod tests {
 
     #[test]
     fn email_composition_has_debug() {
-        let email = EmailComposition {
-            to: "a@b.com".to_string(),
-            cc: vec![],
-            subject: "Test".to_string(),
-            body: "Body".to_string(),
-        };
+        let email = EmailComposition::new("a@b.com", "Test", "Body");
         let debug = format!("{email:?}");
         assert!(debug.contains("EmailComposition"));
     }
 
     #[test]
     fn email_composition_clone() {
-        let email = EmailComposition {
-            to: "a@b.com".to_string(),
-            cc: vec!["c@d.com".to_string()],
-            subject: "Test".to_string(),
-            body: "Body".to_string(),
-        };
+        let email = EmailComposition::new("a@b.com", "Test", "Body").with_cc("c@d.com");
         #[allow(clippy::redundant_clone)]
         let cloned = email.clone();
         assert_eq!(email.to, cloned.to);
@@ -520,113 +776,66 @@ mod tests {
 
     #[test]
     fn proton_bridge_client_creation() {
-        let config = ProtonConfig::default();
+        let config = ProtonConfig::with_credentials("user@proton.me", "secret");
         let client = ProtonBridgeClient::new(config);
         assert!(format!("{client:?}").contains("ProtonBridgeClient"));
     }
 
     #[test]
     fn proton_bridge_client_imap_addr() {
-        let config = ProtonConfig {
-            imap_host: "localhost".to_string(),
-            imap_port: 993,
-            ..Default::default()
-        };
+        let config =
+            ProtonConfig::with_credentials("user@proton.me", "secret").with_imap("localhost", 993);
         let client = ProtonBridgeClient::new(config);
         assert_eq!(client.imap_addr(), "localhost:993");
     }
 
     #[test]
     fn proton_bridge_client_smtp_addr() {
-        let config = ProtonConfig {
-            smtp_host: "localhost".to_string(),
-            smtp_port: 587,
-            ..Default::default()
-        };
+        let config =
+            ProtonConfig::with_credentials("user@proton.me", "secret").with_smtp("localhost", 587);
         let client = ProtonBridgeClient::new(config);
         assert_eq!(client.smtp_addr(), "localhost:587");
     }
 
-    #[tokio::test]
-    async fn proton_bridge_client_get_inbox_returns_empty() {
-        let config = ProtonConfig::default();
+    #[test]
+    fn proton_bridge_client_validate_config() {
+        let config = ProtonConfig::with_credentials("user@proton.me", "secret");
         let client = ProtonBridgeClient::new(config);
-        let result = client.get_inbox(10).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(client.validate_config().is_ok());
     }
 
-    #[tokio::test]
-    async fn proton_bridge_client_get_mailbox_returns_empty() {
+    #[test]
+    fn proton_bridge_client_validate_config_fails() {
         let config = ProtonConfig::default();
         let client = ProtonBridgeClient::new(config);
-        let result = client.get_mailbox("Sent", 5).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn proton_bridge_client_get_unread_count() {
-        let config = ProtonConfig::default();
-        let client = ProtonBridgeClient::new(config);
-        let result = client.get_unread_count().await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 0);
-    }
-
-    #[tokio::test]
-    async fn proton_bridge_client_mark_read() {
-        let config = ProtonConfig::default();
-        let client = ProtonBridgeClient::new(config);
-        let result = client.mark_read("12345").await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn proton_bridge_client_mark_unread() {
-        let config = ProtonConfig::default();
-        let client = ProtonBridgeClient::new(config);
-        let result = client.mark_unread("12345").await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn proton_bridge_client_delete() {
-        let config = ProtonConfig::default();
-        let client = ProtonBridgeClient::new(config);
-        let result = client.delete("12345").await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn proton_bridge_client_send_email() {
-        let config = ProtonConfig::default();
-        let client = ProtonBridgeClient::new(config);
-
-        let email = EmailComposition {
-            to: "test@example.com".to_string(),
-            cc: vec![],
-            subject: "Test".to_string(),
-            body: "Hello".to_string(),
-        };
-
-        let result = client.send_email(&email).await;
-        assert!(result.is_ok());
-        let message_id = result.unwrap();
-        assert!(message_id.starts_with('<'));
-        assert!(message_id.ends_with('>'));
-        assert!(message_id.contains("@pisovereign.local"));
+        assert!(client.validate_config().is_err());
     }
 
     #[tokio::test]
     async fn proton_bridge_client_check_connection_fails_no_bridge() {
-        let config = ProtonConfig {
-            imap_port: 19999, // Non-existent port
-            ..Default::default()
-        };
+        let config = ProtonConfig::with_credentials("user@proton.me", "secret")
+            .with_imap("127.0.0.1", 19998)
+            .with_smtp("127.0.0.1", 19999);
         let client = ProtonBridgeClient::new(config);
         let result = client.check_connection().await;
         assert!(result.is_ok());
-        assert!(!result.unwrap()); // Should return false since no server
+        assert!(!result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn proton_bridge_client_get_inbox_fails_without_valid_config() {
+        let config = ProtonConfig::default();
+        let client = ProtonBridgeClient::new(config);
+        let result = client.get_inbox(10).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn proton_bridge_client_send_email_validates_composition() {
+        let config = ProtonConfig::with_credentials("user@proton.me", "secret");
+        let client = ProtonBridgeClient::new(config);
+        let email = EmailComposition::new("not-valid", "Hi", "Hello");
+        let result = client.send_email(&email).await;
+        assert!(result.is_err());
     }
 }
