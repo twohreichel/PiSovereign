@@ -1,10 +1,14 @@
 //! CalDAV client
 //!
 //! Connects to CalDAV servers for calendar operations.
+//! Supports standard CalDAV protocol with PROPFIND, REPORT, PUT, DELETE.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::{debug, instrument};
 
 /// CalDAV client errors
 #[derive(Debug, Error)]
@@ -23,6 +27,9 @@ pub enum CalDavError {
 
     #[error("Request failed: {0}")]
     RequestFailed(String),
+
+    #[error("Parse error: {0}")]
+    ParseError(String),
 }
 
 /// CalDAV server configuration
@@ -85,7 +92,372 @@ pub trait CalDavClient: Send + Sync {
     async fn delete_event(&self, calendar: &str, event_id: &str) -> Result<(), CalDavError>;
 }
 
-// TODO: Implement actual CalDAV client using reqwest and icalendar crate
+/// HTTP-based CalDAV client implementation
+#[derive(Debug)]
+pub struct HttpCalDavClient {
+    client: Client,
+    config: CalDavConfig,
+}
+
+impl HttpCalDavClient {
+    /// Create a new CalDAV client
+    pub fn new(config: CalDavConfig) -> Result<Self, CalDavError> {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| CalDavError::ConnectionFailed(e.to_string()))?;
+
+        Ok(Self { client, config })
+    }
+
+    /// Build a CalDAV request with proper authentication
+    fn build_request(&self, method: &str, url: &str) -> reqwest::RequestBuilder {
+        let request = match method {
+            "PROPFIND" => self.client.request(
+                reqwest::Method::from_bytes(b"PROPFIND").unwrap_or(reqwest::Method::GET),
+                url,
+            ),
+            "REPORT" => self.client.request(
+                reqwest::Method::from_bytes(b"REPORT").unwrap_or(reqwest::Method::GET),
+                url,
+            ),
+            _ => self.client.request(
+                reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET),
+                url,
+            ),
+        };
+
+        request
+            .basic_auth(&self.config.username, Some(&self.config.password))
+            .header("Content-Type", "application/xml; charset=utf-8")
+    }
+
+    /// Build the calendar URL
+    fn calendar_url(&self, calendar: &str) -> String {
+        if calendar.starts_with("http") {
+            calendar.to_string()
+        } else {
+            format!(
+                "{}/{}",
+                self.config.server_url.trim_end_matches('/'),
+                calendar.trim_start_matches('/')
+            )
+        }
+    }
+
+    /// Parse iCalendar data to extract events
+    #[allow(clippy::unused_self)]
+    fn parse_icalendar(&self, ical_data: &str) -> Result<Vec<CalendarEvent>, CalDavError> {
+        use icalendar::{CalendarComponent, Component, parser};
+
+        let calendars = parser::unfold(ical_data);
+        let parsed = parser::read_calendar(&calendars)
+            .map_err(|e| CalDavError::ParseError(format!("iCalendar parse error: {e}")))?;
+
+        let mut events = Vec::new();
+
+        for component in parsed.components {
+            // Convert parser::Component to CalendarComponent
+            let cal_component = CalendarComponent::from(component);
+
+            if let CalendarComponent::Event(event) = cal_component {
+                let id = event.get_uid().unwrap_or_default().to_string();
+                let summary = event.get_summary().unwrap_or_default().to_string();
+                let description = event.get_description().map(ToString::to_string);
+                let location = event.property_value("LOCATION").map(ToString::to_string);
+
+                // Get start/end times as strings
+                let start = event
+                    .property_value("DTSTART")
+                    .unwrap_or_default()
+                    .to_string();
+                let end = event
+                    .property_value("DTEND")
+                    .unwrap_or_default()
+                    .to_string();
+
+                // Collect attendees from multi_properties
+                let attendees: Vec<String> = event
+                    .multi_properties()
+                    .get("ATTENDEE")
+                    .map(|props| props.iter().map(|p| p.value().to_string()).collect())
+                    .unwrap_or_default();
+
+                if !id.is_empty() && !summary.is_empty() {
+                    events.push(CalendarEvent {
+                        id,
+                        summary,
+                        description,
+                        start,
+                        end,
+                        location,
+                        attendees,
+                    });
+                }
+            }
+        }
+
+        Ok(events)
+    }
+
+    /// Build iCalendar VEVENT from `CalendarEvent`
+    #[allow(clippy::unused_self)]
+    fn build_icalendar(&self, event: &CalendarEvent) -> String {
+        use chrono::{NaiveDateTime, TimeZone};
+
+        let now: DateTime<Utc> = Utc::now();
+        let dtstamp = now.format("%Y%m%dT%H%M%SZ").to_string();
+
+        let mut ical = String::new();
+        ical.push_str("BEGIN:VCALENDAR\r\n");
+        ical.push_str("VERSION:2.0\r\n");
+        ical.push_str("PRODID:-//PiSovereign//CalDAV Client//EN\r\n");
+        ical.push_str("BEGIN:VEVENT\r\n");
+        ical.push_str(&format!("UID:{}\r\n", event.id));
+        ical.push_str(&format!("DTSTAMP:{}\r\n", dtstamp));
+        ical.push_str(&format!("SUMMARY:{}\r\n", event.summary));
+
+        // Format dates - try to parse ISO 8601 and convert to iCalendar format
+        let format_date = |date_str: &str| -> String {
+            if let Ok(dt) = NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S") {
+                Utc.from_utc_datetime(&dt)
+                    .format("%Y%m%dT%H%M%SZ")
+                    .to_string()
+            } else if let Ok(dt) = DateTime::parse_from_rfc3339(date_str) {
+                dt.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ").to_string()
+            } else {
+                // Return as-is if we can't parse
+                date_str.to_string()
+            }
+        };
+
+        ical.push_str(&format!("DTSTART:{}\r\n", format_date(&event.start)));
+        ical.push_str(&format!("DTEND:{}\r\n", format_date(&event.end)));
+
+        if let Some(desc) = &event.description {
+            ical.push_str(&format!("DESCRIPTION:{}\r\n", desc));
+        }
+        if let Some(loc) = &event.location {
+            ical.push_str(&format!("LOCATION:{}\r\n", loc));
+        }
+        for attendee in &event.attendees {
+            ical.push_str(&format!("ATTENDEE:mailto:{}\r\n", attendee));
+        }
+
+        ical.push_str("END:VEVENT\r\n");
+        ical.push_str("END:VCALENDAR\r\n");
+        ical
+    }
+}
+
+#[async_trait]
+impl CalDavClient for HttpCalDavClient {
+    #[instrument(skip(self))]
+    async fn list_calendars(&self) -> Result<Vec<String>, CalDavError> {
+        let url = &self.config.server_url;
+
+        // PROPFIND request to discover calendars
+        let body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:displayname/>
+    <D:resourcetype/>
+  </D:prop>
+</D:propfind>"#;
+
+        let response = self
+            .build_request("PROPFIND", url)
+            .header("Depth", "1")
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| CalDavError::ConnectionFailed(e.to_string()))?;
+
+        match response.status() {
+            StatusCode::UNAUTHORIZED => return Err(CalDavError::AuthenticationFailed),
+            status if !status.is_success() && status != StatusCode::MULTI_STATUS => {
+                return Err(CalDavError::RequestFailed(format!("HTTP {}", status)));
+            },
+            _ => {},
+        }
+
+        let body = response
+            .text()
+            .await
+            .map_err(|e| CalDavError::RequestFailed(e.to_string()))?;
+
+        debug!(response_len = body.len(), "PROPFIND response received");
+
+        // Simple XML parsing to extract hrefs (a full implementation would use a proper XML parser)
+        let mut calendars = Vec::new();
+        for line in body.lines() {
+            if line.contains("<D:href>") || line.contains("<d:href>") {
+                if let Some(start) = line.find('>') {
+                    if let Some(end) = line[start..].find('<') {
+                        let href = &line[start + 1..start + end];
+                        if href.contains("calendar") || href.ends_with('/') {
+                            calendars.push(href.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(calendars)
+    }
+
+    #[instrument(skip(self))]
+    async fn get_events(
+        &self,
+        calendar: &str,
+        start: &str,
+        end: &str,
+    ) -> Result<Vec<CalendarEvent>, CalDavError> {
+        let url = self.calendar_url(calendar);
+
+        // REPORT request with calendar-query
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:getetag/>
+    <C:calendar-data/>
+  </D:prop>
+  <C:filter>
+    <C:comp-filter name="VCALENDAR">
+      <C:comp-filter name="VEVENT">
+        <C:time-range start="{}" end="{}"/>
+      </C:comp-filter>
+    </C:comp-filter>
+  </C:filter>
+</C:calendar-query>"#,
+            start, end
+        );
+
+        let response = self
+            .build_request("REPORT", &url)
+            .header("Depth", "1")
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| CalDavError::ConnectionFailed(e.to_string()))?;
+
+        match response.status() {
+            StatusCode::UNAUTHORIZED => return Err(CalDavError::AuthenticationFailed),
+            StatusCode::NOT_FOUND => {
+                return Err(CalDavError::CalendarNotFound(calendar.to_string()));
+            },
+            status if !status.is_success() && status != StatusCode::MULTI_STATUS => {
+                return Err(CalDavError::RequestFailed(format!("HTTP {}", status)));
+            },
+            _ => {},
+        }
+
+        let body = response
+            .text()
+            .await
+            .map_err(|e| CalDavError::RequestFailed(e.to_string()))?;
+
+        debug!(response_len = body.len(), "REPORT response received");
+
+        // Extract iCalendar data from CDATA sections
+        let mut all_events = Vec::new();
+        let ical_start = "<C:calendar-data>";
+        let ical_end = "</C:calendar-data>";
+
+        let mut search_from = 0;
+        while let Some(start_idx) = body[search_from..].find(ical_start) {
+            let absolute_start = search_from + start_idx + ical_start.len();
+            if let Some(end_idx) = body[absolute_start..].find(ical_end) {
+                let ical_data = &body[absolute_start..absolute_start + end_idx];
+                // Decode XML entities
+                let ical_decoded = ical_data
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&")
+                    .replace("&#13;", "\r")
+                    .replace("&#10;", "\n");
+
+                if let Ok(events) = self.parse_icalendar(&ical_decoded) {
+                    all_events.extend(events);
+                }
+                search_from = absolute_start + end_idx;
+            } else {
+                break;
+            }
+        }
+
+        Ok(all_events)
+    }
+
+    #[instrument(skip(self, event))]
+    async fn create_event(
+        &self,
+        calendar: &str,
+        event: &CalendarEvent,
+    ) -> Result<String, CalDavError> {
+        let url = format!(
+            "{}/{}.ics",
+            self.calendar_url(calendar).trim_end_matches('/'),
+            event.id
+        );
+        let ical = self.build_icalendar(event);
+
+        let response = self
+            .client
+            .put(&url)
+            .basic_auth(&self.config.username, Some(&self.config.password))
+            .header("Content-Type", "text/calendar; charset=utf-8")
+            .body(ical)
+            .send()
+            .await
+            .map_err(|e| CalDavError::ConnectionFailed(e.to_string()))?;
+
+        match response.status() {
+            StatusCode::UNAUTHORIZED => Err(CalDavError::AuthenticationFailed),
+            StatusCode::NOT_FOUND => Err(CalDavError::CalendarNotFound(calendar.to_string())),
+            StatusCode::CREATED | StatusCode::NO_CONTENT | StatusCode::OK => {
+                debug!(event_id = %event.id, "Event created successfully");
+                Ok(event.id.clone())
+            },
+            status => Err(CalDavError::RequestFailed(format!("HTTP {}", status))),
+        }
+    }
+
+    #[instrument(skip(self, event))]
+    async fn update_event(&self, calendar: &str, event: &CalendarEvent) -> Result<(), CalDavError> {
+        // CalDAV uses PUT for both create and update
+        self.create_event(calendar, event).await?;
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn delete_event(&self, calendar: &str, event_id: &str) -> Result<(), CalDavError> {
+        let url = format!(
+            "{}/{}.ics",
+            self.calendar_url(calendar).trim_end_matches('/'),
+            event_id
+        );
+
+        let response = self
+            .client
+            .delete(&url)
+            .basic_auth(&self.config.username, Some(&self.config.password))
+            .send()
+            .await
+            .map_err(|e| CalDavError::ConnectionFailed(e.to_string()))?;
+
+        match response.status() {
+            StatusCode::UNAUTHORIZED => Err(CalDavError::AuthenticationFailed),
+            StatusCode::NOT_FOUND => Err(CalDavError::EventNotFound(event_id.to_string())),
+            StatusCode::NO_CONTENT | StatusCode::OK => {
+                debug!(event_id = %event_id, "Event deleted successfully");
+                Ok(())
+            },
+            status => Err(CalDavError::RequestFailed(format!("HTTP {}", status))),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -224,5 +596,267 @@ mod tests {
         let cloned = event.clone();
         assert_eq!(event.id, cloned.id);
         assert_eq!(event.attendees, cloned.attendees);
+    }
+
+    #[test]
+    fn http_client_creation() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config);
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn http_client_calendar_url_full_url() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config).unwrap();
+        let url = client.calendar_url("https://other.com/calendar");
+        assert_eq!(url, "https://other.com/calendar");
+    }
+
+    #[test]
+    fn http_client_calendar_url_relative_path() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com/".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config).unwrap();
+        let url = client.calendar_url("/calendars/main");
+        assert_eq!(url, "https://cal.example.com/calendars/main");
+    }
+
+    #[test]
+    fn http_client_build_icalendar_basic() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config).unwrap();
+
+        let event = CalendarEvent {
+            id: "test-event-123".to_string(),
+            summary: "Test Meeting".to_string(),
+            description: Some("Important discussion".to_string()),
+            start: "2025-02-01T10:00:00".to_string(),
+            end: "2025-02-01T11:00:00".to_string(),
+            location: Some("Room A".to_string()),
+            attendees: vec!["user@example.com".to_string()],
+        };
+
+        let ical = client.build_icalendar(&event);
+
+        assert!(ical.starts_with("BEGIN:VCALENDAR\r\n"));
+        assert!(ical.ends_with("END:VCALENDAR\r\n"));
+        assert!(ical.contains("BEGIN:VEVENT\r\n"));
+        assert!(ical.contains("END:VEVENT\r\n"));
+        assert!(ical.contains("UID:test-event-123\r\n"));
+        assert!(ical.contains("SUMMARY:Test Meeting\r\n"));
+        assert!(ical.contains("DESCRIPTION:Important discussion\r\n"));
+        assert!(ical.contains("LOCATION:Room A\r\n"));
+        assert!(ical.contains("ATTENDEE:mailto:user@example.com\r\n"));
+    }
+
+    #[test]
+    fn http_client_build_icalendar_no_optional_fields() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config).unwrap();
+
+        let event = CalendarEvent {
+            id: "simple-event".to_string(),
+            summary: "Simple Event".to_string(),
+            description: None,
+            start: "2025-02-01T09:00:00".to_string(),
+            end: "2025-02-01T10:00:00".to_string(),
+            location: None,
+            attendees: vec![],
+        };
+
+        let ical = client.build_icalendar(&event);
+
+        assert!(ical.contains("UID:simple-event\r\n"));
+        assert!(ical.contains("SUMMARY:Simple Event\r\n"));
+        assert!(!ical.contains("DESCRIPTION:"));
+        assert!(!ical.contains("LOCATION:"));
+        assert!(!ical.contains("ATTENDEE:"));
+    }
+
+    #[test]
+    fn http_client_parse_icalendar_valid() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config).unwrap();
+
+        let ical_data = r"BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:event-123
+SUMMARY:Test Event
+DESCRIPTION:Test Description
+DTSTART:20250201T100000Z
+DTEND:20250201T110000Z
+LOCATION:Test Location
+END:VEVENT
+END:VCALENDAR";
+
+        let events = client.parse_icalendar(ical_data).unwrap();
+        assert_eq!(events.len(), 1);
+
+        let event = &events[0];
+        assert_eq!(event.id, "event-123");
+        assert_eq!(event.summary, "Test Event");
+        assert_eq!(event.description.as_deref(), Some("Test Description"));
+        assert_eq!(event.location.as_deref(), Some("Test Location"));
+        assert_eq!(event.start, "20250201T100000Z");
+        assert_eq!(event.end, "20250201T110000Z");
+    }
+
+    #[test]
+    fn http_client_parse_icalendar_multiple_events() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config).unwrap();
+
+        let ical_data = r"BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:event-1
+SUMMARY:First Event
+DTSTART:20250201T090000Z
+DTEND:20250201T100000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:event-2
+SUMMARY:Second Event
+DTSTART:20250201T110000Z
+DTEND:20250201T120000Z
+END:VEVENT
+END:VCALENDAR";
+
+        let events = client.parse_icalendar(ical_data).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].id, "event-1");
+        assert_eq!(events[0].summary, "First Event");
+        assert_eq!(events[1].id, "event-2");
+        assert_eq!(events[1].summary, "Second Event");
+    }
+
+    #[test]
+    fn http_client_parse_icalendar_skips_incomplete_events() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config).unwrap();
+
+        // Event without UID should be skipped
+        let ical_data = r"BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+SUMMARY:No UID Event
+DTSTART:20250201T090000Z
+DTEND:20250201T100000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:valid-event
+SUMMARY:Valid Event
+DTSTART:20250201T110000Z
+DTEND:20250201T120000Z
+END:VEVENT
+END:VCALENDAR";
+
+        let events = client.parse_icalendar(ical_data).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].id, "valid-event");
+    }
+
+    #[test]
+    fn http_client_parse_icalendar_empty_result() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config).unwrap();
+
+        // Parser is lenient; non-calendar data returns empty events
+        let result = client.parse_icalendar("not valid icalendar data");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn caldav_config_clone() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: Some("/cal".to_string()),
+        };
+        #[allow(clippy::redundant_clone)]
+        let cloned = config.clone();
+        assert_eq!(config.server_url, cloned.server_url);
+        assert_eq!(config.calendar_path, cloned.calendar_path);
+    }
+
+    #[test]
+    fn caldav_config_debug() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let debug = format!("{config:?}");
+        assert!(debug.contains("CalDavConfig"));
+        assert!(debug.contains("server_url"));
+    }
+
+    #[test]
+    fn caldav_error_parse_error() {
+        let err = CalDavError::ParseError("invalid format".to_string());
+        assert_eq!(err.to_string(), "Parse error: invalid format");
+    }
+
+    #[test]
+    fn http_client_has_debug() {
+        let config = CalDavConfig {
+            server_url: "https://cal.example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            calendar_path: None,
+        };
+        let client = HttpCalDavClient::new(config).unwrap();
+        let debug = format!("{client:?}");
+        assert!(debug.contains("HttpCalDavClient"));
     }
 }
