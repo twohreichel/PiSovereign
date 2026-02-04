@@ -57,8 +57,7 @@ pub async fn list_models(State(state): State<AppState>) -> Json<ModelsResponse> 
             let parameters = name
                 .split('-')
                 .find(|part| part.ends_with('b'))
-                .map(|s| s.to_uppercase())
-                .unwrap_or_else(|| "Unknown".to_string());
+                .map_or_else(|| "Unknown".to_string(), str::to_uppercase);
 
             // Create description based on model name
             let description = if name.contains("qwen") {

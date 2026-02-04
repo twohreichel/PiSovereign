@@ -38,6 +38,8 @@ impl CalDavCalendarAdapter {
             username: username.to_string(),
             password: password.to_string(),
             calendar_path: calendar_path.map(ToString::to_string),
+            verify_certs: true,
+            timeout_secs: 30,
         };
         Self::new(config)
     }
@@ -277,6 +279,8 @@ mod tests {
             username: "user".to_string(),
             password: "password".to_string(),
             calendar_path: Some("/calendars/default".to_string()),
+            verify_certs: true,
+            timeout_secs: 30,
         }
     }
 

@@ -44,6 +44,20 @@ pub struct CalDavConfig {
     pub password: String,
     /// Default calendar path
     pub calendar_path: Option<String>,
+    /// Verify TLS certificates (default: true)
+    #[serde(default = "default_true")]
+    pub verify_certs: bool,
+    /// Connection timeout in seconds (default: 30)
+    #[serde(default = "default_timeout")]
+    pub timeout_secs: u64,
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+const fn default_timeout() -> u64 {
+    30
 }
 
 /// A calendar event
@@ -104,7 +118,8 @@ impl HttpCalDavClient {
     /// Create a new CalDAV client
     pub fn new(config: CalDavConfig) -> Result<Self, CalDavError> {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(config.timeout_secs))
+            .danger_accept_invalid_certs(!config.verify_certs)
             .build()
             .map_err(|e| CalDavError::ConnectionFailed(e.to_string()))?;
 
@@ -539,26 +554,38 @@ mod tests {
         assert_eq!(err.to_string(), "Request failed: 500 error");
     }
 
+    // Helper function to create test CalDavConfig with default security settings
+    fn test_caldav_config(
+        server_url: &str,
+        username: &str,
+        password: &str,
+        calendar_path: Option<String>,
+    ) -> CalDavConfig {
+        CalDavConfig {
+            server_url: server_url.to_string(),
+            username: username.to_string(),
+            password: password.to_string(),
+            calendar_path,
+            verify_certs: true,
+            timeout_secs: 30,
+        }
+    }
+
     #[test]
     fn caldav_config_creation() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: Some("/calendars/main".to_string()),
-        };
+        let config = test_caldav_config(
+            "https://cal.example.com",
+            "user",
+            "pass",
+            Some("/calendars/main".to_string()),
+        );
         assert_eq!(config.server_url, "https://cal.example.com");
         assert_eq!(config.username, "user");
     }
 
     #[test]
     fn caldav_config_serialization() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let json = serde_json::to_string(&config).unwrap();
         assert!(json.contains("server_url"));
         assert!(json.contains("username"));
@@ -646,24 +673,14 @@ mod tests {
 
     #[test]
     fn http_client_creation() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let client = HttpCalDavClient::new(config);
         assert!(client.is_ok());
     }
 
     #[test]
     fn http_client_calendar_url_full_url() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let client = HttpCalDavClient::new(config).unwrap();
         let url = client.calendar_url("https://other.com/calendar");
         assert_eq!(url, "https://other.com/calendar");
@@ -671,12 +688,7 @@ mod tests {
 
     #[test]
     fn http_client_calendar_url_relative_path() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com/".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com/", "user", "pass", None);
         let client = HttpCalDavClient::new(config).unwrap();
         let url = client.calendar_url("/calendars/main");
         assert_eq!(url, "https://cal.example.com/calendars/main");
@@ -684,12 +696,7 @@ mod tests {
 
     #[test]
     fn http_client_build_icalendar_basic() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let client = HttpCalDavClient::new(config).unwrap();
 
         let event = CalendarEvent {
@@ -717,12 +724,7 @@ mod tests {
 
     #[test]
     fn http_client_build_icalendar_no_optional_fields() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let client = HttpCalDavClient::new(config).unwrap();
 
         let event = CalendarEvent {
@@ -746,12 +748,7 @@ mod tests {
 
     #[test]
     fn http_client_parse_icalendar_valid() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let client = HttpCalDavClient::new(config).unwrap();
 
         let ical_data = r"BEGIN:VCALENDAR
@@ -781,12 +778,7 @@ END:VCALENDAR";
 
     #[test]
     fn http_client_parse_icalendar_multiple_events() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let client = HttpCalDavClient::new(config).unwrap();
 
         let ical_data = r"BEGIN:VCALENDAR
@@ -815,12 +807,7 @@ END:VCALENDAR";
 
     #[test]
     fn http_client_parse_icalendar_skips_incomplete_events() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let client = HttpCalDavClient::new(config).unwrap();
 
         // Event without UID should be skipped
@@ -846,12 +833,7 @@ END:VCALENDAR";
 
     #[test]
     fn http_client_parse_icalendar_empty_result() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let client = HttpCalDavClient::new(config).unwrap();
 
         // Parser is lenient; non-calendar data returns empty events
@@ -862,12 +844,7 @@ END:VCALENDAR";
 
     #[test]
     fn extract_calendar_data_from_xml_single_event() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let _client = HttpCalDavClient::new(config).unwrap();
 
         let xml_response = r#"<?xml version="1.0" encoding="utf-8" ?>
@@ -893,12 +870,7 @@ END:VCALENDAR]]></C:calendar-data>
 
     #[test]
     fn extract_calendar_data_from_xml_multiple_events() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let _client = HttpCalDavClient::new(config).unwrap();
 
         let xml_response = r#"<?xml version="1.0" encoding="utf-8" ?>
@@ -931,12 +903,7 @@ END:VCALENDAR</C:calendar-data>
 
     #[test]
     fn extract_calendar_data_from_xml_with_entities() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let _client = HttpCalDavClient::new(config).unwrap();
 
         let xml_response = r#"<?xml version="1.0" encoding="utf-8" ?>
@@ -957,12 +924,7 @@ END:VCALENDAR</C:calendar-data>
 
     #[test]
     fn extract_calendar_data_from_xml_empty_response() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let _client = HttpCalDavClient::new(config).unwrap();
 
         let xml_response = r#"<?xml version="1.0" encoding="utf-8" ?>
@@ -975,12 +937,12 @@ END:VCALENDAR</C:calendar-data>
 
     #[test]
     fn caldav_config_clone() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: Some("/cal".to_string()),
-        };
+        let config = test_caldav_config(
+            "https://cal.example.com",
+            "user",
+            "pass",
+            Some("/cal".to_string()),
+        );
         #[allow(clippy::redundant_clone)]
         let cloned = config.clone();
         assert_eq!(config.server_url, cloned.server_url);
@@ -989,12 +951,7 @@ END:VCALENDAR</C:calendar-data>
 
     #[test]
     fn caldav_config_debug() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let debug = format!("{config:?}");
         assert!(debug.contains("CalDavConfig"));
         assert!(debug.contains("server_url"));
@@ -1008,12 +965,7 @@ END:VCALENDAR</C:calendar-data>
 
     #[test]
     fn http_client_has_debug() {
-        let config = CalDavConfig {
-            server_url: "https://cal.example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            calendar_path: None,
-        };
+        let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let client = HttpCalDavClient::new(config).unwrap();
         let debug = format!("{client:?}");
         assert!(debug.contains("HttpCalDavClient"));

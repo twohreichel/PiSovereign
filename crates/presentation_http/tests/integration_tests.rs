@@ -109,6 +109,10 @@ impl InferencePort for MockInference {
     fn current_model(&self) -> &str {
         &self.model
     }
+
+    async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError> {
+        Ok(vec![self.model.clone()])
+    }
 }
 
 fn create_test_state() -> AppState {

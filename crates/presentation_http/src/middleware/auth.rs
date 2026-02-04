@@ -1,6 +1,7 @@
 //! API key authentication middleware
 //!
 //! Validates Bearer tokens in the Authorization header against configured API keys.
+//! Uses constant-time comparison to prevent timing attacks.
 
 use std::{
     future::Future,
@@ -14,6 +15,7 @@ use axum::{
     http::header::AUTHORIZATION,
     response::{IntoResponse, Response},
 };
+use subtle::ConstantTimeEq;
 use tower::{Layer, Service};
 
 use crate::error::ApiError;
@@ -107,7 +109,11 @@ where
             match auth_header {
                 Some(header) if header.starts_with("Bearer ") => {
                     let token = &header[7..]; // Skip "Bearer "
-                    if token == expected_key.as_str() {
+
+                    // Use constant-time comparison to prevent timing attacks
+                    let token_matches = token.as_bytes().ct_eq(expected_key.as_bytes());
+
+                    if token_matches.into() {
                         inner.call(req).await
                     } else {
                         Ok(unauthorized_response("Invalid API key"))

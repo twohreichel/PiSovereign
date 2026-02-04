@@ -93,10 +93,30 @@ pub struct SecurityConfig {
     /// Requests per minute per IP
     #[serde(default = "default_rate_limit")]
     pub rate_limit_rpm: u32,
+
+    /// Validate TLS certificates for outbound connections
+    #[serde(default = "default_true")]
+    pub tls_verify_certs: bool,
+
+    /// Connection timeout in seconds for external services
+    #[serde(default = "default_connection_timeout")]
+    pub connection_timeout_secs: u64,
+
+    /// Minimum TLS version (1.2 or 1.3)
+    #[serde(default = "default_min_tls_version")]
+    pub min_tls_version: String,
 }
 
 const fn default_rate_limit() -> u32 {
     60
+}
+
+const fn default_connection_timeout() -> u64 {
+    30
+}
+
+fn default_min_tls_version() -> String {
+    "1.2".to_string()
 }
 
 impl Default for SecurityConfig {
@@ -106,6 +126,9 @@ impl Default for SecurityConfig {
             api_key: None,
             rate_limit_enabled: true,
             rate_limit_rpm: default_rate_limit(),
+            tls_verify_certs: true,
+            connection_timeout_secs: default_connection_timeout(),
+            min_tls_version: default_min_tls_version(),
         }
     }
 }
