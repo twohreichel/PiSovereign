@@ -91,19 +91,17 @@ fn migrate_v1(conn: &Connection) -> Result<(), DatabaseError> {
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         );
 
-        -- Pending approvals table
-        CREATE TABLE IF NOT EXISTS pending_approvals (
+        -- Approval requests table
+        CREATE TABLE IF NOT EXISTS approval_requests (
             id TEXT PRIMARY KEY,
-            conversation_id TEXT,
-            action_type TEXT NOT NULL,
-            action_data TEXT NOT NULL,
-            reason TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            command TEXT NOT NULL,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'denied', 'expired', 'cancelled')),
             created_at TEXT NOT NULL,
-            expires_at TEXT,
-            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected', 'expired')),
-            reviewed_at TEXT,
-            reviewed_by TEXT,
-            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+            expires_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            reason TEXT
         );
 
         -- Audit log table
@@ -123,8 +121,9 @@ fn migrate_v1(conn: &Connection) -> Result<(), DatabaseError> {
         -- Indexes
         CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
         CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
-        CREATE INDEX IF NOT EXISTS idx_approvals_status ON pending_approvals(status);
-        CREATE INDEX IF NOT EXISTS idx_approvals_created ON pending_approvals(created_at);
+        CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_requests(status);
+        CREATE INDEX IF NOT EXISTS idx_approvals_user ON approval_requests(user_id);
+        CREATE INDEX IF NOT EXISTS idx_approvals_expires ON approval_requests(expires_at);
         CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
         CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
         ",
@@ -165,7 +164,7 @@ mod tests {
 
         assert!(tables.contains(&"conversations".to_string()));
         assert!(tables.contains(&"messages".to_string()));
-        assert!(tables.contains(&"pending_approvals".to_string()));
+        assert!(tables.contains(&"approval_requests".to_string()));
         assert!(tables.contains(&"audit_log".to_string()));
     }
 
