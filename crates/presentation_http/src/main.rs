@@ -68,9 +68,12 @@ async fn main() -> anyhow::Result<()> {
     let metrics = Arc::new(MetricsCollector::new());
 
     // Create app state with reloadable config
+    // Note: ApprovalService is optional and not initialized here for now
+    // It would require ApprovalQueuePort and AuditLogPort implementations
     let state = AppState {
         chat_service: Arc::new(chat_service),
         agent_service: Arc::new(agent_service),
+        approval_service: None, // TODO: Initialize when persistence is configured
         config: reloadable_config,
         metrics,
     };

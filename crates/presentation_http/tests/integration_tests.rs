@@ -120,6 +120,7 @@ fn create_test_state() -> AppState {
     AppState {
         chat_service: Arc::new(ChatService::new(inference.clone())),
         agent_service: Arc::new(AgentService::new(inference)),
+        approval_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }
@@ -130,6 +131,7 @@ fn create_unhealthy_test_state() -> AppState {
     AppState {
         chat_service: Arc::new(ChatService::new(inference.clone())),
         agent_service: Arc::new(AgentService::new(inference)),
+        approval_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }
