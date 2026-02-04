@@ -14,6 +14,7 @@ use tracing::debug;
 /// - "nächsten Montag", "next Monday"
 /// - "15. Januar", "January 15"
 /// - "15.01.2025", "2025-01-15"
+#[allow(clippy::cognitive_complexity)]
 pub fn parse_date(input: &str) -> Option<NaiveDate> {
     let input = input.trim().to_lowercase();
     let today = Local::now().date_naive();

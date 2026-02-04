@@ -23,6 +23,8 @@ pub struct HailoInferenceEngine {
     current_model: RwLock<String>,
 }
 
+// Manual Debug impl to read from RwLock without exposing internals
+#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for HailoInferenceEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HailoInferenceEngine")
@@ -224,7 +226,7 @@ impl InferenceEngine for HailoInferenceEngine {
         &self,
         request: InferenceRequest,
     ) -> Result<StreamingResponse, InferenceError> {
-        let model = self.resolve_model(&request).to_string();
+        let model = self.resolve_model(&request);
 
         let ollama_request = OllamaChatRequest {
             model,
