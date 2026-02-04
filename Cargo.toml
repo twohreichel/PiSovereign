@@ -97,6 +97,11 @@ config = "0.14"
 tokio-test = "0.4"
 mockall = "0.13"
 
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
+
 # Internal crates
 domain = { path = "crates/domain" }
 application = { path = "crates/application" }

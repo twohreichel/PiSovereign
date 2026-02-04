@@ -21,6 +21,10 @@ pub struct AppConfig {
     /// WhatsApp configuration
     #[serde(default)]
     pub whatsapp: WhatsAppConfig,
+
+    /// Database configuration
+    #[serde(default)]
+    pub database: DatabaseConfig,
 }
 
 /// HTTP server configuration
@@ -142,6 +146,40 @@ impl Default for WhatsAppConfig {
             verify_token: None,
             signature_required: true,
             api_version: default_api_version(),
+        }
+    }
+}
+
+/// Database configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseConfig {
+    /// Path to the SQLite database file
+    #[serde(default = "default_db_path")]
+    pub path: String,
+
+    /// Maximum number of connections in the pool
+    #[serde(default = "default_max_connections")]
+    pub max_connections: u32,
+
+    /// Whether to run migrations on startup
+    #[serde(default = "default_true")]
+    pub run_migrations: bool,
+}
+
+fn default_db_path() -> String {
+    "pisovereign.db".to_string()
+}
+
+const fn default_max_connections() -> u32 {
+    5
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            path: default_db_path(),
+            max_connections: default_max_connections(),
+            run_migrations: true,
         }
     }
 }

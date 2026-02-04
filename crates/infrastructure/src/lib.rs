@@ -5,6 +5,8 @@
 
 pub mod adapters;
 pub mod config;
+pub mod persistence;
 
 pub use adapters::*;
-pub use config::AppConfig;
+pub use config::{AppConfig, DatabaseConfig, SecurityConfig, ServerConfig, WhatsAppConfig};
+pub use persistence::{ConnectionPool, SqliteConversationStore, create_pool};
