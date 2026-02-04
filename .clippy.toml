@@ -1,5 +1,4 @@
 # Clippy Configuration
-# https://doc.rust-lang.org/clippy/configuration.html
 
 # Maximum cognitive complexity before warning
 cognitive-complexity-threshold = 25
