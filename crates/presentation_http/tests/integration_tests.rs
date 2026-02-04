@@ -436,8 +436,8 @@ async fn invalid_json_returns_bad_request() {
         .json(&json!("not a valid object"))
         .await;
 
-    // Axum returns 422 for unprocessable entity on JSON parse errors
-    response.assert_status_unprocessable_entity();
+    // Our ValidatedJson returns 400 for JSON parse errors
+    response.assert_status_bad_request();
 }
 
 #[tokio::test]
@@ -446,8 +446,8 @@ async fn missing_required_field_returns_error() {
 
     let response = server.post("/v1/chat").json(&json!({})).await;
 
-    // Missing "message" field
-    response.assert_status_unprocessable_entity();
+    // Missing "message" field returns 400
+    response.assert_status_bad_request();
 }
 
 // ============ Ask Command Integration ============

@@ -10,13 +10,33 @@ use axum::{
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
+use validator::Validate;
 
-use crate::{error::ApiError, state::AppState};
+use crate::{error::ApiError, middleware::ValidatedJson, state::AppState};
+
+/// Maximum allowed message length (10KB)
+pub const MAX_MESSAGE_LENGTH: u64 = 10_000;
+
+/// Validate that a string is not empty after trimming
+fn validate_not_empty_trimmed(value: &str) -> Result<(), validator::ValidationError> {
+    if value.trim().is_empty() {
+        return Err(validator::ValidationError::new(
+            "Message cannot be empty or whitespace only",
+        ));
+    }
+    Ok(())
+}
 
 /// Chat request body
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct ChatRequest {
     /// User message
+    #[validate(length(
+        min = 1,
+        max = 10000,
+        message = "Message must be between 1 and 10000 characters"
+    ))]
+    #[validate(custom(function = "validate_not_empty_trimmed"))]
     pub message: String,
     /// Optional conversation ID for context
     #[serde(default)]
@@ -42,12 +62,8 @@ pub struct ChatResponse {
 #[instrument(skip(state, request), fields(message_len = request.message.len()))]
 pub async fn chat(
     State(state): State<AppState>,
-    Json(request): Json<ChatRequest>,
+    ValidatedJson(request): ValidatedJson<ChatRequest>,
 ) -> Result<Json<ChatResponse>, ApiError> {
-    if request.message.trim().is_empty() {
-        return Err(ApiError::BadRequest("Message cannot be empty".to_string()));
-    }
-
     let response = state.chat_service.chat(&request.message).await?;
 
     let metadata = response.metadata.as_ref();
@@ -61,8 +77,14 @@ pub async fn chat(
 }
 
 /// Streaming chat request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct StreamChatRequest {
+    #[validate(length(
+        min = 1,
+        max = 10000,
+        message = "Message must be between 1 and 10000 characters"
+    ))]
+    #[validate(custom(function = "validate_not_empty_trimmed"))]
     pub message: String,
 }
 
@@ -70,12 +92,8 @@ pub struct StreamChatRequest {
 #[instrument(skip(state, request), fields(message_len = request.message.len()))]
 pub async fn chat_stream(
     State(state): State<AppState>,
-    Json(request): Json<StreamChatRequest>,
+    ValidatedJson(request): ValidatedJson<StreamChatRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    if request.message.trim().is_empty() {
-        return Err(ApiError::BadRequest("Message cannot be empty".to_string()));
-    }
-
     // For now, we simulate streaming by sending the full response in one event
     // TODO: Implement true streaming when ai_core streaming is connected
     let response = state.chat_service.chat(&request.message).await?;

@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use application::{AgentService, ChatService};
 use infrastructure::{AppConfig, HailoInferenceAdapter};
-use presentation_http::{routes, state::AppState};
+use presentation_http::{
+    ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, routes, state::AppState,
+};
 use tokio::net::TcpListener;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -67,13 +69,43 @@ async fn main() -> anyhow::Result<()> {
     // Build router
     let app = routes::create_router(state);
 
-    // Add middleware
-    let app = app.layer(TraceLayer::new_for_http()).layer(
+    // Configure CORS layer
+    let cors_layer = if config.server.allowed_origins.is_empty() {
+        // Development mode: allow all origins
         CorsLayer::new()
             .allow_origin(Any)
             .allow_methods(Any)
-            .allow_headers(Any),
-    );
+            .allow_headers(Any)
+    } else {
+        // Production mode: restrict to configured origins
+        use axum::http::{HeaderValue, Method};
+        let origins: Vec<HeaderValue> = config
+            .server
+            .allowed_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+            .allow_headers(Any)
+    };
+
+    // Configure rate limiter
+    let rate_limiter = RateLimiterLayer::new(&RateLimiterConfig {
+        enabled: config.security.rate_limit_enabled,
+        requests_per_minute: config.security.rate_limit_rpm,
+    });
+
+    // Configure API key auth
+    let auth_layer = ApiKeyAuthLayer::new(config.security.api_key.clone());
+
+    // Add middleware (order matters: first added = outermost)
+    let app = app
+        .layer(TraceLayer::new_for_http())
+        .layer(cors_layer)
+        .layer(rate_limiter)
+        .layer(auth_layer);
 
     // Start server
     let addr = format!("{}:{}", config.server.host, config.server.port);
