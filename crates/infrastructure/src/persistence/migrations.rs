@@ -8,7 +8,7 @@ use tracing::{debug, info};
 use super::connection::DatabaseError;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
@@ -27,6 +27,10 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
 
         if current_version < 2 {
             migrate_v2(conn)?;
+        }
+
+        if current_version < 3 {
+            migrate_v3(conn)?;
         }
 
         set_schema_version(conn, SCHEMA_VERSION)?;
@@ -161,6 +165,33 @@ fn migrate_v2(conn: &Connection) -> Result<(), DatabaseError> {
     Ok(())
 }
 
+/// Migration to version 3: Email drafts
+fn migrate_v3(conn: &Connection) -> Result<(), DatabaseError> {
+    debug!("Applying migration v3: Email drafts");
+
+    conn.execute_batch(
+        "
+        -- Email drafts table
+        CREATE TABLE IF NOT EXISTS email_drafts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            to_address TEXT NOT NULL,
+            cc TEXT,
+            subject TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        );
+
+        -- Indexes for efficient lookups
+        CREATE INDEX IF NOT EXISTS idx_email_drafts_user_id ON email_drafts(user_id);
+        CREATE INDEX IF NOT EXISTS idx_email_drafts_expires_at ON email_drafts(expires_at);
+        ",
+    )?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,6 +227,7 @@ mod tests {
         assert!(tables.contains(&"approval_requests".to_string()));
         assert!(tables.contains(&"audit_log".to_string()));
         assert!(tables.contains(&"user_profiles".to_string()));
+        assert!(tables.contains(&"email_drafts".to_string()));
     }
 
     #[test]
@@ -324,5 +356,58 @@ mod tests {
 
         assert!(lat.is_none());
         assert!(lon.is_none());
+    }
+
+    #[test]
+    fn email_drafts_table_schema() {
+        let conn = create_test_connection();
+        run_migrations(&conn).unwrap();
+
+        // Insert an email draft
+        conn.execute(
+            "INSERT INTO email_drafts (id, user_id, to_address, cc, subject, body, created_at, expires_at)
+             VALUES ('draft1', 'user1', 'recipient@example.com', 'cc1@example.com,cc2@example.com', 'Test Subject', 'Test body content', '2024-01-01T00:00:00Z', '2024-01-08T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        // Verify we can query it back
+        let (to, cc, subject, body): (String, Option<String>, String, String) = conn
+            .query_row(
+                "SELECT to_address, cc, subject, body FROM email_drafts WHERE id = 'draft1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+
+        assert_eq!(to, "recipient@example.com");
+        assert_eq!(cc.unwrap(), "cc1@example.com,cc2@example.com");
+        assert_eq!(subject, "Test Subject");
+        assert_eq!(body, "Test body content");
+    }
+
+    #[test]
+    fn email_drafts_allows_null_cc() {
+        let conn = create_test_connection();
+        run_migrations(&conn).unwrap();
+
+        // Insert a draft without CC
+        conn.execute(
+            "INSERT INTO email_drafts (id, user_id, to_address, subject, body, created_at, expires_at)
+             VALUES ('draft2', 'user1', 'recipient@example.com', 'Subject', 'Body', '2024-01-01T00:00:00Z', '2024-01-08T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        // Verify NULL CC value
+        let cc: Option<String> = conn
+            .query_row(
+                "SELECT cc FROM email_drafts WHERE id = 'draft2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert!(cc.is_none());
     }
 }

@@ -15,5 +15,5 @@ pub use config::{
     AppConfig, DatabaseConfig, DegradedModeAppConfig, SecurityConfig, ServerConfig,
     TelemetryAppConfig, WhatsAppConfig,
 };
-pub use persistence::{ConnectionPool, SqliteConversationStore, create_pool};
+pub use persistence::{ConnectionPool, SqliteConversationStore, SqliteDraftStore, create_pool};
 pub use telemetry::{TelemetryConfig, TelemetryGuard, init_telemetry};
