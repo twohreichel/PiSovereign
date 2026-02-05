@@ -136,8 +136,7 @@ impl BriefingService {
         // Map common offsets to IANA timezones
         let tz = match offset_hours {
             0 => Timezone::utc(),
-            1 => Timezone::berlin(), // CET (without DST consideration)
-            2 => Timezone::berlin(), // CEST (approximate)
+            1 | 2 => Timezone::berlin(), // CET/CEST (approximate)
             -5 => Timezone::new_york(),
             _ => Timezone::utc(),
         };

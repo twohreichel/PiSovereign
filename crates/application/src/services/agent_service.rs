@@ -543,9 +543,10 @@ impl AgentService {
         let user_id = UserId::default();
 
         // Generate subject if not provided
-        let subject = subject
-            .map(String::from)
-            .unwrap_or_else(|| format!("Re: {}", to.split('@').next().unwrap_or("Contact")));
+        let subject = subject.map_or_else(
+            || format!("Re: {}", to.split('@').next().unwrap_or("Contact")),
+            String::from,
+        );
 
         // Check if draft store is configured
         let Some(ref draft_store) = self.draft_store else {
@@ -558,7 +559,8 @@ impl AgentService {
         };
 
         // Create and save the draft
-        let draft = PersistedEmailDraft::new(user_id, to.to_string(), subject.clone(), body.to_string());
+        let draft =
+            PersistedEmailDraft::new(user_id, to.to_string(), subject.clone(), body.to_string());
         let draft_id = draft.id;
 
         draft_store.save(&draft).await?;
@@ -1225,15 +1227,17 @@ mod async_tests {
         let mut mock_store = MockDraftStorePort::new();
 
         // Expect save to be called and return the draft ID
-        mock_store
-            .expect_save()
-            .returning(|draft| Ok(draft.id));
+        mock_store.expect_save().returning(|draft| Ok(draft.id));
 
-        let service = AgentService::new(Arc::new(mock_inference))
-            .with_draft_store(Arc::new(mock_store));
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_draft_store(Arc::new(mock_store));
 
         let result = service
-            .handle_draft_email("recipient@example.com", Some("Test Subject"), "Email body content")
+            .handle_draft_email(
+                "recipient@example.com",
+                Some("Test Subject"),
+                "Email body content",
+            )
             .await
             .unwrap();
 
@@ -1250,12 +1254,10 @@ mod async_tests {
         let mock_inference = MockInferenceEngine::new();
         let mut mock_store = MockDraftStorePort::new();
 
-        mock_store
-            .expect_save()
-            .returning(|draft| Ok(draft.id));
+        mock_store.expect_save().returning(|draft| Ok(draft.id));
 
-        let service = AgentService::new(Arc::new(mock_inference))
-            .with_draft_store(Arc::new(mock_store));
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_draft_store(Arc::new(mock_store));
 
         let result = service
             .handle_draft_email("john@example.com", None, "Hello!")
@@ -1274,8 +1276,8 @@ mod async_tests {
         let mock_inference = MockInferenceEngine::new();
         let mock_store = MockDraftStorePort::new();
 
-        let service = AgentService::new(Arc::new(mock_inference))
-            .with_draft_store(Arc::new(mock_store));
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_draft_store(Arc::new(mock_store));
 
         let debug = format!("{service:?}");
         assert!(debug.contains("has_draft_store"));

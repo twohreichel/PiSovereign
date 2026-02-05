@@ -24,6 +24,11 @@ use tower_http::{
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+/// System prompt for the AI assistant
+const SYSTEM_PROMPT: &str = "You are PiSovereign, a helpful AI assistant running on a \
+    Raspberry Pi 5 with Hailo-10H. You are friendly, precise, and help with everyday \
+    tasks like email, calendar, and information lookup.";
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize tracing (basic console output)
@@ -124,11 +129,6 @@ async fn main() -> anyhow::Result<()> {
             (None, None)
         },
     };
-
-    // System prompt for the AI assistant
-    const SYSTEM_PROMPT: &str = "You are PiSovereign, a helpful AI assistant running on a \
-        Raspberry Pi 5 with Hailo-10H. You are friendly, precise, and help with everyday \
-        tasks like email, calendar, and information lookup.";
 
     // Initialize services
     let chat_service = conversation_store.as_ref().map_or_else(

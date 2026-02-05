@@ -864,7 +864,11 @@ mod degraded_mode_tests {
 mod workflow_tests {
     use super::*;
     use application::ports::{DraftStorePort, UserProfileStore};
-    use domain::{DraftId, PersistedEmailDraft, UserId, EmailAddress, entities::UserProfile, value_objects::{Timezone, GeoLocation}};
+    use domain::{
+        DraftId, EmailAddress, PersistedEmailDraft, UserId,
+        entities::UserProfile,
+        value_objects::{GeoLocation, Timezone},
+    };
 
     /// Mock draft store for workflow testing
     struct MockDraftStore {
@@ -1067,7 +1071,11 @@ mod workflow_tests {
         };
 
         let result = agent_service.execute_command(&command).await.unwrap();
-        assert!(result.success, "Command should succeed, got: {}", result.response);
+        assert!(
+            result.success,
+            "Command should succeed, got: {}",
+            result.response
+        );
 
         // Verify draft was stored
         let default_user = UserId::default();
@@ -1092,7 +1100,11 @@ mod workflow_tests {
         };
 
         let result = agent_service.execute_command(&command).await.unwrap();
-        assert!(result.success, "Command should succeed, got: {}", result.response);
+        assert!(
+            result.success,
+            "Command should succeed, got: {}",
+            result.response
+        );
 
         // Verify stored draft details
         let default_user = UserId::default();
@@ -1228,7 +1240,10 @@ mod workflow_tests {
 
         // Update timezone
         let new_tz = Timezone::from("America/New_York");
-        let updated = profile_store.update_timezone(&user_id, &new_tz).await.unwrap();
+        let updated = profile_store
+            .update_timezone(&user_id, &new_tz)
+            .await
+            .unwrap();
         assert!(updated);
 
         // Verify update
@@ -1247,7 +1262,10 @@ mod workflow_tests {
 
         // Update location
         let location = GeoLocation::new(52.52, 13.405).unwrap(); // Berlin
-        let updated = profile_store.update_location(&user_id, Some(&location)).await.unwrap();
+        let updated = profile_store
+            .update_location(&user_id, Some(&location))
+            .await
+            .unwrap();
         assert!(updated);
 
         // Verify update
@@ -1302,7 +1320,10 @@ mod workflow_tests {
             response.assert_status_ok();
             let body: serde_json::Value = response.json();
             assert_eq!(body["success"], true);
-            assert_eq!(body["command_type"], expected_type, "Failed for input: {input}");
+            assert_eq!(
+                body["command_type"], expected_type,
+                "Failed for input: {input}"
+            );
         }
     }
 }

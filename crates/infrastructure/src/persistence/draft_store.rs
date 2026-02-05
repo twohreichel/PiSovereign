@@ -223,10 +223,8 @@ fn row_to_draft(row: &Row<'_>) -> rusqlite::Result<PersistedEmailDraft> {
     let created_at_str: String = row.get(6)?;
     let expires_at_str: String = row.get(7)?;
 
-    let id = DraftId::parse(&id_str)
-        .unwrap_or_else(|_| DraftId::from(Uuid::new_v4()));
-    let user_id = UserId::parse(&user_id_str)
-        .unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
+    let id = DraftId::parse(&id_str).unwrap_or_else(|_| DraftId::from(Uuid::new_v4()));
+    let user_id = UserId::parse(&user_id_str).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
 
     // Parse CC from comma-separated string
     let cc = cc_str
@@ -329,12 +327,7 @@ mod tests {
         let user_id = test_user_id();
 
         // Create a draft that's already expired
-        let mut draft = PersistedEmailDraft::new(
-            user_id,
-            "recipient@example.com",
-            "Test",
-            "Body",
-        );
+        let mut draft = PersistedEmailDraft::new(user_id, "recipient@example.com", "Test", "Body");
         draft.expires_at = Utc::now() - Duration::hours(1);
         let draft_id = draft.id;
 
@@ -351,12 +344,7 @@ mod tests {
         let user1 = test_user_id();
         let user2 = test_user_id();
 
-        let draft = PersistedEmailDraft::new(
-            user1,
-            "recipient@example.com",
-            "Test",
-            "Body",
-        );
+        let draft = PersistedEmailDraft::new(user1, "recipient@example.com", "Test", "Body");
         let draft_id = draft.id;
         store.save(&draft).await.unwrap();
 
@@ -374,12 +362,7 @@ mod tests {
         let store = create_test_store();
         let user_id = test_user_id();
 
-        let draft = PersistedEmailDraft::new(
-            user_id,
-            "recipient@example.com",
-            "Test",
-            "Body",
-        );
+        let draft = PersistedEmailDraft::new(user_id, "recipient@example.com", "Test", "Body");
         let draft_id = draft.id;
         store.save(&draft).await.unwrap();
 
@@ -414,12 +397,7 @@ mod tests {
         }
 
         // Create draft for user2
-        let draft = PersistedEmailDraft::new(
-            user2,
-            "other@example.com",
-            "User2 Subject",
-            "Body",
-        );
+        let draft = PersistedEmailDraft::new(user2, "other@example.com", "User2 Subject", "Body");
         store.save(&draft).await.unwrap();
 
         // List for user1 (limit 3)
@@ -443,21 +421,13 @@ mod tests {
         let user_id = test_user_id();
 
         // Create valid draft
-        let valid_draft = PersistedEmailDraft::new(
-            user_id,
-            "recipient@example.com",
-            "Valid",
-            "Body",
-        );
+        let valid_draft =
+            PersistedEmailDraft::new(user_id, "recipient@example.com", "Valid", "Body");
         store.save(&valid_draft).await.unwrap();
 
         // Create expired draft
-        let mut expired_draft = PersistedEmailDraft::new(
-            user_id,
-            "recipient@example.com",
-            "Expired",
-            "Body",
-        );
+        let mut expired_draft =
+            PersistedEmailDraft::new(user_id, "recipient@example.com", "Expired", "Body");
         expired_draft.expires_at = Utc::now() - Duration::hours(1);
         store.save(&expired_draft).await.unwrap();
 
@@ -473,12 +443,8 @@ mod tests {
         let user_id = test_user_id();
 
         // Create valid draft
-        let valid_draft = PersistedEmailDraft::new(
-            user_id,
-            "recipient@example.com",
-            "Valid",
-            "Body",
-        );
+        let valid_draft =
+            PersistedEmailDraft::new(user_id, "recipient@example.com", "Valid", "Body");
         let valid_id = valid_draft.id;
         store.save(&valid_draft).await.unwrap();
 
@@ -520,13 +486,8 @@ mod tests {
         let store = create_test_store();
         let user_id = test_user_id();
 
-        let draft = PersistedEmailDraft::new(
-            user_id,
-            "recipient@example.com",
-            "Test",
-            "Body",
-        )
-        .with_ccs(["cc1@example.com", "cc2@example.com"]);
+        let draft = PersistedEmailDraft::new(user_id, "recipient@example.com", "Test", "Body")
+            .with_ccs(["cc1@example.com", "cc2@example.com"]);
 
         let draft_id = draft.id;
         store.save(&draft).await.unwrap();
@@ -542,12 +503,7 @@ mod tests {
         let store = create_test_store();
         let user_id = test_user_id();
 
-        let draft = PersistedEmailDraft::new(
-            user_id,
-            "recipient@example.com",
-            "Test",
-            "Body",
-        );
+        let draft = PersistedEmailDraft::new(user_id, "recipient@example.com", "Test", "Body");
         let draft_id = draft.id;
         let original_created = draft.created_at;
         let original_expires = draft.expires_at;
@@ -556,7 +512,17 @@ mod tests {
 
         let retrieved = store.get(&draft_id).await.unwrap().unwrap();
         // Allow 1 second tolerance for serialization/deserialization
-        assert!((retrieved.created_at - original_created).num_seconds().abs() <= 1);
-        assert!((retrieved.expires_at - original_expires).num_seconds().abs() <= 1);
+        assert!(
+            (retrieved.created_at - original_created)
+                .num_seconds()
+                .abs()
+                <= 1
+        );
+        assert!(
+            (retrieved.expires_at - original_expires)
+                .num_seconds()
+                .abs()
+                <= 1
+        );
     }
 }
