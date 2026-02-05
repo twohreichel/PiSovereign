@@ -15,7 +15,7 @@ pub use briefing_service::{
     TaskBrief, WeatherSummary,
 };
 pub use calendar_service::CalendarService;
-pub use chat_service::ChatService;
+pub use chat_service::{ChatService, MAX_CONVERSATION_MESSAGES};
 pub use conversation_context::{
     ConversationCacheStats, ConversationContextConfig, ConversationContextService,
 };
