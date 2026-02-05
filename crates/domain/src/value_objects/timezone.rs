@@ -1,9 +1,35 @@
 //! Timezone value object
+//!
+//! Represents an IANA timezone identifier.
+//!
+//! # Examples
+//!
+//! ```
+//! use domain::value_objects::Timezone;
+//!
+//! // Create a timezone
+//! let tz = Timezone::new("Europe/Berlin");
+//! assert_eq!(tz.as_str(), "Europe/Berlin");
+//!
+//! // Use predefined constants
+//! let utc = Timezone::utc();
+//! assert!(utc.is_utc());
+//! ```
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// A timezone identifier (IANA timezone name)
+///
+/// # Examples
+///
+/// ```
+/// use domain::value_objects::Timezone;
+///
+/// let tz = Timezone::berlin();
+/// assert_eq!(tz.to_string(), "Europe/Berlin");
+/// assert!(!tz.is_utc());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Timezone(String);
 
@@ -12,6 +38,15 @@ impl Timezone {
     ///
     /// Note: This does not validate against the IANA database.
     /// For production use, consider integrating with chrono-tz for validation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::value_objects::Timezone;
+    ///
+    /// let tz = Timezone::new("America/Los_Angeles");
+    /// assert_eq!(tz.as_str(), "America/Los_Angeles");
+    /// ```
     #[must_use]
     pub fn new(tz: impl Into<String>) -> Self {
         Self(tz.into())
@@ -24,6 +59,15 @@ impl Timezone {
     }
 
     /// Check if this is a UTC timezone
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::value_objects::Timezone;
+    ///
+    /// assert!(Timezone::utc().is_utc());
+    /// assert!(!Timezone::berlin().is_utc());
+    /// ```
     #[must_use]
     pub fn is_utc(&self) -> bool {
         matches!(self.0.as_str(), "UTC" | "Etc/UTC" | "Etc/GMT")

@@ -1,4 +1,18 @@
 //! User identifier value object
+//!
+//! # Examples
+//!
+//! ```
+//! use domain::UserId;
+//!
+//! // Create a new random user ID
+//! let user_id = UserId::new();
+//! assert!(!user_id.to_string().is_empty());
+//!
+//! // Parse from string
+//! let parsed = UserId::parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
+//! assert_eq!(parsed.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+//! ```
 
 use std::fmt;
 
@@ -6,21 +20,60 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A unique user identifier
+///
+/// # Examples
+///
+/// ```
+/// use domain::UserId;
+///
+/// let user_id = UserId::new();
+/// println!("User ID: {}", user_id);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UserId(Uuid);
 
 impl UserId {
     /// Create a new random user ID
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::UserId;
+    ///
+    /// let id1 = UserId::new();
+    /// let id2 = UserId::new();
+    /// assert_ne!(id1, id2);
+    /// ```
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
 
     /// Create a user ID from an existing UUID
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::UserId;
+    /// use uuid::Uuid;
+    ///
+    /// let uuid = Uuid::new_v4();
+    /// let user_id = UserId::from_uuid(uuid);
+    /// assert_eq!(user_id.as_uuid(), uuid);
+    /// ```
     pub const fn from_uuid(uuid: Uuid) -> Self {
         Self(uuid)
     }
 
     /// Parse a user ID from a string
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::UserId;
+    ///
+    /// let user_id = UserId::parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
+    /// assert!(UserId::parse("invalid").is_err());
+    /// ```
     pub fn parse(s: &str) -> Result<Self, uuid::Error> {
         Ok(Self(Uuid::parse_str(s)?))
     }
