@@ -379,7 +379,11 @@ impl AgentService {
         if briefing.calendar.event_count == 0 {
             response.push_str("No appointments scheduled for today.\n");
         } else {
-            let _ = writeln!(response, "{} appointment(s) today:", briefing.calendar.event_count);
+            let _ = writeln!(
+                response,
+                "{} appointment(s) today:",
+                briefing.calendar.event_count
+            );
             for event in &briefing.calendar.events {
                 if event.all_day {
                     let _ = writeln!(response, "  • {} (all-day)", event.title);
