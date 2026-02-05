@@ -92,3 +92,79 @@ jobs:
                 version: '${{ needs.release-please.outputs.version }}'
               }
             })
+
+  # Build and upload release binaries
+  build-binaries:
+    name: Build Release Binaries
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: macos-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Configure cross-compilation (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          echo "[target.aarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
+          echo "linker = \"aarch64-linux-gnu-gcc\"" >> ~/.cargo/config.toml
+
+      - name: Build release binaries
+        run: |
+          cargo build --release --target ${{ matrix.target }} \
+            -p presentation_cli \
+            -p presentation_http
+
+      - name: Package binaries
+        run: |
+          VERSION="${{ needs.release-please.outputs.version }}"
+          mkdir -p dist
+          
+          # Package CLI
+          cp target/${{ matrix.target }}/release/pisovereign-cli \
+             dist/pisovereign-cli-${VERSION}-${{ matrix.name }}
+          
+          # Package Server
+          cp target/${{ matrix.target }}/release/pisovereign-server \
+             dist/pisovereign-server-${VERSION}-${{ matrix.name }}
+          
+          # Create checksums
+          cd dist
+          sha256sum * > checksums-${{ matrix.name }}.txt
+
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          files: |
+            dist/pisovereign-cli-*
+            dist/pisovereign-server-*
+            dist/checksums-*.txt
