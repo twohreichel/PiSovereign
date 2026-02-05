@@ -18,6 +18,5 @@ pub use approval_queue::SqliteApprovalQueue;
 pub use async_connection::{AsyncDatabase, AsyncDatabaseConfig, AsyncDatabaseError};
 pub use async_conversation_store::AsyncConversationStore;
 pub use audit_log::SqliteAuditLog;
-pub use connection::{create_pool, ConnectionPool, DatabaseError};
+pub use connection::{ConnectionPool, DatabaseError, create_pool};
 pub use conversation_store::SqliteConversationStore;
-

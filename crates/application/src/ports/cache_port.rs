@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn cache_stats_hit_rate_zero_when_empty() {
         let stats = CacheStats::default();
-        assert_eq!(stats.hit_rate(), 0.0);
+        assert!(stats.hit_rate().abs() < f64::EPSILON);
     }
 
     #[test]
@@ -171,7 +171,7 @@ mod tests {
             entries: 0,
             memory_bytes: 0,
         };
-        assert_eq!(stats.hit_rate(), 0.0);
+        assert!(stats.hit_rate().abs() < f64::EPSILON);
     }
 
     #[test]

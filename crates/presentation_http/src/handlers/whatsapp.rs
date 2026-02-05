@@ -381,7 +381,7 @@ mod tests {
             app_secret: config.app_secret.clone().unwrap_or_default(),
             verify_token: config.verify_token.clone().unwrap_or_default(),
             signature_required: config.signature_required,
-            api_version: config.api_version.clone(),
+            api_version: config.api_version,
         };
 
         assert_eq!(client_config.access_token, "token123");

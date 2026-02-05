@@ -4,11 +4,12 @@
 //! This is the preferred implementation for new code as it avoids
 //! blocking the async runtime.
 
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    SqlitePool,
-};
 use std::{path::Path, str::FromStr};
+
+use sqlx::{
+    SqlitePool,
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+};
 use tracing::{debug, info, instrument};
 
 /// Error type for async database operations
@@ -254,7 +255,8 @@ mod tests {
     #[tokio::test]
     async fn create_in_memory_database() {
         let db = AsyncDatabase::in_memory().await.unwrap();
-        assert!(db.pool().size() > 0 || true); // Pool may be lazy
+        // Pool may be lazy, just verify it was created
+        let _ = db.pool();
     }
 
     #[tokio::test]

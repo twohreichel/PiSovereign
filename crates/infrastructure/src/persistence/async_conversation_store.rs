@@ -38,7 +38,7 @@ impl AsyncConversationStore {
     }
 
     /// Convert `MessageRole` to string for storage
-    const fn role_to_str(role: &MessageRole) -> &'static str {
+    const fn role_to_str(role: MessageRole) -> &'static str {
         match role {
             MessageRole::User => "user",
             MessageRole::Assistant => "assistant",
@@ -54,8 +54,7 @@ impl AsyncConversationStore {
 
     /// Parse a UUID from string
     fn parse_uuid(s: &str) -> Result<Uuid, ApplicationError> {
-        Uuid::parse_str(s)
-            .map_err(|e| ApplicationError::Internal(format!("Invalid UUID: {e}")))
+        Uuid::parse_str(s).map_err(|e| ApplicationError::Internal(format!("Invalid UUID: {e}")))
     }
 }
 
@@ -107,7 +106,7 @@ impl ConversationStore for AsyncConversationStore {
             )
             .bind(message.id.to_string())
             .bind(conversation.id.to_string())
-            .bind(Self::role_to_str(&message.role))
+            .bind(Self::role_to_str(message.role))
             .bind(&message.content)
             .bind(message.created_at.to_rfc3339())
             .bind(metadata_json)
@@ -220,7 +219,7 @@ impl ConversationStore for AsyncConversationStore {
         )
         .bind(message.id.to_string())
         .bind(conversation_id.to_string())
-        .bind(Self::role_to_str(&message.role))
+        .bind(Self::role_to_str(message.role))
         .bind(&message.content)
         .bind(message.created_at.to_rfc3339())
         .bind(metadata_json)
@@ -250,7 +249,7 @@ impl ConversationStore for AsyncConversationStore {
             LIMIT $1
             ",
         )
-        .bind(limit as i64)
+        .bind(i64::try_from(limit).unwrap_or(i64::MAX))
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -321,7 +320,7 @@ impl ConversationStore for AsyncConversationStore {
             ",
         )
         .bind(&search_pattern)
-        .bind(limit as i64)
+        .bind(i64::try_from(limit).unwrap_or(i64::MAX))
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -410,10 +409,10 @@ fn map_sqlx_error(e: sqlx::Error) -> ApplicationError {
     match e {
         sqlx::Error::RowNotFound => {
             ApplicationError::NotFound("Database record not found".to_string())
-        }
+        },
         sqlx::Error::Database(db_err) => {
             ApplicationError::Internal(format!("Database error: {db_err}"))
-        }
+        },
         other => ApplicationError::Internal(format!("Database error: {other}")),
     }
 }
@@ -522,4 +521,3 @@ mod tests {
         assert_eq!(loaded.messages[0].content, "Hello");
     }
 }
-
