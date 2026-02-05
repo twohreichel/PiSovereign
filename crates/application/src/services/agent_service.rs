@@ -8,7 +8,7 @@ use tracing::{debug, info, instrument, warn};
 use crate::{
     command_parser::CommandParser,
     error::ApplicationError,
-    ports::{DraftStorePort, InferencePort},
+    ports::{DraftStorePort, InferencePort, UserProfileStore},
 };
 
 /// Result of executing an agent command
@@ -49,6 +49,8 @@ pub struct AgentService {
     email_service: Option<Arc<super::EmailService>>,
     /// Optional draft store for email draft persistence
     draft_store: Option<Arc<dyn DraftStorePort>>,
+    /// Optional user profile store for personalization
+    user_profile_store: Option<Arc<dyn UserProfileStore>>,
 }
 
 impl fmt::Debug for AgentService {
@@ -58,6 +60,7 @@ impl fmt::Debug for AgentService {
             .field("has_calendar", &self.calendar_service.is_some())
             .field("has_email", &self.email_service.is_some())
             .field("has_draft_store", &self.draft_store.is_some())
+            .field("has_user_profile", &self.user_profile_store.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -71,6 +74,7 @@ impl AgentService {
             calendar_service: None,
             email_service: None,
             draft_store: None,
+            user_profile_store: None,
         }
     }
 
@@ -92,6 +96,13 @@ impl AgentService {
     #[must_use]
     pub fn with_draft_store(mut self, store: Arc<dyn DraftStorePort>) -> Self {
         self.draft_store = Some(store);
+        self
+    }
+
+    /// Add user profile store for personalization
+    #[must_use]
+    pub fn with_user_profile_store(mut self, store: Arc<dyn UserProfileStore>) -> Self {
+        self.user_profile_store = Some(store);
         self
     }
 
@@ -335,6 +346,9 @@ impl AgentService {
             briefing_date.format("%Y-%m-%d").to_string()
         };
 
+        // Get user timezone from profile if available
+        let user_timezone = self.get_user_timezone().await;
+
         // Collect calendar data if service available
         let calendar_brief = if let Some(ref calendar_svc) = self.calendar_service {
             match calendar_svc.get_calendar_brief(briefing_date).await {
@@ -381,8 +395,8 @@ impl AgentService {
             EmailBrief::default()
         };
 
-        // Generate briefing using BriefingService
-        let briefing_service = BriefingService::new(1); // Central European timezone
+        // Generate briefing using BriefingService with user's timezone
+        let briefing_service = BriefingService::new(user_timezone);
         let briefing = briefing_service.generate_briefing(
             calendar_brief,
             email_brief,
@@ -488,6 +502,32 @@ impl AgentService {
                  (Email integration not configured. Please set up Proton Bridge.)"
             ),
         })
+    }
+
+    /// Get the user's timezone from their profile, or default to Europe/Berlin
+    ///
+    /// For now uses a default user ID since we don't have per-request user context.
+    async fn get_user_timezone(&self) -> domain::value_objects::Timezone {
+        use domain::value_objects::Timezone;
+
+        if let Some(ref profile_store) = self.user_profile_store {
+            // Use default user ID for now - future versions will have proper user context
+            let default_user_id = UserId::default();
+            match profile_store.get(&default_user_id).await {
+                Ok(Some(profile)) => profile.timezone().clone(),
+                Ok(None) => {
+                    debug!("User profile not found, using default timezone");
+                    Timezone::berlin()
+                },
+                Err(e) => {
+                    warn!(error = %e, "Failed to get user profile, using default timezone");
+                    Timezone::berlin()
+                },
+            }
+        } else {
+            // No profile store configured, use default
+            domain::value_objects::Timezone::berlin()
+        }
     }
 
     /// Handle draft email command - create and store the draft
