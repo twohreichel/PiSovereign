@@ -13,7 +13,8 @@ use infrastructure::{
 };
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig,
-    handlers::metrics::MetricsCollector, routes, spawn_config_reload_handler, state::AppState,
+    handlers::metrics::MetricsCollector, routes, spawn_cleanup_task, spawn_config_reload_handler,
+    state::AppState,
 };
 use tokio::{net::TcpListener, signal};
 use tower_http::{
@@ -182,6 +183,14 @@ async fn main() -> anyhow::Result<()> {
         enabled: initial_config.security.rate_limit_enabled,
         requests_per_minute: initial_config.security.rate_limit_rpm,
     });
+
+    // Spawn rate limiter cleanup task
+    let rate_limiter_state = rate_limiter.state();
+    let _cleanup_handle = spawn_cleanup_task(
+        rate_limiter_state,
+        Duration::from_secs(initial_config.security.rate_limit_cleanup_interval_secs),
+        Duration::from_secs(initial_config.security.rate_limit_cleanup_max_age_secs),
+    );
 
     // Configure API key auth
     let auth_layer = ApiKeyAuthLayer::new(initial_config.security.api_key.clone());

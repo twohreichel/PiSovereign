@@ -102,6 +102,14 @@ pub struct SecurityConfig {
     #[serde(default = "default_rate_limit")]
     pub rate_limit_rpm: u32,
 
+    /// Rate limiter cleanup interval in seconds (default: 300 = 5 minutes)
+    #[serde(default = "default_cleanup_interval")]
+    pub rate_limit_cleanup_interval_secs: u64,
+
+    /// Rate limiter entry max age in seconds before cleanup (default: 600 = 10 minutes)
+    #[serde(default = "default_cleanup_max_age")]
+    pub rate_limit_cleanup_max_age_secs: u64,
+
     /// Validate TLS certificates for outbound connections
     #[serde(default = "default_true")]
     pub tls_verify_certs: bool,
@@ -119,6 +127,14 @@ const fn default_rate_limit() -> u32 {
     60
 }
 
+const fn default_cleanup_interval() -> u64 {
+    300 // 5 minutes
+}
+
+const fn default_cleanup_max_age() -> u64 {
+    600 // 10 minutes
+}
+
 const fn default_connection_timeout() -> u64 {
     30
 }
@@ -134,6 +150,8 @@ impl Default for SecurityConfig {
             api_key: None,
             rate_limit_enabled: true,
             rate_limit_rpm: default_rate_limit(),
+            rate_limit_cleanup_interval_secs: default_cleanup_interval(),
+            rate_limit_cleanup_max_age_secs: default_cleanup_max_age(),
             tls_verify_certs: true,
             connection_timeout_secs: default_connection_timeout(),
             min_tls_version: default_min_tls_version(),

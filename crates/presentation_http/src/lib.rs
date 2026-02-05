@@ -13,6 +13,7 @@ pub use config_reload::{ReloadableConfig, spawn_config_reload_handler};
 pub use error::ApiError;
 pub use middleware::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ValidatedJson, ValidationError,
+    spawn_cleanup_task,
 };
 pub use routes::create_router;
 pub use state::AppState;
