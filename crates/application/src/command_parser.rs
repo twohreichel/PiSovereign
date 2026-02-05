@@ -10,36 +10,36 @@ use tracing::{debug, instrument, warn};
 use crate::{error::ApplicationError, ports::InferencePort};
 
 /// System prompt for intent detection
-const INTENT_SYSTEM_PROMPT: &str = r#"Du bist ein Intent-Classifier für einen persönlichen Assistenten.
-Analysiere die Benutzereingabe und extrahiere den Intent als JSON.
+const INTENT_SYSTEM_PROMPT: &str = r#"You are an intent classifier for a personal assistant.
+Analyze the user input and extract the intent as JSON.
 
-Mögliche Intents:
-- "morning_briefing": Morgenbriefing anfordern (z.B. "Was steht heute an?", "Briefing")
-- "create_calendar_event": Termin erstellen (braucht: date, time, title)
-- "summarize_inbox": E-Mail-Zusammenfassung (z.B. "Was gibt es Neues?", "Mails")
-- "draft_email": E-Mail-Entwurf (braucht: to, body; optional: subject)
-- "send_email": E-Mail senden (braucht: draft_id)
-- "ask": Allgemeine Frage (wenn nichts anderes passt)
+Possible intents:
+- "morning_briefing": Request morning briefing (e.g., "What's on today?", "Briefing")
+- "create_calendar_event": Create appointment (requires: date, time, title)
+- "summarize_inbox": Email summary (e.g., "What's new?", "Mails")
+- "draft_email": Draft email (requires: to, body; optional: subject)
+- "send_email": Send email (requires: draft_id)
+- "ask": General question (if nothing else matches)
 
-Antworte NUR mit validem JSON:
+Reply ONLY with valid JSON:
 {
   "intent": "<intent_name>",
-  "date": "YYYY-MM-DD" (optional, nur für Termine),
-  "time": "HH:MM" (optional, nur für Termine),
-  "title": "..." (optional, für Termine),
-  "to": "email@example.com" (optional, für E-Mails),
-  "subject": "..." (optional, für E-Mails),
-  "body": "..." (optional, für E-Mails),
-  "question": "..." (nur für ask-Intent),
-  "count": 10 (optional, für inbox),
-  "draft_id": "..." (optional, für send_email)
+  "date": "YYYY-MM-DD" (optional, only for appointments),
+  "time": "HH:MM" (optional, only for appointments),
+  "title": "..." (optional, for appointments),
+  "to": "email@example.com" (optional, for emails),
+  "subject": "..." (optional, for emails),
+  "body": "..." (optional, for emails),
+  "question": "..." (only for ask intent),
+  "count": 10 (optional, for inbox),
+  "draft_id": "..." (optional, for send_email)
 }
 
-Beispiele:
-- "Briefing für morgen" → {"intent":"morning_briefing","date":"2025-02-02"}
-- "Termin morgen 14:00 Team Meeting" → {"intent":"create_calendar_event","date":"2025-02-02","time":"14:00","title":"Team Meeting"}
-- "Fasse meine Mails zusammen" → {"intent":"summarize_inbox"}
-- "Wie wird das Wetter?" → {"intent":"ask","question":"Wie wird das Wetter?"}"#;
+Examples:
+- "Briefing for tomorrow" → {"intent":"morning_briefing","date":"2025-02-02"}
+- "Appointment tomorrow 14:00 Team Meeting" → {"intent":"create_calendar_event","date":"2025-02-02","time":"14:00","title":"Team Meeting"}
+- "Summarize my mails" → {"intent":"summarize_inbox"}
+- "What's the weather like?" → {"intent":"ask","question":"What's the weather like?"}"#;
 
 /// Parsed intent from LLM
 #[derive(Debug, Deserialize)]
@@ -117,18 +117,16 @@ impl CommandParser {
             },
             // Help command
             QuickPattern {
-                keywords: vec!["hilfe", "help", "?"],
+                keywords: vec!["help", "?"],
                 builder: |input| {
                     let lower = input.to_lowercase().trim().to_string();
-                    if lower == "hilfe" || lower == "help" || lower == "?" {
+                    if lower == "help" || lower == "?" {
                         return Some(AgentCommand::Help { command: None });
                     }
-                    for prefix in ["hilfe ", "help "] {
-                        if let Some(topic) = lower.strip_prefix(prefix) {
-                            return Some(AgentCommand::Help {
-                                command: Some(topic.trim().to_string()),
-                            });
-                        }
+                    if let Some(topic) = lower.strip_prefix("help ") {
+                        return Some(AgentCommand::Help {
+                            command: Some(topic.trim().to_string()),
+                        });
                     }
                     None
                 },
@@ -156,10 +154,10 @@ impl CommandParser {
             },
             // Models command
             QuickPattern {
-                keywords: vec!["modelle", "models"],
+                keywords: vec!["models"],
                 builder: |input| {
                     let lower = input.to_lowercase().trim().to_string();
-                    if lower == "modelle" || lower == "models" {
+                    if lower == "models" {
                         return Some(AgentCommand::System(domain::SystemCommand::ListModels));
                     }
                     None
@@ -167,13 +165,13 @@ impl CommandParser {
             },
             // Morning briefing
             QuickPattern {
-                keywords: vec!["briefing", "morgen", "guten morgen", "was steht an"],
+                keywords: vec!["briefing", "morning", "good morning", "what's on", "what is on"],
                 builder: |input| {
                     let lower = input.to_lowercase();
                     if lower.contains("briefing")
-                        || lower == "guten morgen"
-                        || lower.contains("was steht an")
-                        || lower.contains("was steht heute an")
+                        || lower == "good morning"
+                        || lower.contains("what's on")
+                        || lower.contains("what is on today")
                     {
                         // Parse date from input using date_parser
                         let date = crate::date_parser::extract_date_from_text(input);
@@ -188,10 +186,10 @@ impl CommandParser {
                 builder: |input| {
                     let lower = input.to_lowercase();
                     if lower.contains("inbox")
-                        || lower.contains("mails zusammen")
-                        || lower.contains("email zusammen")
+                        || lower.contains("summarize mails")
+                        || lower.contains("summarize email")
                     {
-                        let only_important = lower.contains("wichtig");
+                        let only_important = lower.contains("important");
                         return Some(AgentCommand::SummarizeInbox {
                             count: None,
                             only_important: if only_important { Some(true) } else { None },
@@ -432,10 +430,10 @@ mod tests {
     fn parses_help_command() {
         let parser = CommandParser::new();
 
-        let cmd = parser.parse_quick("hilfe").unwrap();
+        let cmd = parser.parse_quick("help").unwrap();
         assert!(matches!(cmd, AgentCommand::Help { command: None }));
 
-        let cmd = parser.parse_quick("hilfe email").unwrap();
+        let cmd = parser.parse_quick("help email").unwrap();
         let AgentCommand::Help {
             command: Some(topic),
         } = cmd
@@ -479,9 +477,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_briefing_with_morgen() {
+    fn parses_briefing_with_good_morning() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("guten morgen").unwrap();
+        let cmd = parser.parse_quick("good morning").unwrap();
 
         assert!(matches!(cmd, AgentCommand::MorningBriefing { date: None }));
     }
@@ -501,7 +499,7 @@ mod tests {
         let cmd = parser.parse_quick("ECHO Test").unwrap();
         assert!(matches!(cmd, AgentCommand::Echo { .. }));
 
-        let cmd = parser.parse_quick("HILFE").unwrap();
+        let cmd = parser.parse_quick("HELP").unwrap();
         assert!(matches!(cmd, AgentCommand::Help { .. }));
 
         let cmd = parser.parse_quick("STATUS").unwrap();
@@ -542,7 +540,7 @@ mod tests {
     #[test]
     fn parses_models_command() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("modelle").unwrap();
+        let cmd = parser.parse_quick("models").unwrap();
         assert!(matches!(
             cmd,
             AgentCommand::System(domain::SystemCommand::ListModels)
@@ -550,9 +548,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_models_command_english() {
+    fn parses_models_command_uppercase() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("models").unwrap();
+        let cmd = parser.parse_quick("MODELS").unwrap();
         assert!(matches!(
             cmd,
             AgentCommand::System(domain::SystemCommand::ListModels)
@@ -570,16 +568,16 @@ mod tests {
     }
 
     #[test]
-    fn parses_mails_zusammenfassen() {
+    fn parses_summarize_mails() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("mails zusammenfassen").unwrap();
+        let cmd = parser.parse_quick("summarize mails").unwrap();
         assert!(matches!(cmd, AgentCommand::SummarizeInbox { .. }));
     }
 
     #[test]
-    fn parses_wichtige_mails() {
+    fn parses_important_mails() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("inbox nur wichtige").unwrap();
+        let cmd = parser.parse_quick("inbox important only").unwrap();
         let AgentCommand::SummarizeInbox { only_important, .. } = cmd else {
             unreachable!("Expected SummarizeInbox")
         };
@@ -587,10 +585,10 @@ mod tests {
     }
 
     #[test]
-    fn parses_was_steht_an() {
+    fn parses_whats_on() {
         let parser = CommandParser::new();
-        // The pattern checks for "was steht an" in the input
-        let cmd = parser.parse_quick("was steht an").unwrap();
+        // The pattern checks for "what's on" in the input
+        let cmd = parser.parse_quick("what's on").unwrap();
         assert!(matches!(cmd, AgentCommand::MorningBriefing { date: None }));
     }
 
@@ -633,30 +631,30 @@ mod tests {
     }
 
     #[test]
-    fn help_with_topic_kalender() {
+    fn help_with_topic_calendar() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("hilfe kalender").unwrap();
+        let cmd = parser.parse_quick("help calendar").unwrap();
         let AgentCommand::Help {
             command: Some(topic),
         } = cmd
         else {
             unreachable!("Expected Help with topic")
         };
-        assert_eq!(topic, "kalender");
+        assert_eq!(topic, "calendar");
     }
 
     #[test]
-    fn parses_guten_morgen() {
+    fn parses_good_morning() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("guten morgen").unwrap();
+        let cmd = parser.parse_quick("good morning").unwrap();
         assert!(matches!(cmd, AgentCommand::MorningBriefing { date: None }));
     }
 
     #[test]
-    fn parses_was_steht_heute_an() {
+    fn parses_what_is_on_today() {
         let parser = CommandParser::new();
-        // The pattern checks for "was steht an" - needs to be exact match in lower case
-        let cmd = parser.parse_quick("Was steht an heute?").unwrap();
+        // The pattern checks for "what is on" - needs to be exact match in lower case
+        let cmd = parser.parse_quick("What is on today?").unwrap();
         assert!(matches!(cmd, AgentCommand::MorningBriefing { date: None }));
     }
 
@@ -701,7 +699,7 @@ mod async_tests {
         let mock = MockInferenceEngine::new();
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
-        let result = parser.parse_with_llm(&inference, "hilfe").await.unwrap();
+        let result = parser.parse_with_llm(&inference, "help").await.unwrap();
         assert!(matches!(result, AgentCommand::Help { command: None }));
     }
 
@@ -792,7 +790,7 @@ mod async_tests {
         let mock = MockInferenceEngine::new();
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
-        let result = parser.parse_with_llm(&inference, "modelle").await.unwrap();
+        let result = parser.parse_with_llm(&inference, "models").await.unwrap();
         assert!(matches!(
             result,
             AgentCommand::System(domain::SystemCommand::ListModels)

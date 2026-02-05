@@ -57,9 +57,8 @@ async fn main() -> anyhow::Result<()> {
     // Initialize services
     let chat_service = ChatService::with_system_prompt(
         Arc::clone(&inference),
-        "Du bist PiSovereign, ein hilfreicher, auf Deutsch antwortender KI-Assistent, \
-         der auf einem Raspberry Pi 5 mit Hailo-10H läuft. Du bist freundlich, präzise \
-         und hilfst bei alltäglichen Aufgaben wie E-Mail, Kalender und Informationssuche.",
+        "You are PiSovereign, a helpful AI assistant running on a Raspberry Pi 5 with Hailo-10H. \
+         You are friendly, precise, and help with everyday tasks like email, calendar, and information lookup.",
     );
 
     let agent_service = AgentService::new(Arc::clone(&inference));

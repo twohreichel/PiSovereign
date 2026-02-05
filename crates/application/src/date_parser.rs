@@ -1,6 +1,7 @@
 //! Natural language date parsing utilities
 //!
 //! Provides fuzzy date parsing for German and English natural language dates.
+//! Supports bilingual input to allow both German and English date expressions.
 
 use chrono::{Datelike, Duration, Local, NaiveDate, Weekday};
 use tracing::debug;
@@ -8,12 +9,12 @@ use tracing::debug;
 /// Parse a natural language date string into a NaiveDate
 ///
 /// Supports formats like:
-/// - "heute", "today"
-/// - "morgen", "tomorrow"
-/// - "übermorgen", "day after tomorrow"
-/// - "nächsten Montag", "next Monday"
-/// - "15. Januar", "January 15"
-/// - "15.01.2025", "2025-01-15"
+/// - "heute" / "today"
+/// - "morgen" / "tomorrow"
+/// - "übermorgen" / "day after tomorrow"
+/// - "nächsten Montag" / "next Monday"
+/// - "15. Januar" / "January 15"
+/// - "15.01.2025" / "2025-01-15"
 #[allow(clippy::cognitive_complexity)]
 pub fn parse_date(input: &str) -> Option<NaiveDate> {
     let input = input.trim().to_lowercase();
@@ -84,9 +85,9 @@ fn parse_english_relative(input: &str, today: NaiveDate) -> Option<NaiveDate> {
     }
 }
 
-/// Parse weekday expressions like "nächsten Montag" or "next Monday"
+/// Parse weekday expressions like "next Monday" or "nächsten Montag" (German)
 fn parse_weekday(input: &str, today: NaiveDate) -> Option<NaiveDate> {
-    // German weekdays
+    // German and English weekdays
     let weekday = if input.contains("montag") || input.contains("monday") {
         Some(Weekday::Mon)
     } else if input.contains("dienstag") || input.contains("tuesday") {
@@ -164,22 +165,22 @@ fn parse_date_format(input: &str, _today: NaiveDate) -> Option<NaiveDate> {
 
 /// Extract a date from a longer text string
 ///
-/// Useful for parsing dates from command text like "briefing für morgen"
+/// Useful for parsing dates from command text like "briefing for tomorrow" or "briefing für morgen"
 pub fn extract_date_from_text(input: &str) -> Option<NaiveDate> {
     let input = input.to_lowercase();
 
-    // Check for common German patterns in text
+    // Check for common German and English patterns in text
     if input.contains("für heute") || input.contains("for today") {
-        return parse_date("heute");
+        return parse_date("today");
     }
     if input.contains("für morgen") || input.contains("for tomorrow") {
-        return parse_date("morgen");
+        return parse_date("tomorrow");
     }
-    if input.contains("für übermorgen") {
-        return parse_date("übermorgen");
+    if input.contains("für übermorgen") || input.contains("day after tomorrow") {
+        return parse_date("day after tomorrow");
     }
 
-    // Try to extract date patterns
+    // Try to extract date patterns (German and English indicators)
     let date_indicators = [
         "für ", "am ", "on ", "for ", "ab ", "vom ", "bis ", "until ",
     ];
@@ -189,7 +190,7 @@ pub fn extract_date_from_text(input: &str) -> Option<NaiveDate> {
             let after = &input[idx + indicator.len()..];
             let date_part = after
                 .split_whitespace()
-                .take(3) // Take up to 3 words for dates like "nächsten montag"
+                .take(3) // Take up to 3 words for dates like "next monday"
                 .collect::<Vec<_>>()
                 .join(" ");
 

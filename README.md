@@ -1,18 +1,18 @@
 # PiSovereign
 
-🤖 Lokale, sichere KI-Assistenz-Plattform für Raspberry Pi 5 + Hailo-10H AI HAT+ 2.
+🤖 Local, secure AI assistant platform for Raspberry Pi 5 + Hailo-10H AI HAT+ 2.
 
 ## Features
 
-- **Lokale LLM-Inferenz** auf Hailo-10H (Qwen2.5-1.5B, Llama3.2-1B)
-- **WhatsApp-Steuerung** – Befehle per Nachricht senden
-- **Kalender-Integration** (CalDAV: Baïkal, Radicale)
-- **E-Mail-Integration** (Proton Mail Bridge)
-- **EU/DSGVO-konform** – Alles lokal, europäische Dienste
+- **Local LLM Inference** on Hailo-10H (Qwen2.5-1.5B, Llama3.2-1B)
+- **WhatsApp Control** – Send commands via message
+- **Calendar Integration** (CalDAV: Baïkal, Radicale)
+- **Email Integration** (Proton Mail Bridge)
+- **EU/GDPR Compliant** – Everything local, European services
 
 ## Quick Start
 
-### Voraussetzungen
+### Prerequisites
 
 - Raspberry Pi 5 (8 GB RAM)
 - Hailo AI HAT+ 2 (Hailo-10H)
@@ -22,67 +22,67 @@
 ### Installation
 
 ```bash
-# 1. Repository klonen
+# 1. Clone repository
 git clone https://github.com/andreasreichel/PiSovereign.git
 cd PiSovereign
 
-# 2. Hailo-Pakete installieren (auf Pi)
+# 2. Install Hailo packages (on Pi)
 sudo apt install hailo-h10-all
 
-# 3. Hailo-Ollama starten
+# 3. Start Hailo-Ollama
 hailo-ollama &
 
-# 4. PiSovereign bauen
+# 4. Build PiSovereign
 cargo build --release
 
-# 5. Server starten
+# 5. Start server
 ./target/release/pisovereign-server
 ```
 
-### CLI Nutzung
+### CLI Usage
 
 ```bash
-# Status abfragen
+# Query status
 pisovereign-cli status
 
-# Chat-Nachricht senden
-pisovereign-cli chat "Was ist das Wetter morgen?"
+# Send chat message
+pisovereign-cli chat "What's the weather tomorrow?"
 
-# Befehl ausführen
+# Execute command
 pisovereign-cli command "briefing"
 ```
 
 ## API Endpoints
 
-| Endpoint | Methode | Beschreibung |
-|----------|---------|--------------|
-| `/health` | GET | Liveness-Check |
-| `/ready` | GET | Readiness-Check mit Hailo-Status |
-| `/v1/chat` | POST | Chat-Nachricht senden |
-| `/v1/chat/stream` | POST | Streaming-Chat (SSE) |
-| `/v1/commands` | POST | Befehl ausführen |
-| `/v1/commands/parse` | POST | Befehl parsen ohne Ausführung |
-| `/v1/system/status` | GET | Systemstatus |
-| `/v1/system/models` | GET | Verfügbare Modelle |
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Liveness check |
+| `/ready` | GET | Readiness check with Hailo status |
+| `/v1/chat` | POST | Send chat message |
+| `/v1/chat/stream` | POST | Streaming chat (SSE) |
+| `/v1/commands` | POST | Execute command |
+| `/v1/commands/parse` | POST | Parse command without execution |
+| `/v1/system/status` | GET | System status |
+| `/v1/system/models` | GET | Available models |
 
-## Projekt-Struktur
+## Project Structure
 
 ```
 crates/
-├── domain/              # Kern-Entities, Value Objects, Commands
-├── application/         # Use Cases, Services, Ports
-├── infrastructure/      # Adapter (Hailo, DB, etc.)
-├── ai_core/            # Inferenz-Engine, Hailo-Client
+├── domain/              # Core entities, value objects, commands
+├── application/         # Use cases, services, ports
+├── infrastructure/      # Adapters (Hailo, DB, etc.)
+├── ai_core/            # Inference engine, Hailo client
 ├── presentation_http/   # HTTP-API (Axum)
-├── presentation_cli/    # CLI-Tool
+├── presentation_cli/    # CLI tool
 ├── integration_whatsapp/# WhatsApp Business API
-├── integration_caldav/  # CalDAV-Client
+├── integration_caldav/  # CalDAV client
 └── integration_proton/  # Proton Mail Bridge
 ```
 
-## Konfiguration
+## Configuration
 
-Umgebungsvariablen oder `config.toml`:
+Environment variables or `config.toml`:
 
 ```bash
 export PISOVEREIGN_SERVER_PORT=3000
@@ -90,6 +90,6 @@ export PISOVEREIGN_INFERENCE_BASE_URL=http://localhost:11434
 export PISOVEREIGN_INFERENCE_DEFAULT_MODEL=qwen2.5-1.5b-instruct
 ```
 
-## Lizenz
+## License
 
 MIT

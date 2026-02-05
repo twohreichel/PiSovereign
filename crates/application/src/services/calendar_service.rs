@@ -229,8 +229,8 @@ fn extract_time(datetime: &str) -> String {
         }
     }
 
-    // For all-day events, just return empty or "ganztägig"
-    "ganztägig".to_string()
+    // For all-day events, just return empty or "all-day"
+    "all-day".to_string()
 }
 
 /// Detect scheduling conflicts
@@ -249,7 +249,7 @@ fn detect_conflicts(events: &[CalendarEvent]) -> Vec<String> {
 
             // Check for overlap
             if times_overlap(&e1.start, &e1.end, &e2.start, &e2.end) {
-                conflicts.push(format!("'{}' und '{}' überlappen sich", e1.title, e2.title));
+                conflicts.push(format!("'{}' and '{}' overlap", e1.title, e2.title));
             }
         }
     }
@@ -513,7 +513,7 @@ mod tests {
     #[test]
     fn extract_time_all_day() {
         let time = extract_time("2024-01-15");
-        assert_eq!(time, "ganztägig");
+        assert_eq!(time, "all-day");
     }
 
     #[test]
@@ -554,7 +554,7 @@ mod tests {
         ];
         let conflicts = detect_conflicts(&events);
         assert_eq!(conflicts.len(), 1);
-        assert!(conflicts[0].contains("überlappen"));
+        assert!(conflicts[0].contains("overlap"));
     }
 
     #[test]

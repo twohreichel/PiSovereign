@@ -159,8 +159,8 @@ impl AgentService {
                 Ok(ExecutionResult {
                     success: false,
                     response: format!(
-                        "❓ Ich konnte den Befehl nicht verstehen: '{original_input}'\n\n\
-                         Schreibe 'hilfe' für eine Liste der verfügbaren Befehle."
+                        "❓ I could not understand the command: '{original_input}'\n\n\
+                         Type 'help' for a list of available commands."
                     ),
                 })
             },
@@ -191,8 +191,8 @@ impl AgentService {
                     success: true,
                     response: format!(
                         "📊 System Status:\n\n\
-                         Hailo-Inferenz: {}\n\
-                         Modell: {}\n\
+                         Hailo Inference: {}\n\
+                         Model: {}\n\
                          Version: {}",
                         status,
                         self.inference.current_model(),
@@ -216,11 +216,11 @@ impl AgentService {
                 Ok(ExecutionResult {
                     success: true,
                     response: format!(
-                        "📦 Verfügbare Modelle:\n\n\
-                         • qwen2.5-1.5b-instruct (aktiv)\n\
+                        "📦 Available Models:\n\n\
+                         • qwen2.5-1.5b-instruct (active)\n\
                          • llama3.2-1b-instruct\n\
                          • qwen2-1.5b-function-calling\n\n\
-                         Aktuell: {}",
+                         Current: {}",
                         self.inference.current_model()
                     ),
                 })
@@ -234,7 +234,7 @@ impl AgentService {
                         Ok(ExecutionResult {
                             success: true,
                             response: format!(
-                                "✅ Modell erfolgreich auf '{model_name}' gewechselt."
+                                "✅ Model successfully switched to '{model_name}'."
                             ),
                         })
                     },
@@ -242,7 +242,7 @@ impl AgentService {
                         warn!(model = %model_name, error = %e, "Model switch failed");
                         Ok(ExecutionResult {
                             success: false,
-                            response: format!("❌ Modellwechsel fehlgeschlagen: {e}"),
+                            response: format!("❌ Model switch failed: {e}"),
                         })
                     },
                 }
@@ -253,7 +253,7 @@ impl AgentService {
                 // Here we just acknowledge the request
                 Ok(ExecutionResult {
                     success: true,
-                    response: "🔄 Konfiguration wird neu geladen. Sende SIGHUP an den Server oder nutze die API.".to_string(),
+                    response: "🔄 Configuration is being reloaded. Send SIGHUP to the server or use the API.".to_string(),
                 })
             },
         }
@@ -263,37 +263,37 @@ impl AgentService {
     #[allow(clippy::unused_self)]
     fn generate_help(&self, command: Option<&str>) -> String {
         match command {
-            Some("briefing" | "morgen") => "☀️ **Morning Briefing**\n\n\
-                 Zeigt eine Übersicht über Termine, E-Mails und Aufgaben.\n\n\
-                 Beispiele:\n\
+            Some("briefing" | "morning") => "☀️ **Morning Briefing**\n\n\
+                 Shows an overview of appointments, emails, and tasks.\n\n\
+                 Examples:\n\
                  • 'briefing'\n\
-                 • 'briefing für morgen'\n\
-                 • 'was steht heute an?'"
+                 • 'briefing for tomorrow'\n\
+                 • 'what's on today?'"
                 .to_string(),
-            Some("email" | "mail") => "📧 **E-Mail Befehle**\n\n\
-                 • 'inbox zusammenfassen' - Zusammenfassung der E-Mails\n\
-                 • 'mail an X schreiben' - E-Mail-Entwurf erstellen\n\
-                 • 'wichtige mails' - Nur wichtige E-Mails anzeigen"
+            Some("email" | "mail") => "📧 **Email Commands**\n\n\
+                 • 'summarize inbox' - Summarize emails\n\
+                 • 'write mail to X' - Create email draft\n\
+                 • 'important mails' - Show only important emails"
                 .to_string(),
-            Some("kalender" | "termin") => "📅 **Kalender Befehle**\n\n\
-                 • 'termin am X um Y' - Neuen Termin erstellen\n\
-                 • 'termine heute' - Heutige Termine anzeigen\n\
-                 • 'nächster termin' - Nächsten Termin anzeigen"
+            Some("calendar" | "appointment") => "📅 **Calendar Commands**\n\n\
+                 • 'appointment on X at Y' - Create new appointment\n\
+                 • 'appointments today' - Show today's appointments\n\
+                 • 'next appointment' - Show next appointment"
                 .to_string(),
-            Some("status" | "system") => "🔧 **System Befehle**\n\n\
-                 • 'status' - Systemstatus anzeigen\n\
-                 • 'version' - Versionsinformation\n\
-                 • 'modelle' - Verfügbare KI-Modelle"
+            Some("status" | "system") => "🔧 **System Commands**\n\n\
+                 • 'status' - Show system status\n\
+                 • 'version' - Version information\n\
+                 • 'models' - Available AI models"
                 .to_string(),
-            _ => "🤖 **PiSovereign Hilfe**\n\n\
-                 Verfügbare Befehle:\n\n\
-                 • 'hilfe [thema]' - Diese Hilfe\n\
-                 • 'briefing' - Tagesübersicht\n\
-                 • 'inbox' - E-Mail-Zusammenfassung\n\
-                 • 'termin ...' - Kalenderfunktionen\n\
-                 • 'status' - Systemstatus\n\
-                 • 'echo [text]' - Text zurückgeben\n\n\
-                 Du kannst auch einfach Fragen stellen!"
+            _ => "🤖 **PiSovereign Help**\n\n\
+                 Available commands:\n\n\
+                 • 'help [topic]' - This help\n\
+                 • 'briefing' - Daily overview\n\
+                 • 'inbox' - Email summary\n\
+                 • 'appointment ...' - Calendar functions\n\
+                 • 'status' - System status\n\
+                 • 'echo [text]' - Return text\n\n\
+                 You can also just ask questions!"
                 .to_string(),
         }
     }
@@ -311,9 +311,9 @@ impl AgentService {
 
         let briefing_date = date.unwrap_or_else(|| Local::now().date_naive());
         let date_str = if date.is_none() {
-            "heute".to_string()
+            "today".to_string()
         } else {
-            briefing_date.format("%d.%m.%Y").to_string()
+            briefing_date.format("%Y-%m-%d").to_string()
         };
 
         // Collect calendar data if service available
@@ -371,43 +371,43 @@ impl AgentService {
         );
 
         // Format briefing response
-        let mut response = format!("☀️ Guten Morgen! Hier ist dein Briefing für {date_str}:\n\n");
+        let mut response = format!("☀️ Good morning! Here is your briefing for {date_str}:\n\n");
 
         // Add calendar section
-        response.push_str("📅 **Termine**\n");
+        response.push_str("📅 **Appointments**\n");
         if briefing.calendar.event_count == 0 {
-            response.push_str("Heute stehen keine Termine an.\n");
+            response.push_str("No appointments scheduled for today.\n");
         } else {
             response.push_str(&format!(
-                "{} Termin(e) heute:\n",
+                "{} appointment(s) today:\n",
                 briefing.calendar.event_count
             ));
             for event in &briefing.calendar.events {
                 if event.all_day {
-                    response.push_str(&format!("  • {} (ganztägig)\n", event.title));
+                    response.push_str(&format!("  • {} (all-day)\n", event.title));
                 } else {
-                    response.push_str(&format!("  • {} um {}\n", event.title, event.start_time));
+                    response.push_str(&format!("  • {} at {}\n", event.title, event.start_time));
                 }
             }
             if !briefing.calendar.conflicts.is_empty() {
                 response.push_str(&format!(
-                    "  ⚠️ {} Konflikt(e) erkannt\n",
+                    "  ⚠️ {} conflict(s) detected\n",
                     briefing.calendar.conflicts.len()
                 ));
             }
         }
 
         // Add email section
-        response.push_str("\n📧 **E-Mails**\n");
+        response.push_str("\n📧 **Emails**\n");
         if briefing.email.unread_count == 0 {
-            response.push_str("Keine ungelesenen E-Mails.\n");
+            response.push_str("No unread emails.\n");
         } else {
             response.push_str(&format!(
-                "{} ungelesene E-Mail(s)",
+                "{} unread email(s)",
                 briefing.email.unread_count
             ));
             if briefing.email.important_count > 0 {
-                response.push_str(&format!(", {} wichtig", briefing.email.important_count));
+                response.push_str(&format!(", {} important", briefing.email.important_count));
             }
             response.push_str("\n");
             for highlight in &briefing.email.highlights {
@@ -417,16 +417,16 @@ impl AgentService {
 
         // Add task section if available
         if briefing.tasks.due_today > 0 || briefing.tasks.overdue > 0 {
-            response.push_str("\n✅ **Aufgaben**\n");
+            response.push_str("\n✅ **Tasks**\n");
             if briefing.tasks.due_today > 0 {
                 response.push_str(&format!(
-                    "{} Aufgabe(n) heute fällig\n",
+                    "{} task(s) due today\n",
                     briefing.tasks.due_today
                 ));
             }
             if briefing.tasks.overdue > 0 {
                 response.push_str(&format!(
-                    "⚠️ {} überfällige Aufgabe(n)\n",
+                    "⚠️ {} overdue task(s)\n",
                     briefing.tasks.overdue
                 ));
             }
@@ -463,12 +463,12 @@ impl AgentService {
         }
 
         // Fallback when service not available
-        let filter_msg = if important_only { ", nur wichtige" } else { "" };
+        let filter_msg = if important_only { ", important only" } else { "" };
         Ok(ExecutionResult {
             success: true,
             response: format!(
-                "📧 Inbox-Zusammenfassung (letzte {} E-Mails{}):\n\n\
-                 (E-Mail-Integration nicht konfiguriert. Bitte Proton Bridge einrichten.)",
+                "📧 Inbox summary (last {} emails{}):\n\n\
+                 (Email integration not configured. Please set up Proton Bridge.)",
                 email_count, filter_msg
             ),
         })
@@ -685,7 +685,7 @@ mod async_tests {
 
         assert!(result.success);
         assert!(result.response.contains("PiSovereign"));
-        assert!(result.response.contains("Hilfe"));
+        assert!(result.response.contains("Help"));
     }
 
     #[tokio::test]
@@ -717,23 +717,23 @@ mod async_tests {
             .unwrap();
 
         assert!(result.success);
-        assert!(result.response.contains("E-Mail"));
+        assert!(result.response.contains("Email"));
     }
 
     #[tokio::test]
-    async fn execute_help_kalender() {
+    async fn execute_help_calendar() {
         let mock = MockInferenceEngine::new();
         let service = AgentService::new(Arc::new(mock));
 
         let result = service
             .execute_command(&AgentCommand::Help {
-                command: Some("kalender".to_string()),
+                command: Some("calendar".to_string()),
             })
             .await
             .unwrap();
 
         assert!(result.success);
-        assert!(result.response.contains("Kalender"));
+        assert!(result.response.contains("Calendar"));
     }
 
     #[tokio::test]
@@ -782,7 +782,7 @@ mod async_tests {
             .unwrap();
 
         assert!(result.success);
-        assert!(result.response.contains("Guten Morgen"));
+        assert!(result.response.contains("Good morning"));
     }
 
     #[tokio::test]
@@ -797,7 +797,7 @@ mod async_tests {
             .unwrap();
 
         assert!(result.success);
-        assert!(result.response.contains("15.01.2025"));
+        assert!(result.response.contains("2025-01-15"));
     }
 
     #[tokio::test]
@@ -916,7 +916,7 @@ mod async_tests {
             .unwrap();
 
         assert!(result.success);
-        assert!(result.response.contains("Modelle"));
+        assert!(result.response.contains("Models"));
     }
 
     #[tokio::test]
@@ -972,7 +972,7 @@ mod async_tests {
 
         // Config reload succeeds (placeholder implementation)
         assert!(result.success);
-        assert!(result.response.contains("Konfiguration"));
+        assert!(result.response.contains("Configuration"));
     }
 
     #[tokio::test]
@@ -1028,13 +1028,13 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn generate_help_for_morgen() {
+    async fn generate_help_for_morning() {
         let mock = MockInferenceEngine::new();
         let service = AgentService::new(Arc::new(mock));
 
         let result = service
             .execute_command(&AgentCommand::Help {
-                command: Some("morgen".to_string()),
+                command: Some("morning".to_string()),
             })
             .await
             .unwrap();
@@ -1054,22 +1054,22 @@ mod async_tests {
             .await
             .unwrap();
 
-        assert!(result.response.contains("E-Mail"));
+        assert!(result.response.contains("Email"));
     }
 
     #[tokio::test]
-    async fn generate_help_for_termin() {
+    async fn generate_help_for_appointment() {
         let mock = MockInferenceEngine::new();
         let service = AgentService::new(Arc::new(mock));
 
         let result = service
             .execute_command(&AgentCommand::Help {
-                command: Some("termin".to_string()),
+                command: Some("appointment".to_string()),
             })
             .await
             .unwrap();
 
-        assert!(result.response.contains("Kalender"));
+        assert!(result.response.contains("Calendar"));
     }
 
     #[tokio::test]

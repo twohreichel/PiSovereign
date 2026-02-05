@@ -304,7 +304,7 @@ async fn execute_command_help() {
     let response = server
         .post("/v1/commands")
         .json(&json!({
-            "input": "hilfe"
+            "input": "help"
         }))
         .await;
 
@@ -553,7 +553,7 @@ async fn execute_models_command() {
     let response = server
         .post("/v1/commands")
         .json(&json!({
-            "input": "modelle"
+            "input": "models"
         }))
         .await;
 
