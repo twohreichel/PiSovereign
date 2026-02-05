@@ -2,16 +2,20 @@
 //!
 //! Provides caching adapters for the application layer:
 //! - `MokaCache`: High-performance in-memory cache with TTL support
-//! - `SledCache`: Embedded persistent cache for durability
-//! - `MultiLayerCache`: Combines L1 (Moka) and L2 (Sled) with write-through
+//! - `RedbCache`: Embedded persistent cache for durability (replaced Sled)
+//! - `MultiLayerCache`: Combines L1 (Moka) and L2 (Redb) with write-through
 
 mod moka_cache;
 mod multi_layer_cache;
-mod sled_cache;
+mod redb_cache;
 
 pub use moka_cache::MokaCache;
 pub use multi_layer_cache::MultiLayerCache;
-pub use sled_cache::SledCache;
+pub use redb_cache::RedbCache;
+
+// Re-export for backwards compatibility during migration
+#[deprecated(since = "0.2.0", note = "Use RedbCache instead")]
+pub type SledCache = RedbCache;
 
 /// Generate a cache key from components using blake3 hash
 ///

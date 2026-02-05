@@ -121,7 +121,6 @@ proptest = "1.5"
 
 # Caching
 moka = { version = "0.12", features = ["future"] }
-sled = "0.34"
 blake3 = "1.5"
 
 # Metrics

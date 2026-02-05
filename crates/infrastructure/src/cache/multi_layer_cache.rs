@@ -12,7 +12,7 @@ use application::{
 use async_trait::async_trait;
 use tracing::{debug, instrument};
 
-use super::{MokaCache, SledCache};
+use super::{MokaCache, RedbCache};
 
 /// Multi-layer cache combining L1 (fast) and L2 (persistent) caches
 ///
@@ -22,8 +22,8 @@ use super::{MokaCache, SledCache};
 pub struct MultiLayerCache {
     /// L1: Fast in-memory cache (Moka)
     l1: MokaCache,
-    /// L2: Persistent cache (Sled)
-    l2: SledCache,
+    /// L2: Persistent cache (Redb)
+    l2: RedbCache,
 }
 
 impl std::fmt::Debug for MultiLayerCache {
@@ -38,7 +38,7 @@ impl std::fmt::Debug for MultiLayerCache {
 impl MultiLayerCache {
     /// Create a new multi-layer cache with the given L1 and L2 caches
     #[must_use]
-    pub const fn new(l1: MokaCache, l2: SledCache) -> Self {
+    pub const fn new(l1: MokaCache, l2: RedbCache) -> Self {
         Self { l1, l2 }
     }
 
@@ -50,7 +50,7 @@ impl MultiLayerCache {
 
     /// Get the L2 cache for direct access (e.g., stats)
     #[must_use]
-    pub const fn l2(&self) -> &SledCache {
+    pub const fn l2(&self) -> &RedbCache {
         &self.l2
     }
 }
@@ -162,7 +162,7 @@ mod tests {
 
     fn create_multi_cache() -> MultiLayerCache {
         let l1 = MokaCache::new();
-        let l2 = SledCache::in_memory().unwrap();
+        let l2 = RedbCache::in_memory().unwrap();
         MultiLayerCache::new(l1, l2)
     }
 
@@ -189,7 +189,7 @@ mod tests {
     #[tokio::test]
     async fn promotes_l2_hit_to_l1() {
         let l1 = MokaCache::new();
-        let l2 = SledCache::in_memory().unwrap();
+        let l2 = RedbCache::in_memory().unwrap();
 
         let data = TestData {
             value: "l2_only".to_string(),
@@ -273,7 +273,7 @@ mod tests {
         // L1 (Moka) entry count may be delayed, so check ranges
         let l2_stats = cache.l2().stats();
 
-        // L2 (Sled) should have 2 entries
+        // L2 (Redb) should have 2 entries
         assert_eq!(l2_stats.entries, 2);
 
         // Combined stats should include both layers
@@ -284,7 +284,7 @@ mod tests {
     #[tokio::test]
     async fn exists_checks_both_layers() {
         let l1 = MokaCache::new();
-        let l2 = SledCache::in_memory().unwrap();
+        let l2 = RedbCache::in_memory().unwrap();
 
         // Add to L2 only
         l2.set("l2_only", &"value".to_string(), Duration::from_secs(60))

@@ -9,6 +9,6 @@ pub mod config;
 pub mod persistence;
 
 pub use adapters::*;
-pub use cache::{MokaCache, MultiLayerCache, SledCache, generate_cache_key, llm_cache_key};
+pub use cache::{MokaCache, MultiLayerCache, RedbCache, generate_cache_key, llm_cache_key};
 pub use config::{AppConfig, DatabaseConfig, SecurityConfig, ServerConfig, WhatsAppConfig};
 pub use persistence::{ConnectionPool, SqliteConversationStore, create_pool};
