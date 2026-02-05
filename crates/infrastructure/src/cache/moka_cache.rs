@@ -20,7 +20,7 @@ use tracing::{debug, instrument};
 const DEFAULT_MAX_CAPACITY_MB: u64 = 100;
 
 /// Configuration for Moka cache
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MokaCacheConfig {
     /// Maximum capacity in megabytes
     pub max_capacity_mb: u64,
@@ -122,18 +122,16 @@ impl Default for MokaCache {
 #[async_trait]
 impl CachePort for MokaCache {
     #[instrument(skip(self), level = "debug")]
+    #[allow(clippy::option_if_let_else)]
     async fn get_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, ApplicationError> {
-        match self.cache.get(key).await {
-            Some(bytes) => {
-                self.hits.fetch_add(1, Ordering::Relaxed);
-                debug!(key = %key, "Cache hit");
-                Ok(Some(bytes))
-            },
-            None => {
-                self.misses.fetch_add(1, Ordering::Relaxed);
-                debug!(key = %key, "Cache miss");
-                Ok(None)
-            },
+        if let Some(bytes) = self.cache.get(key).await {
+            self.hits.fetch_add(1, Ordering::Relaxed);
+            debug!(key = %key, "Cache hit");
+            Ok(Some(bytes))
+        } else {
+            self.misses.fetch_add(1, Ordering::Relaxed);
+            debug!(key = %key, "Cache miss");
+            Ok(None)
         }
     }
 

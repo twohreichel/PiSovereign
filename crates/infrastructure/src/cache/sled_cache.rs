@@ -135,30 +135,27 @@ impl CachePort for SledCache {
         .map_err(|e| ApplicationError::Internal(format!("Task join error: {e}")))?
         .map_err(|e| ApplicationError::Internal(format!("Sled get error: {e}")))?;
 
-        match result {
-            Some(bytes) => {
-                let entry: CacheEntry = bincode::deserialize(&bytes).map_err(|e| {
-                    ApplicationError::Internal(format!("Cache entry deserialize error: {e}"))
-                })?;
+        if let Some(bytes) = result {
+            let entry: CacheEntry = bincode::deserialize(&bytes).map_err(|e| {
+                ApplicationError::Internal(format!("Cache entry deserialize error: {e}"))
+            })?;
 
-                // Check expiration
-                if Self::is_expired(&entry) {
-                    self.misses.fetch_add(1, Ordering::Relaxed);
-                    // Lazy deletion - remove expired entry
-                    let _ = self.db.remove(key.as_bytes());
-                    debug!(key = %key, "Cache entry expired");
-                    return Ok(None);
-                }
-
-                self.hits.fetch_add(1, Ordering::Relaxed);
-                debug!(key = %key, "Cache hit (Sled)");
-                Ok(Some(entry.data))
-            },
-            None => {
+            // Check expiration
+            if Self::is_expired(&entry) {
                 self.misses.fetch_add(1, Ordering::Relaxed);
-                debug!(key = %key, "Cache miss (Sled)");
-                Ok(None)
-            },
+                // Lazy deletion - remove expired entry
+                let _ = self.db.remove(key.as_bytes());
+                debug!(key = %key, "Cache entry expired");
+                return Ok(None);
+            }
+
+            self.hits.fetch_add(1, Ordering::Relaxed);
+            debug!(key = %key, "Cache hit (Sled)");
+            Ok(Some(entry.data))
+        } else {
+            self.misses.fetch_add(1, Ordering::Relaxed);
+            debug!(key = %key, "Cache miss (Sled)");
+            Ok(None)
         }
     }
 

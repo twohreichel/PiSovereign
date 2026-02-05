@@ -99,11 +99,13 @@ pub struct CacheStats {
 impl CacheStats {
     /// Calculate the hit rate as a percentage (0.0 - 1.0)
     #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn hit_rate(&self) -> f64 {
         let total = self.hits + self.misses;
         if total == 0 {
             0.0
         } else {
+            // Precision loss is acceptable for statistics display
             self.hits as f64 / total as f64
         }
     }

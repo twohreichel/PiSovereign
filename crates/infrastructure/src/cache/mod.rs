@@ -35,7 +35,7 @@ pub fn generate_cache_key(prefix: &str, components: &[&str]) -> String {
 #[must_use]
 pub fn llm_cache_key(prompt: &str, model: &str, temperature: f32) -> String {
     // Quantize temperature to avoid floating point comparison issues
-    let temp_str = format!("{:.2}", temperature);
+    let temp_str = format!("{temperature:.2}");
     generate_cache_key("llm", &[prompt, model, &temp_str])
 }
 

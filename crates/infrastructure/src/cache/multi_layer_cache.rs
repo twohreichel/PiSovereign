@@ -38,19 +38,19 @@ impl std::fmt::Debug for MultiLayerCache {
 impl MultiLayerCache {
     /// Create a new multi-layer cache with the given L1 and L2 caches
     #[must_use]
-    pub fn new(l1: MokaCache, l2: SledCache) -> Self {
+    pub const fn new(l1: MokaCache, l2: SledCache) -> Self {
         Self { l1, l2 }
     }
 
     /// Get the L1 cache for direct access (e.g., stats)
     #[must_use]
-    pub fn l1(&self) -> &MokaCache {
+    pub const fn l1(&self) -> &MokaCache {
         &self.l1
     }
 
     /// Get the L2 cache for direct access (e.g., stats)
     #[must_use]
-    pub fn l2(&self) -> &SledCache {
+    pub const fn l2(&self) -> &SledCache {
         &self.l2
     }
 }
