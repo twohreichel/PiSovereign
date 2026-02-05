@@ -487,7 +487,7 @@ mod tests {
 
         let tomorrow = DailyForecast {
             date: NaiveDate::from_ymd_opt(2026, 2, 6).expect("valid date"),
-            ..today.clone()
+            ..today
         };
 
         let forecast = Forecast {

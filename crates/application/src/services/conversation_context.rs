@@ -304,25 +304,40 @@ mod tests {
         }
 
         fn save_count(&self) -> usize {
-            *self.save_count.lock().unwrap_or_else(|e| e.into_inner())
+            *self
+                .save_count
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
         }
 
         fn cleanup_count(&self) -> usize {
-            *self.cleanup_count.lock().unwrap_or_else(|e| e.into_inner())
+            *self
+                .cleanup_count
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
         }
     }
 
     #[async_trait::async_trait]
     impl ConversationStore for MockStore {
         async fn get(&self, id: &ConversationId) -> Result<Option<Conversation>, ApplicationError> {
-            let conversations = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
+            let conversations = self
+                .conversations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             Ok(conversations.get(id).cloned())
         }
 
         async fn save(&self, conversation: &Conversation) -> Result<(), ApplicationError> {
-            let mut conversations = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
+            let mut conversations = self
+                .conversations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             conversations.insert(conversation.id, conversation.clone());
-            *self.save_count.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+            *self
+                .save_count
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
             Ok(())
         }
 
@@ -331,7 +346,10 @@ mod tests {
         }
 
         async fn delete(&self, id: &ConversationId) -> Result<(), ApplicationError> {
-            let mut conversations = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
+            let mut conversations = self
+                .conversations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             conversations.remove(id);
             Ok(())
         }
@@ -341,7 +359,10 @@ mod tests {
             conversation_id: &ConversationId,
             message: &ChatMessage,
         ) -> Result<(), ApplicationError> {
-            let mut conversations = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
+            let mut conversations = self
+                .conversations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(conversation) = conversations.get_mut(conversation_id) {
                 conversation.add_message(message.clone());
             }
@@ -349,7 +370,10 @@ mod tests {
         }
 
         async fn list_recent(&self, _limit: usize) -> Result<Vec<Conversation>, ApplicationError> {
-            let conversations = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
+            let conversations = self
+                .conversations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             Ok(conversations.values().cloned().collect())
         }
 
@@ -358,7 +382,10 @@ mod tests {
             query: &str,
             _limit: usize,
         ) -> Result<Vec<Conversation>, ApplicationError> {
-            let conversations = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
+            let conversations = self
+                .conversations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             Ok(conversations
                 .values()
                 .filter(|c| c.messages.iter().any(|m| m.content.contains(query)))
@@ -370,11 +397,17 @@ mod tests {
             &self,
             cutoff: DateTime<Utc>,
         ) -> Result<usize, ApplicationError> {
-            let mut conversations = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
+            let mut conversations = self
+                .conversations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let before = conversations.len();
             conversations.retain(|_, c| c.updated_at >= cutoff);
             let deleted = before - conversations.len();
-            *self.cleanup_count.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+            *self
+                .cleanup_count
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
             Ok(deleted)
         }
     }

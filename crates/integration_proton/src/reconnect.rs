@@ -396,7 +396,7 @@ mod tests {
         let delay_ms = delay.as_millis() as f64;
 
         // Base is 1000, jitter range is 200, so should be between 800-1200
-        assert!(delay_ms >= 800.0 && delay_ms <= 1200.0);
+        assert!((800.0..=1200.0).contains(&delay_ms));
     }
 
     #[test]
