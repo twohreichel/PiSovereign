@@ -1,0 +1,51 @@
+# Prometheus configuration for PiSovereign
+# Optimized for Raspberry Pi 5
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  # Longer timeout for Pi's limited resources
+  scrape_timeout: 10s
+
+# Alertmanager configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Rule files (optional)
+rule_files: []
+
+# Scrape configurations
+scrape_configs:
+  # PiSovereign application metrics
+  - job_name: "pisovereign"
+    static_configs:
+      - targets: ["localhost:8080"]
+    metrics_path: "/metrics/prometheus"
+    scheme: http
+    # Relabel to add instance info
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: "pisovereign-pi5"
+
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Node exporter for system metrics (optional, if installed)
+  - job_name: "node"
+    static_configs:
+      - targets: ["localhost:9100"]
+    # Only scrape if node_exporter is available
+    scrape_interval: 30s
+
+# Storage configuration for Pi with limited disk
+storage:
+  tsdb:
+    # Retain data for 7 days
+    retention.time: 7d
+    # Limit disk usage
+    retention.size: 1GB
