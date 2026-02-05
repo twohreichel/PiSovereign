@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "rust",
+  "packages": {
+    ".": {
+      "package-name": "pisovereign",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "draft": false,
+      "prerelease": false,
+      "include-component-in-tag": false,
+      "include-v-in-tag": true,
+      "pull-request-title-pattern": "chore(release): release ${version}",
+      "pull-request-header": ":robot: Release PiSovereign",
+      "extra-files": [
+        "crates/domain/Cargo.toml",
+        "crates/application/Cargo.toml",
+        "crates/infrastructure/Cargo.toml",
+        "crates/ai_core/Cargo.toml",
+        "crates/presentation_http/Cargo.toml",
+        "crates/presentation_cli/Cargo.toml",
+        "crates/integration_whatsapp/Cargo.toml",
+        "crates/integration_caldav/Cargo.toml",
+        "crates/integration_proton/Cargo.toml"
+      ]
+    }
+  },
+  "changelog-sections": [
+    { "type": "feat", "section": "Features", "hidden": false },
+    { "type": "fix", "section": "Bug Fixes", "hidden": false },
+    { "type": "perf", "section": "Performance Improvements", "hidden": false },
+    { "type": "security", "section": "Security", "hidden": false },
+    { "type": "revert", "section": "Reverts", "hidden": false },
+    { "type": "docs", "section": "Documentation", "hidden": false },
+    { "type": "style", "section": "Styles", "hidden": true },
+    { "type": "chore", "section": "Miscellaneous Chores", "hidden": true },
+    { "type": "refactor", "section": "Code Refactoring", "hidden": true },
+    { "type": "test", "section": "Tests", "hidden": true },
+    { "type": "build", "section": "Build System", "hidden": true },
+    { "type": "ci", "section": "Continuous Integration", "hidden": true }
+  ],
+  "sequential-calls": false,
+  "group-pull-request-title-pattern": "chore(release): release ${version}"
+}

@@ -1,0 +1,94 @@
+# =============================================================================
+# Release Please Workflow
+# Automates versioning and changelog generation based on Conventional Commits
+# =============================================================================
+#
+# This workflow:
+# 1. Creates/updates a release PR when commits are pushed to main
+# 2. Updates CHANGELOG.md based on conventional commit messages
+# 3. Bumps version in Cargo.toml files
+# 4. Creates a GitHub release when the PR is merged
+#
+# Commit message format:
+#   feat: add new feature       -> Minor version bump
+#   fix: fix a bug              -> Patch version bump
+#   feat!: breaking change      -> Major version bump (after 1.0)
+#   chore: maintenance          -> No version bump
+#
+# =============================================================================
+
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Run Release Please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          # Use the configuration files in the repository
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # Token with write permissions
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Output Release Info
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          echo "Release created: ${{ steps.release.outputs.release_created }}"
+          echo "Tag: ${{ steps.release.outputs.tag_name }}"
+          echo "Version: ${{ steps.release.outputs.version }}"
+          echo "SHA: ${{ steps.release.outputs.sha }}"
+
+  # Trigger downstream workflows on release
+  trigger-workflows:
+    name: Trigger Release Workflows
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Docker Build
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'docker.yml',
+              ref: 'main',
+              inputs: {
+                version: '${{ needs.release-please.outputs.version }}',
+                tag: '${{ needs.release-please.outputs.tag_name }}'
+              }
+            })
+
+      - name: Trigger Documentation Build
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'docs.yml',
+              ref: 'main',
+              inputs: {
+                version: '${{ needs.release-please.outputs.version }}'
+              }
+            })
