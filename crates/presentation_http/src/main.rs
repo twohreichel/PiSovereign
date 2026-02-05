@@ -7,7 +7,9 @@ use std::{sync::Arc, time::Duration};
 use application::{AgentService, ApprovalService, ChatService};
 use infrastructure::{
     AppConfig, HailoInferenceAdapter,
+    adapters::{DegradedInferenceAdapter, DegradedModeConfig},
     persistence::{SqliteApprovalQueue, SqliteAuditLog, create_pool},
+    telemetry::{TelemetryConfig, init_telemetry},
 };
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig,
@@ -23,7 +25,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
+    // Initialize tracing (basic console output)
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -47,15 +49,59 @@ async fn main() -> anyhow::Result<()> {
         "Configuration loaded"
     );
 
+    // Initialize OpenTelemetry if configured
+    let _telemetry_guard = initial_config
+        .telemetry
+        .as_ref()
+        .filter(|c| c.enabled)
+        .and_then(|otel_config| {
+            let telemetry_config = TelemetryConfig {
+                enabled: true,
+                endpoint: otel_config.otlp_endpoint.clone(),
+                service_name: "pisovereign".to_string(),
+                sampling_ratio: otel_config.sample_ratio.unwrap_or(1.0),
+                ..TelemetryConfig::default()
+            };
+            match init_telemetry(&telemetry_config) {
+                Ok(guard) => {
+                    info!(
+                        endpoint = %telemetry_config.endpoint,
+                        "📊 OpenTelemetry initialized"
+                    );
+                    Some(guard)
+                },
+                Err(e) => {
+                    warn!(error = %e, "⚠️ Failed to initialize telemetry, continuing without");
+                    None
+                },
+            }
+        });
+
     // Create reloadable config and spawn SIGHUP handler
     let reloadable_config =
         spawn_config_reload_handler(ReloadableConfig::new(initial_config.clone()));
 
-    // Initialize inference adapter
-    let inference_adapter = HailoInferenceAdapter::new(initial_config.inference.clone())
+    // Initialize inference adapter with degraded mode wrapper
+    let hailo_adapter = HailoInferenceAdapter::new(initial_config.inference.clone())
         .map_err(|e| anyhow::anyhow!("Failed to initialize inference: {e}"))?;
 
-    let inference: Arc<dyn application::ports::InferencePort> = Arc::new(inference_adapter);
+    // Configure degraded mode from config or use defaults
+    let degraded_config =
+        initial_config
+            .degraded_mode
+            .as_ref()
+            .map_or_else(DegradedModeConfig::default, |dm| DegradedModeConfig {
+                enabled: dm.enabled,
+                unavailable_message: dm.unavailable_message.clone(),
+                retry_cooldown_secs: dm.retry_cooldown_secs,
+                failure_threshold: dm.failure_threshold,
+                success_threshold: dm.success_threshold,
+            });
+
+    let degraded_adapter = DegradedInferenceAdapter::new(Arc::new(hailo_adapter), degraded_config);
+    info!("🛡️ Degraded mode adapter initialized");
+
+    let inference: Arc<dyn application::ports::InferencePort> = Arc::new(degraded_adapter);
 
     // Initialize services
     let chat_service = ChatService::with_system_prompt(

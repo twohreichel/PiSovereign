@@ -25,6 +25,14 @@ pub struct AppConfig {
     /// Database configuration
     #[serde(default)]
     pub database: DatabaseConfig,
+
+    /// Telemetry configuration (optional)
+    #[serde(default)]
+    pub telemetry: Option<TelemetryAppConfig>,
+
+    /// Degraded mode configuration (optional)
+    #[serde(default)]
+    pub degraded_mode: Option<DegradedModeAppConfig>,
 }
 
 /// HTTP server configuration
@@ -373,5 +381,103 @@ mod tests {
         let config: SecurityConfig = serde_json::from_str(json).unwrap();
         assert!(!config.rate_limit_enabled);
         assert_eq!(config.rate_limit_rpm, 120);
+    }
+
+    #[test]
+    fn telemetry_config_deserialize() {
+        let json = r#"{"enabled":true,"otlp_endpoint":"http://tempo:4317"}"#;
+        let config: TelemetryAppConfig = serde_json::from_str(json).unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.otlp_endpoint, "http://tempo:4317");
+    }
+
+    #[test]
+    fn degraded_mode_config_deserialize() {
+        let json = r#"{"enabled":true,"failure_threshold":5}"#;
+        let config: DegradedModeAppConfig = serde_json::from_str(json).unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.failure_threshold, 5);
+    }
+}
+
+/// Telemetry configuration for OpenTelemetry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryAppConfig {
+    /// Enable telemetry
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// OTLP endpoint URL
+    #[serde(default = "default_otlp_endpoint")]
+    pub otlp_endpoint: String,
+
+    /// Sample ratio (0.0 to 1.0)
+    #[serde(default)]
+    pub sample_ratio: Option<f64>,
+}
+
+fn default_otlp_endpoint() -> String {
+    "http://localhost:4317".to_string()
+}
+
+impl Default for TelemetryAppConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            otlp_endpoint: default_otlp_endpoint(),
+            sample_ratio: Some(1.0),
+        }
+    }
+}
+
+/// Degraded mode configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DegradedModeAppConfig {
+    /// Enable degraded mode fallback
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Message to return when service is unavailable
+    #[serde(default = "default_unavailable_message")]
+    pub unavailable_message: String,
+
+    /// Cooldown before retrying primary backend (seconds)
+    #[serde(default = "default_retry_cooldown")]
+    pub retry_cooldown_secs: u64,
+
+    /// Number of failures before entering degraded mode
+    #[serde(default = "default_failure_threshold")]
+    pub failure_threshold: u32,
+
+    /// Number of successes to exit degraded mode
+    #[serde(default = "default_success_threshold")]
+    pub success_threshold: u32,
+}
+
+fn default_unavailable_message() -> String {
+    "I'm currently experiencing technical difficulties. Please try again in a moment.".to_string()
+}
+
+const fn default_retry_cooldown() -> u64 {
+    30
+}
+
+const fn default_failure_threshold() -> u32 {
+    3
+}
+
+const fn default_success_threshold() -> u32 {
+    2
+}
+
+impl Default for DegradedModeAppConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            unavailable_message: default_unavailable_message(),
+            retry_cooldown_secs: default_retry_cooldown(),
+            failure_threshold: default_failure_threshold(),
+            success_threshold: default_success_threshold(),
+        }
     }
 }
