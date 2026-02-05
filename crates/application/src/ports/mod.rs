@@ -5,6 +5,7 @@
 
 mod approval_queue;
 mod audit_log;
+mod cache_port;
 mod calendar_port;
 mod conversation_store;
 mod email_port;
@@ -14,6 +15,7 @@ mod secret_store;
 
 pub use approval_queue::ApprovalQueuePort;
 pub use audit_log::{AuditLogPort, AuditQuery};
+pub use cache_port::{CachePort, CachePortExt, CacheStats, ttl};
 pub use calendar_port::{CalendarError, CalendarEvent, CalendarInfo, CalendarPort, NewEvent};
 pub use conversation_store::ConversationStore;
 pub use email_port::{EmailDraft, EmailError, EmailPort, EmailSummary};

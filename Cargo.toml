@@ -118,6 +118,21 @@ fuzzydate = "0.4"
 # Property-based testing
 proptest = "1.5"
 
+# Caching
+moka = { version = "0.12", features = ["future"] }
+sled = "0.34"
+blake3 = "1.5"
+
+# Metrics
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+
+# Pattern matching optimization
+aho-corasick = "1.1"
+
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }
+
 # Internal crates
 domain = { path = "crates/domain" }
 application = { path = "crates/application" }

@@ -31,6 +31,15 @@ vaultrs.workspace = true
 parking_lot.workspace = true
 futures = "0.3"
 
+# Caching
+moka.workspace = true
+sled.workspace = true
+blake3.workspace = true
+bincode = "1.3"
+
+# Metrics
+metrics.workspace = true
+
 [dev-dependencies]
 tokio-test.workspace = true
 mockall.workspace = true
