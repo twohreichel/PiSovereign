@@ -8,7 +8,7 @@ use tracing::{debug, info};
 use super::connection::DatabaseError;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
@@ -23,6 +23,10 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
 
         if current_version < 1 {
             migrate_v1(conn)?;
+        }
+
+        if current_version < 2 {
+            migrate_v2(conn)?;
         }
 
         set_schema_version(conn, SCHEMA_VERSION)?;
@@ -133,6 +137,30 @@ fn migrate_v1(conn: &Connection) -> Result<(), DatabaseError> {
     Ok(())
 }
 
+/// Migration to version 2: User profiles
+fn migrate_v2(conn: &Connection) -> Result<(), DatabaseError> {
+    debug!("Applying migration v2: User profiles");
+
+    conn.execute_batch(
+        "
+        -- User profiles table
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            user_id TEXT PRIMARY KEY,
+            latitude REAL,
+            longitude REAL,
+            timezone TEXT NOT NULL DEFAULT 'UTC',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        -- Indexes
+        CREATE INDEX IF NOT EXISTS idx_user_profiles_timezone ON user_profiles(timezone);
+        ",
+    )?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +195,7 @@ mod tests {
         assert!(tables.contains(&"messages".to_string()));
         assert!(tables.contains(&"approval_requests".to_string()));
         assert!(tables.contains(&"audit_log".to_string()));
+        assert!(tables.contains(&"user_profiles".to_string()));
     }
 
     #[test]
@@ -242,5 +271,58 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn user_profiles_table_schema() {
+        let conn = create_test_connection();
+        run_migrations(&conn).unwrap();
+
+        // Insert a user profile
+        conn.execute(
+            "INSERT INTO user_profiles (user_id, latitude, longitude, timezone, created_at, updated_at)
+             VALUES ('user1', 52.52, 13.405, 'Europe/Berlin', '2024-01-01', '2024-01-01')",
+            [],
+        )
+        .unwrap();
+
+        // Verify we can query it back
+        let (lat, lon, tz): (f64, f64, String) = conn
+            .query_row(
+                "SELECT latitude, longitude, timezone FROM user_profiles WHERE user_id = 'user1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+
+        assert!((lat - 52.52).abs() < 0.001);
+        assert!((lon - 13.405).abs() < 0.001);
+        assert_eq!(tz, "Europe/Berlin");
+    }
+
+    #[test]
+    fn user_profiles_allows_null_location() {
+        let conn = create_test_connection();
+        run_migrations(&conn).unwrap();
+
+        // Insert a user profile without location
+        conn.execute(
+            "INSERT INTO user_profiles (user_id, timezone, created_at, updated_at)
+             VALUES ('user2', 'UTC', '2024-01-01', '2024-01-01')",
+            [],
+        )
+        .unwrap();
+
+        // Verify NULL values
+        let (lat, lon): (Option<f64>, Option<f64>) = conn
+            .query_row(
+                "SELECT latitude, longitude FROM user_profiles WHERE user_id = 'user2'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        assert!(lat.is_none());
+        assert!(lon.is_none());
     }
 }

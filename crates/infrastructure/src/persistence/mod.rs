@@ -13,6 +13,7 @@ pub mod audit_log;
 pub mod connection;
 pub mod conversation_store;
 pub mod migrations;
+pub mod user_profile_store;
 
 pub use approval_queue::SqliteApprovalQueue;
 pub use async_connection::{AsyncDatabase, AsyncDatabaseConfig, AsyncDatabaseError};
@@ -20,3 +21,4 @@ pub use async_conversation_store::AsyncConversationStore;
 pub use audit_log::SqliteAuditLog;
 pub use connection::{ConnectionPool, DatabaseError, create_pool};
 pub use conversation_store::SqliteConversationStore;
+pub use user_profile_store::SqliteUserProfileStore;
