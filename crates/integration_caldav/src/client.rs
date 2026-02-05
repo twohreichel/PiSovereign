@@ -112,8 +112,8 @@ pub trait CalDavClient: Send + Sync {
 /// HTTP-based CalDAV client implementation
 #[derive(Debug)]
 pub struct HttpCalDavClient {
-    client: Client,
-    config: CalDavConfig,
+    pub(crate) client: Client,
+    pub(crate) config: CalDavConfig,
 }
 
 impl HttpCalDavClient {
@@ -129,7 +129,7 @@ impl HttpCalDavClient {
     }
 
     /// Build a CalDAV request with proper authentication
-    fn build_request(&self, method: &str, url: &str) -> reqwest::RequestBuilder {
+    pub(crate) fn build_request(&self, method: &str, url: &str) -> reqwest::RequestBuilder {
         let request = match method {
             "PROPFIND" => self.client.request(
                 reqwest::Method::from_bytes(b"PROPFIND").unwrap_or(reqwest::Method::GET),
@@ -151,7 +151,7 @@ impl HttpCalDavClient {
     }
 
     /// Build the calendar URL
-    fn calendar_url(&self, calendar: &str) -> String {
+    pub(crate) fn calendar_url(&self, calendar: &str) -> String {
         if calendar.starts_with("http") {
             calendar.to_string()
         } else {
@@ -221,7 +221,7 @@ impl HttpCalDavClient {
     /// Extract calendar data from CalDAV XML response
     ///
     /// Properly parses XML and decodes CDATA sections containing iCalendar data
-    fn extract_calendar_data_from_xml(xml_body: &str) -> Vec<String> {
+    pub(crate) fn extract_calendar_data_from_xml(xml_body: &str) -> Vec<String> {
         let mut reader = Reader::from_str(xml_body);
         reader.config_mut().trim_text(true);
 
