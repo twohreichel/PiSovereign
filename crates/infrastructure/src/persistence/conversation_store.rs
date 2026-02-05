@@ -257,6 +257,34 @@ impl ConversationStore for SqliteConversationStore {
         .await
         .map_err(|e| ApplicationError::Internal(e.to_string()))?
     }
+
+    #[instrument(skip(self))]
+    async fn cleanup_older_than(
+        &self,
+        cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<usize, ApplicationError> {
+        let pool = Arc::clone(&self.pool);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+
+            // Messages are deleted via CASCADE constraint
+            let deleted = conn
+                .execute(
+                    "DELETE FROM conversations WHERE updated_at < ?1",
+                    [&cutoff_str],
+                )
+                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+
+            debug!(deleted_count = deleted, "Cleaned up old conversations");
+            Ok(deleted)
+        })
+        .await
+        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+    }
 }
 
 fn insert_message(

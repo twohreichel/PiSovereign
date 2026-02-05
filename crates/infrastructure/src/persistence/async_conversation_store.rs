@@ -375,6 +375,22 @@ impl ConversationStore for AsyncConversationStore {
         );
         Ok(conversations)
     }
+
+    #[instrument(skip(self))]
+    async fn cleanup_older_than(&self, cutoff: DateTime<Utc>) -> Result<usize, ApplicationError> {
+        // Messages are deleted via CASCADE when conversation is deleted
+        let result = sqlx::query("DELETE FROM conversations WHERE updated_at < $1")
+            .bind(cutoff.to_rfc3339())
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
+
+        let deleted = usize::try_from(result.rows_affected()).unwrap_or(usize::MAX);
+        if deleted > 0 {
+            debug!(deleted, cutoff = %cutoff, "Cleaned up old conversations");
+        }
+        Ok(deleted)
+    }
 }
 
 /// Row type for conversation queries

@@ -5,6 +5,7 @@ mod approval_service;
 mod briefing_service;
 mod calendar_service;
 mod chat_service;
+mod conversation_context;
 mod email_service;
 
 pub use agent_service::{AgentService, ApprovalStatus, CommandResult, ExecutionResult};
@@ -15,4 +16,7 @@ pub use briefing_service::{
 };
 pub use calendar_service::CalendarService;
 pub use chat_service::ChatService;
+pub use conversation_context::{
+    ConversationCacheStats, ConversationContextConfig, ConversationContextService,
+};
 pub use email_service::{EmailService, InboxSummary};

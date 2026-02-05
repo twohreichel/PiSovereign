@@ -3,6 +3,7 @@
 //! Defines the interface for persisting and retrieving conversations.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use domain::{
     entities::{ChatMessage, Conversation},
     value_objects::ConversationId,
@@ -41,4 +42,9 @@ pub trait ConversationStore: Send + Sync {
         query: &str,
         limit: usize,
     ) -> Result<Vec<Conversation>, ApplicationError>;
+
+    /// Delete conversations older than the given date
+    ///
+    /// Returns the number of deleted conversations.
+    async fn cleanup_older_than(&self, cutoff: DateTime<Utc>) -> Result<usize, ApplicationError>;
 }
