@@ -181,7 +181,7 @@ impl InferencePort for HailoInferenceAdapter {
         {
             messages.push(ai_core::ports::InferenceMessage {
                 role: "system".to_string(),
-                content: system.to_string(),
+                content: system.clone(),
             });
         }
 

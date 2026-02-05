@@ -34,6 +34,9 @@ correctness = { level = "deny", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 
+# Allow format_push_string - it's often more readable
+format_push_string = "allow"
+
 # Allow certain patterns
 module_name_repetitions = "allow"
 must_use_candidate = "allow"

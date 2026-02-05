@@ -8,8 +8,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -18,9 +18,9 @@ use application::{
     error::ApplicationError,
     ports::{CachePort, CacheStats},
 };
-use redb::ReadableTableMetadata;
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
+use redb::ReadableTableMetadata;
 use redb::{Database, ReadableTable, TableDefinition};
 use tracing::{debug, instrument, warn};
 
@@ -56,6 +56,7 @@ pub struct RedbCache {
 impl std::fmt::Debug for RedbCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RedbCache")
+            .field("db", &"<Database>")
             .field("path", &self.path)
             .field("hits", &self.hits.load(Ordering::Relaxed))
             .field("misses", &self.misses.load(Ordering::Relaxed))
@@ -96,7 +97,7 @@ impl RedbCache {
                 Database::create(&path_buf).map_err(|e| {
                     ApplicationError::Internal(format!("Failed to create Redb database: {e}"))
                 })?
-            }
+            },
         };
 
         // Ensure table exists
@@ -189,9 +190,7 @@ impl RedbCache {
 
                 read_table
                     .iter()
-                    .map_err(|e| {
-                        ApplicationError::Internal(format!("Redb iteration error: {e}"))
-                    })?
+                    .map_err(|e| ApplicationError::Internal(format!("Redb iteration error: {e}")))?
                     .filter_map(|result| {
                         result.ok().and_then(|(key, value)| {
                             let config = bincode::config::standard();
@@ -205,9 +204,9 @@ impl RedbCache {
             };
 
             for key in keys_to_remove {
-                table.remove(key.as_slice()).map_err(|e| {
-                    ApplicationError::Internal(format!("Redb remove error: {e}"))
-                })?;
+                table
+                    .remove(key.as_slice())
+                    .map_err(|e| ApplicationError::Internal(format!("Redb remove error: {e}")))?;
                 removed += 1;
             }
         }
@@ -264,16 +263,12 @@ impl CachePort for RedbCache {
                 // Lazy deletion - remove expired entry
                 let db = self.db.clone();
                 let key_bytes = key.as_bytes().to_vec();
-                let _ = tokio::task::spawn_blocking(move || {
+                tokio::task::spawn_blocking(move || {
                     if let Ok(write_txn) = db.begin_write() {
-                        let result = {
-                            if let Ok(mut table) = write_txn.open_table(CACHE_TABLE) {
-                                let _ = table.remove(key_bytes.as_slice());
-                                true
-                            } else {
-                                false
-                            }
-                        };
+                        let result = write_txn.open_table(CACHE_TABLE).is_ok_and(|mut table| {
+                            let _ = table.remove(key_bytes.as_slice());
+                            true
+                        });
                         if result {
                             let _ = write_txn.commit();
                         }

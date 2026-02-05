@@ -58,9 +58,10 @@ fn get_schema_version(conn: &Connection) -> Result<i32, DatabaseError> {
 /// Set schema version
 fn set_schema_version(conn: &Connection, version: i32) -> Result<(), DatabaseError> {
     conn.execute("DELETE FROM schema_version", [])?;
-    conn.execute("INSERT INTO schema_version (version) VALUES (?1)", [
-        version,
-    ])?;
+    conn.execute(
+        "INSERT INTO schema_version (version) VALUES (?1)",
+        [version],
+    )?;
     Ok(())
 }
 

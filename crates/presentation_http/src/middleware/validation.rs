@@ -169,7 +169,7 @@ mod tests {
         let app = create_test_app();
 
         let long_message = "x".repeat(101);
-        let json = format!(r#"{{"message": "{}"}}"#, long_message);
+        let json = format!(r#"{{"message": "{long_message}"}}"#);
 
         let response = app
             .oneshot(

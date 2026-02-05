@@ -1,40 +1,24 @@
 # Rust Formatter Configuration
 # https://rust-lang.github.io/rustfmt/
+# Note: Only stable options are used. For nightly-only features, use rustfmt +nightly
 
 edition = "2024"
 max_width = 100
 tab_spaces = 4
 newline_style = "Unix"
 
-# Imports
-imports_granularity = "Crate"
-group_imports = "StdExternalCrate"
+# Imports (stable)
 reorder_imports = true
 reorder_modules = true
 
-# Formatting
+# Formatting (stable)
 use_small_heuristics = "Default"
 fn_params_layout = "Tall"
-format_code_in_doc_comments = true
-format_macro_matchers = true
-format_strings = false
-wrap_comments = true
-comment_width = 100
 
-# Struct/Enum
-struct_lit_single_line = true
-enum_discrim_align_threshold = 20
-
-# Match
-match_arm_blocks = true
+# Match (stable)
 match_arm_leading_pipes = "Never"
 match_block_trailing_comma = true
 
-# Control flow
-force_multiline_blocks = false
-
-# Misc
+# Misc (stable)
 use_field_init_shorthand = true
 use_try_shorthand = true
-skip_children = false
-show_parse_errors = true

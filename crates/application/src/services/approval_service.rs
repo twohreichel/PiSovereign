@@ -389,6 +389,7 @@ mod tests {
                 .iter()
                 .filter(|r| r.user_id == *user_id && r.status == ApprovalStatus::Pending)
                 .count();
+            #[allow(clippy::cast_possible_truncation)]
             Ok(count as u32)
         }
     }

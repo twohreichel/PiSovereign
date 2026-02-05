@@ -1,6 +1,6 @@
 //! Agent service - Command execution and orchestration
 
-use std::{fmt, sync::Arc, time::Instant};
+use std::{fmt, fmt::Write as _, sync::Arc, time::Instant};
 
 use domain::{AgentCommand, SystemCommand};
 use tracing::{debug, info, instrument, warn};
@@ -379,22 +379,20 @@ impl AgentService {
         if briefing.calendar.event_count == 0 {
             response.push_str("No appointments scheduled for today.\n");
         } else {
-            response.push_str(&format!(
-                "{} appointment(s) today:\n",
-                briefing.calendar.event_count
-            ));
+            let _ = writeln!(response, "{} appointment(s) today:", briefing.calendar.event_count);
             for event in &briefing.calendar.events {
                 if event.all_day {
-                    response.push_str(&format!("  • {} (all-day)\n", event.title));
+                    let _ = writeln!(response, "  • {} (all-day)", event.title);
                 } else {
-                    response.push_str(&format!("  • {} at {}\n", event.title, event.start_time));
+                    let _ = writeln!(response, "  • {} at {}", event.title, event.start_time);
                 }
             }
             if !briefing.calendar.conflicts.is_empty() {
-                response.push_str(&format!(
-                    "  ⚠️ {} conflict(s) detected\n",
+                let _ = writeln!(
+                    response,
+                    "  ⚠️ {} conflict(s) detected",
                     briefing.calendar.conflicts.len()
-                ));
+                );
             }
         }
 
@@ -403,13 +401,13 @@ impl AgentService {
         if briefing.email.unread_count == 0 {
             response.push_str("No unread emails.\n");
         } else {
-            response.push_str(&format!("{} unread email(s)", briefing.email.unread_count));
+            let _ = write!(response, "{} unread email(s)", briefing.email.unread_count);
             if briefing.email.important_count > 0 {
-                response.push_str(&format!(", {} important", briefing.email.important_count));
+                let _ = write!(response, ", {} important", briefing.email.important_count);
             }
             response.push('\n');
             for highlight in &briefing.email.highlights {
-                response.push_str(&format!("  • {}: {}\n", highlight.from, highlight.subject));
+                let _ = writeln!(response, "  • {}: {}", highlight.from, highlight.subject);
             }
         }
 
@@ -417,10 +415,10 @@ impl AgentService {
         if briefing.tasks.due_today > 0 || briefing.tasks.overdue > 0 {
             response.push_str("\n✅ **Tasks**\n");
             if briefing.tasks.due_today > 0 {
-                response.push_str(&format!("{} task(s) due today\n", briefing.tasks.due_today));
+                let _ = writeln!(response, "{} task(s) due today", briefing.tasks.due_today);
             }
             if briefing.tasks.overdue > 0 {
-                response.push_str(&format!("⚠️ {} overdue task(s)\n", briefing.tasks.overdue));
+                let _ = writeln!(response, "⚠️ {} overdue task(s)", briefing.tasks.overdue);
             }
         }
 

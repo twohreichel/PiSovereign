@@ -217,9 +217,10 @@ impl ApprovalQueuePort for SqliteApprovalQueue {
                 ApplicationError::Internal(format!("Failed to get database connection: {e}"))
             })?;
 
-            conn.execute("DELETE FROM approval_requests WHERE id = ?1", [
-                id.to_string()
-            ])
+            conn.execute(
+                "DELETE FROM approval_requests WHERE id = ?1",
+                [id.to_string()],
+            )
             .map_err(|e| {
                 ApplicationError::Internal(format!("Failed to delete approval request: {e}"))
             })?;

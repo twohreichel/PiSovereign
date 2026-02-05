@@ -3,6 +3,8 @@
 //! Connects to CalDAV servers for calendar operations.
 //! Supports standard CalDAV protocol with PROPFIND, REPORT, PUT, DELETE.
 
+use std::fmt::Write as _;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use quick_xml::{Reader, events::Event};
@@ -291,9 +293,9 @@ impl HttpCalDavClient {
         ical.push_str("VERSION:2.0\r\n");
         ical.push_str("PRODID:-//PiSovereign//CalDAV Client//EN\r\n");
         ical.push_str("BEGIN:VEVENT\r\n");
-        ical.push_str(&format!("UID:{}\r\n", event.id));
-        ical.push_str(&format!("DTSTAMP:{dtstamp}\r\n"));
-        ical.push_str(&format!("SUMMARY:{}\r\n", event.summary));
+        let _ = writeln!(ical, "UID:{}\r", event.id);
+        let _ = writeln!(ical, "DTSTAMP:{dtstamp}\r");
+        let _ = writeln!(ical, "SUMMARY:{}\r", event.summary);
 
         // Format dates - try to parse ISO 8601 and convert to iCalendar format
         #[allow(clippy::option_if_let_else)]
@@ -310,17 +312,17 @@ impl HttpCalDavClient {
             }
         };
 
-        ical.push_str(&format!("DTSTART:{}\r\n", format_date(&event.start)));
-        ical.push_str(&format!("DTEND:{}\r\n", format_date(&event.end)));
+        let _ = writeln!(ical, "DTSTART:{}\r", format_date(&event.start));
+        let _ = writeln!(ical, "DTEND:{}\r", format_date(&event.end));
 
         if let Some(desc) = &event.description {
-            ical.push_str(&format!("DESCRIPTION:{desc}\r\n"));
+            let _ = writeln!(ical, "DESCRIPTION:{desc}\r");
         }
         if let Some(loc) = &event.location {
-            ical.push_str(&format!("LOCATION:{loc}\r\n"));
+            let _ = writeln!(ical, "LOCATION:{loc}\r");
         }
         for attendee in &event.attendees {
-            ical.push_str(&format!("ATTENDEE:mailto:{attendee}\r\n"));
+            let _ = writeln!(ical, "ATTENDEE:mailto:{attendee}\r");
         }
 
         ical.push_str("END:VEVENT\r\n");

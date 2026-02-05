@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn command_parser_debug_output() {
         let parser = CommandParser::new();
-        let debug_str = format!("{:?}", parser);
+        let debug_str = format!("{parser:?}");
         assert!(debug_str.contains("CommandParser"));
     }
 
@@ -567,10 +567,13 @@ mod tests {
     fn parses_inbox_command() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("inbox").unwrap();
-        assert!(matches!(cmd, AgentCommand::SummarizeInbox {
-            count: None,
-            only_important: None
-        }));
+        assert!(matches!(
+            cmd,
+            AgentCommand::SummarizeInbox {
+                count: None,
+                only_important: None
+            }
+        ));
     }
 
     #[test]
@@ -611,7 +614,7 @@ mod tests {
     #[test]
     fn default_creates_parser() {
         let parser = CommandParser::default();
-        let debug_str = format!("{:?}", parser);
+        let debug_str = format!("{parser:?}");
         assert!(debug_str.contains("CommandParser"));
     }
 
@@ -619,7 +622,7 @@ mod tests {
     fn parser_has_quick_patterns() {
         let parser = CommandParser::new();
         // The debug output shows the pattern count
-        let debug_str = format!("{:?}", parser);
+        let debug_str = format!("{parser:?}");
         assert!(debug_str.contains("quick_patterns_count"));
     }
 
@@ -746,7 +749,7 @@ mod async_tests {
         // Set up expectation for generate_with_system
         mock.expect_generate_with_system().returning(|_, msg| {
             Ok(InferenceResult {
-                content: format!(r#"{{"intent":"ask","question":"{}"}}"#, msg),
+                content: format!(r#"{{"intent":"ask","question":"{msg}"}}"#),
                 model: "test".to_string(),
                 tokens_used: Some(10),
                 latency_ms: 50,
@@ -772,9 +775,10 @@ mod async_tests {
         let inference: Arc<dyn InferencePort> = Arc::new(mock);
 
         let result = parser.parse_with_llm(&inference, "briefing").await.unwrap();
-        assert!(matches!(result, AgentCommand::MorningBriefing {
-            date: None
-        }));
+        assert!(matches!(
+            result,
+            AgentCommand::MorningBriefing { date: None }
+        ));
     }
 
     #[tokio::test]

@@ -343,7 +343,7 @@ mod tests {
             self.call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(InferenceResult {
-                content: format!("Response to: {}", message),
+                content: format!("Response to: {message}"),
                 model: "mock-model".to_string(),
                 tokens_used: Some(10),
                 latency_ms: 100,

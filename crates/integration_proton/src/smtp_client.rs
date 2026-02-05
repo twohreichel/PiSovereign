@@ -3,7 +3,7 @@
 //! Provides async SMTP operations for sending emails via Proton Bridge.
 //! This is a lightweight implementation using tokio and tokio-native-tls.
 
-use std::fs;
+use std::{fmt::Write as _, fs};
 
 use base64::Engine;
 use native_tls::Certificate;
@@ -112,7 +112,7 @@ impl ProtonSmtpClient {
 
         // Add CC headers
         if !email.cc.is_empty() {
-            headers.push_str(&format!("Cc: {}\r\n", email.cc.join(", ")));
+            let _ = writeln!(headers, "Cc: {}\r", email.cc.join(", "));
         }
 
         // Add blank line separator and body
