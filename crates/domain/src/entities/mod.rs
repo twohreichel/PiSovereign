@@ -5,6 +5,7 @@ mod audit_entry;
 mod briefing;
 mod chat_message;
 mod conversation;
+mod email_draft;
 mod user_profile;
 
 pub use approval_request::{ApprovalError, ApprovalRequest, ApprovalStatus};
@@ -14,4 +15,5 @@ pub use briefing::{
 };
 pub use chat_message::{ChatMessage, MessageMetadata, MessageRole};
 pub use conversation::Conversation;
+pub use email_draft::{DEFAULT_DRAFT_TTL_DAYS, PersistedEmailDraft};
 pub use user_profile::UserProfile;
