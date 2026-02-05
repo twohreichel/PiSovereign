@@ -462,6 +462,7 @@ mod tests {
     #[test]
     fn circuit_breaker_clone() {
         let cb1 = CircuitBreaker::new("test");
+        #[allow(clippy::redundant_clone)]
         let cb2 = cb1.clone();
         assert_eq!(cb1.name(), cb2.name());
     }

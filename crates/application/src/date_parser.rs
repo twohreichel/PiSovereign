@@ -261,7 +261,7 @@ mod tests {
         assert!(result.is_some());
         let date = result.unwrap();
         assert_eq!(date.weekday(), Weekday::Mon);
-        assert!(date > today || date == today);
+        assert!(date >= today);
     }
 
     #[test]

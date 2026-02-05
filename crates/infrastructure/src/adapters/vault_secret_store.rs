@@ -487,10 +487,10 @@ mod tests {
         #[async_trait]
         impl SecretStorePort for UnhealthyStore {
             async fn get_secret(&self, _key: &str) -> Result<String, ApplicationError> {
-                Err(ApplicationError::NotFound("".to_string()))
+                Err(ApplicationError::NotFound(String::new()))
             }
             async fn get_json(&self, _path: &str) -> Result<serde_json::Value, ApplicationError> {
-                Err(ApplicationError::NotFound("".to_string()))
+                Err(ApplicationError::NotFound(String::new()))
             }
             async fn exists(&self, _key: &str) -> Result<bool, ApplicationError> {
                 Ok(false)
@@ -506,10 +506,10 @@ mod tests {
         #[async_trait]
         impl SecretStorePort for HealthyStore {
             async fn get_secret(&self, _key: &str) -> Result<String, ApplicationError> {
-                Err(ApplicationError::NotFound("".to_string()))
+                Err(ApplicationError::NotFound(String::new()))
             }
             async fn get_json(&self, _path: &str) -> Result<serde_json::Value, ApplicationError> {
-                Err(ApplicationError::NotFound("".to_string()))
+                Err(ApplicationError::NotFound(String::new()))
             }
             async fn exists(&self, _key: &str) -> Result<bool, ApplicationError> {
                 Ok(false)
