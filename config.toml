@@ -80,6 +80,25 @@ max_connections = 5
 # Run migrations on startup
 run_migrations = true
 
+# =====================
+# Cache Settings
+# =====================
+[cache]
+# Enable caching (disable for debugging)
+enabled = true
+# Short TTL in seconds (for frequently changing data)
+ttl_short_secs = 300  # 5 minutes
+# Medium TTL in seconds (for moderately stable data)
+ttl_medium_secs = 3600  # 1 hour
+# Long TTL in seconds (for stable data)
+ttl_long_secs = 86400  # 24 hours
+# TTL for dynamic LLM responses (high temperature)
+ttl_llm_dynamic_secs = 3600  # 1 hour
+# TTL for stable LLM responses (low temperature/factual)
+ttl_llm_stable_secs = 86400  # 24 hours
+# Maximum entries in L1 (in-memory) cache
+l1_max_entries = 10000
+
 # ==============================
 # Telemetry / OpenTelemetry
 # ==============================
