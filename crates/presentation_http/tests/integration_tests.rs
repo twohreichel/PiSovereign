@@ -858,3 +858,451 @@ mod degraded_mode_tests {
         assert!(body["message"].as_str().unwrap().contains("Success"));
     }
 }
+
+// ============ Workflow Integration Tests ============
+
+mod workflow_tests {
+    use super::*;
+    use application::ports::{DraftStorePort, UserProfileStore};
+    use domain::{DraftId, PersistedEmailDraft, UserId, EmailAddress, entities::UserProfile, value_objects::{Timezone, GeoLocation}};
+
+    /// Mock draft store for workflow testing
+    struct MockDraftStore {
+        drafts: RwLock<HashMap<String, PersistedEmailDraft>>,
+    }
+
+    impl MockDraftStore {
+        fn new() -> Self {
+            Self {
+                drafts: RwLock::new(HashMap::new()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl DraftStorePort for MockDraftStore {
+        async fn save(&self, draft: &PersistedEmailDraft) -> Result<DraftId, ApplicationError> {
+            let mut store = self.drafts.write().await;
+            store.insert(draft.id.to_string(), draft.clone());
+            Ok(draft.id)
+        }
+
+        async fn get(&self, id: &DraftId) -> Result<Option<PersistedEmailDraft>, ApplicationError> {
+            let store = self.drafts.read().await;
+            Ok(store.get(&id.to_string()).cloned())
+        }
+
+        async fn get_for_user(
+            &self,
+            id: &DraftId,
+            user_id: &UserId,
+        ) -> Result<Option<PersistedEmailDraft>, ApplicationError> {
+            let store = self.drafts.read().await;
+            Ok(store
+                .get(&id.to_string())
+                .filter(|d| d.user_id == *user_id)
+                .cloned())
+        }
+
+        async fn delete(&self, id: &DraftId) -> Result<bool, ApplicationError> {
+            let mut store = self.drafts.write().await;
+            Ok(store.remove(&id.to_string()).is_some())
+        }
+
+        async fn list_for_user(
+            &self,
+            user_id: &UserId,
+            limit: usize,
+        ) -> Result<Vec<PersistedEmailDraft>, ApplicationError> {
+            let store = self.drafts.read().await;
+            let mut drafts: Vec<_> = store
+                .values()
+                .filter(|d| d.user_id == *user_id)
+                .cloned()
+                .collect();
+            drafts.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            drafts.truncate(limit);
+            Ok(drafts)
+        }
+
+        async fn cleanup_expired(&self) -> Result<usize, ApplicationError> {
+            let mut store = self.drafts.write().await;
+            let now = Utc::now();
+            let before = store.len();
+            store.retain(|_, draft| draft.expires_at > now);
+            Ok(before - store.len())
+        }
+    }
+
+    /// Mock user profile store for workflow testing
+    struct MockUserProfileStore {
+        profiles: RwLock<HashMap<String, UserProfile>>,
+    }
+
+    impl MockUserProfileStore {
+        fn new() -> Self {
+            Self {
+                profiles: RwLock::new(HashMap::new()),
+            }
+        }
+
+        #[allow(dead_code)]
+        async fn add_profile(&self, profile: UserProfile) {
+            let mut store = self.profiles.write().await;
+            store.insert(profile.id().to_string(), profile);
+        }
+    }
+
+    #[async_trait]
+    impl UserProfileStore for MockUserProfileStore {
+        async fn save(&self, profile: &UserProfile) -> Result<(), ApplicationError> {
+            let mut store = self.profiles.write().await;
+            store.insert(profile.id().to_string(), profile.clone());
+            Ok(())
+        }
+
+        async fn get(&self, user_id: &UserId) -> Result<Option<UserProfile>, ApplicationError> {
+            let store = self.profiles.read().await;
+            Ok(store.get(&user_id.to_string()).cloned())
+        }
+
+        async fn delete(&self, user_id: &UserId) -> Result<bool, ApplicationError> {
+            let mut store = self.profiles.write().await;
+            Ok(store.remove(&user_id.to_string()).is_some())
+        }
+
+        async fn update_location(
+            &self,
+            user_id: &UserId,
+            location: Option<&GeoLocation>,
+        ) -> Result<bool, ApplicationError> {
+            let mut store = self.profiles.write().await;
+            if let Some(profile) = store.get_mut(&user_id.to_string()) {
+                if let Some(loc) = location {
+                    profile.update_location(*loc);
+                } else {
+                    profile.clear_location();
+                }
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+
+        async fn update_timezone(
+            &self,
+            user_id: &UserId,
+            timezone: &Timezone,
+        ) -> Result<bool, ApplicationError> {
+            let mut store = self.profiles.write().await;
+            if let Some(profile) = store.get_mut(&user_id.to_string()) {
+                profile.update_timezone(timezone.clone());
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+    }
+
+    fn create_workflow_test_state_with_draft_store() -> (AppState, Arc<MockDraftStore>) {
+        let inference: Arc<dyn InferencePort> = Arc::new(MockInference::new());
+        let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
+        let draft_store = Arc::new(MockDraftStore::new());
+
+        let agent_service = AgentService::new(inference.clone())
+            .with_draft_store(draft_store.clone() as Arc<dyn DraftStorePort>);
+
+        let state = AppState {
+            chat_service: Arc::new(ChatService::with_conversation_store(
+                inference,
+                conversation_store,
+            )),
+            agent_service: Arc::new(agent_service),
+            approval_service: None,
+            config: presentation_http::ReloadableConfig::new(AppConfig::default()),
+            metrics: Arc::new(MetricsCollector::new()),
+        };
+
+        (state, draft_store)
+    }
+
+    fn create_workflow_test_state_with_user_profile() -> (AppState, Arc<MockUserProfileStore>) {
+        let inference: Arc<dyn InferencePort> = Arc::new(MockInference::new());
+        let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
+        let user_profile_store = Arc::new(MockUserProfileStore::new());
+
+        let agent_service = AgentService::new(inference.clone())
+            .with_user_profile_store(user_profile_store.clone() as Arc<dyn UserProfileStore>);
+
+        let state = AppState {
+            chat_service: Arc::new(ChatService::with_conversation_store(
+                inference,
+                conversation_store,
+            )),
+            agent_service: Arc::new(agent_service),
+            approval_service: None,
+            config: presentation_http::ReloadableConfig::new(AppConfig::default()),
+            metrics: Arc::new(MetricsCollector::new()),
+        };
+
+        (state, user_profile_store)
+    }
+
+    // ============ Draft Workflow Tests ============
+
+    #[tokio::test]
+    async fn draft_email_workflow_creates_and_stores_draft() {
+        let draft_store = Arc::new(MockDraftStore::new());
+        let inference: Arc<dyn InferencePort> = Arc::new(MockInference::new());
+
+        // Create agent service with draft store
+        let agent_service = AgentService::new(inference)
+            .with_draft_store(draft_store.clone() as Arc<dyn DraftStorePort>);
+
+        // Execute the draft command directly (bypasses intent parsing)
+        let command = domain::AgentCommand::DraftEmail {
+            to: EmailAddress::try_from("test@example.com").unwrap(),
+            subject: Some("Test Email".to_string()),
+            body: "Hello, this is a test.".to_string(),
+        };
+
+        let result = agent_service.execute_command(&command).await.unwrap();
+        assert!(result.success, "Command should succeed, got: {}", result.response);
+
+        // Verify draft was stored
+        let default_user = UserId::default();
+        let drafts = draft_store.list_for_user(&default_user, 10).await.unwrap();
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].to, "test@example.com");
+    }
+
+    #[tokio::test]
+    async fn draft_email_workflow_stores_correct_details() {
+        let draft_store = Arc::new(MockDraftStore::new());
+        let inference: Arc<dyn InferencePort> = Arc::new(MockInference::new());
+
+        let agent_service = AgentService::new(inference)
+            .with_draft_store(draft_store.clone() as Arc<dyn DraftStorePort>);
+
+        // Create a draft via direct command execution
+        let command = domain::AgentCommand::DraftEmail {
+            to: EmailAddress::try_from("recipient@example.com").unwrap(),
+            subject: Some("Important Meeting".to_string()),
+            body: "Please confirm your attendance.".to_string(),
+        };
+
+        let result = agent_service.execute_command(&command).await.unwrap();
+        assert!(result.success, "Command should succeed, got: {}", result.response);
+
+        // Verify stored draft details
+        let default_user = UserId::default();
+        let drafts = draft_store.list_for_user(&default_user, 10).await.unwrap();
+        assert_eq!(drafts.len(), 1, "Expected 1 draft, got {}", drafts.len());
+
+        let draft = &drafts[0];
+        assert_eq!(draft.to, "recipient@example.com");
+        assert_eq!(draft.subject, "Important Meeting");
+        assert!(draft.body.contains("confirm your attendance"));
+        assert!(draft.expires_at > Utc::now());
+    }
+
+    #[tokio::test]
+    async fn draft_email_workflow_retrieves_stored_draft() {
+        let (state, draft_store) = create_workflow_test_state_with_draft_store();
+        let router = create_router(state);
+        let _server = TestServer::new(router).expect("Failed to create test server");
+
+        // Manually create and store a draft
+        let user_id = UserId::default();
+        let draft = PersistedEmailDraft::new(
+            user_id,
+            "retrieve@example.com".to_string(),
+            "Test Retrieval".to_string(),
+            "This is the body.".to_string(),
+        );
+        let draft_id = draft.id;
+        draft_store.save(&draft).await.unwrap();
+
+        // Verify retrieval
+        let retrieved = draft_store.get(&draft_id).await.unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.to, "retrieve@example.com");
+        assert_eq!(retrieved.subject, "Test Retrieval");
+    }
+
+    #[tokio::test]
+    async fn draft_email_workflow_respects_user_ownership() {
+        let draft_store = MockDraftStore::new();
+
+        // Create drafts for different users
+        let user1 = UserId::default();
+        let user2 = UserId::new();
+
+        let draft1 = PersistedEmailDraft::new(
+            user1,
+            "user1@example.com".to_string(),
+            "User 1 Draft".to_string(),
+            "Body 1".to_string(),
+        );
+        let draft2 = PersistedEmailDraft::new(
+            user2,
+            "user2@example.com".to_string(),
+            "User 2 Draft".to_string(),
+            "Body 2".to_string(),
+        );
+
+        draft_store.save(&draft1).await.unwrap();
+        draft_store.save(&draft2).await.unwrap();
+
+        // Each user should only see their own drafts
+        let user1_drafts = draft_store.list_for_user(&user1, 10).await.unwrap();
+        let user2_drafts = draft_store.list_for_user(&user2, 10).await.unwrap();
+
+        assert_eq!(user1_drafts.len(), 1);
+        assert_eq!(user1_drafts[0].to, "user1@example.com");
+
+        assert_eq!(user2_drafts.len(), 1);
+        assert_eq!(user2_drafts[0].to, "user2@example.com");
+    }
+
+    #[tokio::test]
+    async fn draft_email_workflow_cleanup_removes_expired() {
+        let draft_store = MockDraftStore::new();
+        let user_id = UserId::default();
+
+        // Create an expired draft (by manipulating the mock)
+        let mut draft = PersistedEmailDraft::new(
+            user_id,
+            "expired@example.com".to_string(),
+            "Expired".to_string(),
+            "Body".to_string(),
+        );
+        // Set expiry in the past
+        draft.expires_at = Utc::now() - chrono::Duration::hours(1);
+
+        draft_store.save(&draft).await.unwrap();
+
+        // Verify it's stored
+        let drafts_before = draft_store.list_for_user(&user_id, 10).await.unwrap();
+        assert_eq!(drafts_before.len(), 1);
+
+        // Run cleanup
+        let cleaned = draft_store.cleanup_expired().await.unwrap();
+        assert_eq!(cleaned, 1);
+
+        // Verify it's gone
+        let drafts_after = draft_store.list_for_user(&user_id, 10).await.unwrap();
+        assert!(drafts_after.is_empty());
+    }
+
+    // ============ User Profile Workflow Tests ============
+
+    #[tokio::test]
+    async fn user_profile_workflow_stores_and_retrieves() {
+        let (_, profile_store) = create_workflow_test_state_with_user_profile();
+
+        let user_id = UserId::default();
+        let timezone = Timezone::from("Europe/Berlin");
+        let location = GeoLocation::new(52.52, 13.405).unwrap(); // Berlin
+        let profile = UserProfile::with_defaults(user_id, location, timezone);
+
+        // Save profile
+        profile_store.save(&profile).await.unwrap();
+
+        // Retrieve profile
+        let retrieved = profile_store.get(&user_id).await.unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.timezone().as_str(), "Europe/Berlin");
+    }
+
+    #[tokio::test]
+    async fn user_profile_workflow_updates_timezone() {
+        let (_, profile_store) = create_workflow_test_state_with_user_profile();
+
+        let user_id = UserId::default();
+        let profile = UserProfile::new(user_id);
+
+        profile_store.save(&profile).await.unwrap();
+
+        // Update timezone
+        let new_tz = Timezone::from("America/New_York");
+        let updated = profile_store.update_timezone(&user_id, &new_tz).await.unwrap();
+        assert!(updated);
+
+        // Verify update
+        let retrieved = profile_store.get(&user_id).await.unwrap().unwrap();
+        assert_eq!(retrieved.timezone().as_str(), "America/New_York");
+    }
+
+    #[tokio::test]
+    async fn user_profile_workflow_updates_location() {
+        let (_, profile_store) = create_workflow_test_state_with_user_profile();
+
+        let user_id = UserId::default();
+        let profile = UserProfile::new(user_id);
+
+        profile_store.save(&profile).await.unwrap();
+
+        // Update location
+        let location = GeoLocation::new(52.52, 13.405).unwrap(); // Berlin
+        let updated = profile_store.update_location(&user_id, Some(&location)).await.unwrap();
+        assert!(updated);
+
+        // Verify update
+        let retrieved = profile_store.get(&user_id).await.unwrap().unwrap();
+        assert!(retrieved.location().is_some());
+        let loc = retrieved.location().unwrap();
+        assert!((loc.latitude() - 52.52).abs() < 0.01);
+        assert!((loc.longitude() - 13.405).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn briefing_command_executes_successfully() {
+        let (state, _) = create_workflow_test_state_with_user_profile();
+        let router = create_router(state);
+        let server = TestServer::new(router).expect("Failed to create test server");
+
+        let response = server
+            .post("/v1/commands")
+            .json(&json!({
+                "input": "briefing"
+            }))
+            .await;
+
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["success"], true);
+        assert_eq!(body["command_type"], "morning_briefing");
+    }
+
+    // ============ Combined Workflow Tests ============
+
+    #[tokio::test]
+    async fn multiple_commands_in_sequence() {
+        let (state, _) = create_workflow_test_state_with_draft_store();
+        let router = create_router(state);
+        let server = TestServer::new(router).expect("Failed to create test server");
+
+        // Execute multiple commands in sequence
+        let commands = vec![
+            ("echo Hello", "echo"),
+            ("help", "help"),
+            ("status", "system"),
+            ("version", "system"),
+        ];
+
+        for (input, expected_type) in commands {
+            let response = server
+                .post("/v1/commands")
+                .json(&json!({ "input": input }))
+                .await;
+
+            response.assert_status_ok();
+            let body: serde_json::Value = response.json();
+            assert_eq!(body["success"], true);
+            assert_eq!(body["command_type"], expected_type, "Failed for input: {input}");
+        }
+    }
+}
