@@ -4,8 +4,11 @@
 
 use std::{sync::Arc, time::Duration};
 
-use application::{AgentService, ChatService};
-use infrastructure::{AppConfig, HailoInferenceAdapter};
+use application::{AgentService, ApprovalService, ChatService};
+use infrastructure::{
+    AppConfig, HailoInferenceAdapter,
+    persistence::{SqliteApprovalQueue, SqliteAuditLog, create_pool},
+};
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig,
     handlers::metrics::MetricsCollector, routes, spawn_config_reload_handler, state::AppState,
@@ -15,7 +18,7 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -66,13 +69,30 @@ async fn main() -> anyhow::Result<()> {
     // Initialize metrics collector
     let metrics = Arc::new(MetricsCollector::new());
 
+    // Initialize database connection pool and approval service
+    let approval_service = match create_pool(&initial_config.database) {
+        Ok(pool) => {
+            let pool = Arc::new(pool);
+            let approval_queue = Arc::new(SqliteApprovalQueue::new(Arc::clone(&pool)));
+            let audit_log = Arc::new(SqliteAuditLog::new(Arc::clone(&pool)));
+            let service = ApprovalService::new(approval_queue, audit_log);
+            info!("✅ ApprovalService initialized with SQLite backend");
+            Some(Arc::new(service))
+        },
+        Err(e) => {
+            warn!(
+                error = %e,
+                "⚠️ Failed to initialize database, ApprovalService disabled"
+            );
+            None
+        },
+    };
+
     // Create app state with reloadable config
-    // Note: ApprovalService is optional and not initialized here for now
-    // It would require ApprovalQueuePort and AuditLogPort implementations
     let state = AppState {
         chat_service: Arc::new(chat_service),
         agent_service: Arc::new(agent_service),
-        approval_service: None, // TODO: Initialize when persistence is configured
+        approval_service,
         config: reloadable_config,
         metrics,
     };
