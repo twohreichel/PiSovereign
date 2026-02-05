@@ -1,0 +1,25 @@
+[package]
+name = "integration_weather"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Open-Meteo weather integration for PiSovereign"
+
+[lints]
+workspace = true
+
+[dependencies]
+domain.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+mockall.workspace = true

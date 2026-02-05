@@ -10,6 +10,7 @@ members = [
     "crates/integration_whatsapp",
     "crates/integration_caldav",
     "crates/integration_proton",
+    "crates/integration_weather",
 ]
 
 [workspace.package]
@@ -144,3 +145,4 @@ ai_core = { path = "crates/ai_core" }
 integration_proton = { path = "crates/integration_proton" }
 integration_caldav = { path = "crates/integration_caldav" }
 integration_whatsapp = { path = "crates/integration_whatsapp" }
+integration_weather = { path = "crates/integration_weather" }
