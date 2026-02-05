@@ -4,11 +4,11 @@
 
 use std::{sync::Arc, time::Duration};
 
-use application::{AgentService, ApprovalService, ChatService};
+use application::{AgentService, ApprovalService, ChatService, ports::ConversationStore};
 use infrastructure::{
     AppConfig, HailoInferenceAdapter,
     adapters::{DegradedInferenceAdapter, DegradedModeConfig},
-    persistence::{SqliteApprovalQueue, SqliteAuditLog, create_pool},
+    persistence::{SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, create_pool},
     telemetry::{TelemetryConfig, init_telemetry},
 };
 use presentation_http::{
@@ -103,36 +103,45 @@ async fn main() -> anyhow::Result<()> {
 
     let inference: Arc<dyn application::ports::InferencePort> = Arc::new(degraded_adapter);
 
+    // Initialize database connection pool
+    let (approval_service, conversation_store) = match create_pool(&initial_config.database) {
+        Ok(pool) => {
+            let pool = Arc::new(pool);
+            let approval_queue = Arc::new(SqliteApprovalQueue::new(Arc::clone(&pool)));
+            let audit_log = Arc::new(SqliteAuditLog::new(Arc::clone(&pool)));
+            let approval_service = ApprovalService::new(approval_queue, audit_log);
+            let conversation_store: Arc<dyn ConversationStore> =
+                Arc::new(SqliteConversationStore::new(Arc::clone(&pool)));
+            info!("✅ Database initialized with conversation and approval stores");
+            (Some(Arc::new(approval_service)), Some(conversation_store))
+        },
+        Err(e) => {
+            warn!(
+                error = %e,
+                "⚠️ Failed to initialize database, persistence features disabled"
+            );
+            (None, None)
+        },
+    };
+
+    // System prompt for the AI assistant
+    const SYSTEM_PROMPT: &str = "You are PiSovereign, a helpful AI assistant running on a \
+        Raspberry Pi 5 with Hailo-10H. You are friendly, precise, and help with everyday \
+        tasks like email, calendar, and information lookup.";
+
     // Initialize services
-    let chat_service = ChatService::with_system_prompt(
-        Arc::clone(&inference),
-        "You are PiSovereign, a helpful AI assistant running on a Raspberry Pi 5 with Hailo-10H. \
-         You are friendly, precise, and help with everyday tasks like email, calendar, and information lookup.",
+    let chat_service = conversation_store.as_ref().map_or_else(
+        || {
+            warn!("⚠️ ChatService running without conversation persistence");
+            ChatService::with_system_prompt(Arc::clone(&inference), SYSTEM_PROMPT)
+        },
+        |store| ChatService::with_all(Arc::clone(&inference), Arc::clone(store), SYSTEM_PROMPT),
     );
 
     let agent_service = AgentService::new(Arc::clone(&inference));
 
     // Initialize metrics collector
     let metrics = Arc::new(MetricsCollector::new());
-
-    // Initialize database connection pool and approval service
-    let approval_service = match create_pool(&initial_config.database) {
-        Ok(pool) => {
-            let pool = Arc::new(pool);
-            let approval_queue = Arc::new(SqliteApprovalQueue::new(Arc::clone(&pool)));
-            let audit_log = Arc::new(SqliteAuditLog::new(Arc::clone(&pool)));
-            let service = ApprovalService::new(approval_queue, audit_log);
-            info!("✅ ApprovalService initialized with SQLite backend");
-            Some(Arc::new(service))
-        },
-        Err(e) => {
-            warn!(
-                error = %e,
-                "⚠️ Failed to initialize database, ApprovalService disabled"
-            );
-            None
-        },
-    };
 
     // Create app state with reloadable config
     let state = AppState {

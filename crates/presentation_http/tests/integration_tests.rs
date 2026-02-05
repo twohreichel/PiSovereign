@@ -1,21 +1,23 @@
 //! Integration tests for HTTP handlers
 #![allow(clippy::expect_used)]
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use application::{
     AgentService, ChatService,
     error::ApplicationError,
-    ports::{InferencePort, InferenceResult},
+    ports::{ConversationStore, InferencePort, InferenceResult},
 };
 use async_trait::async_trait;
 use axum_test::TestServer;
-use domain::Conversation;
+use chrono::{DateTime, Utc};
+use domain::{ChatMessage, Conversation, ConversationId};
 use infrastructure::AppConfig;
 use presentation_http::{
     handlers::metrics::MetricsCollector, routes::create_router, state::AppState,
 };
 use serde_json::json;
+use tokio::sync::RwLock;
 
 /// Mock inference engine for testing
 struct MockInference {
@@ -119,10 +121,88 @@ impl InferencePort for MockInference {
     }
 }
 
+/// Mock conversation store for testing
+struct MockConversationStore {
+    conversations: RwLock<HashMap<String, Conversation>>,
+}
+
+impl MockConversationStore {
+    fn new() -> Self {
+        Self {
+            conversations: RwLock::new(HashMap::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl ConversationStore for MockConversationStore {
+    async fn save(&self, conversation: &Conversation) -> Result<(), ApplicationError> {
+        let mut store = self.conversations.write().await;
+        store.insert(conversation.id.to_string(), conversation.clone());
+        Ok(())
+    }
+
+    async fn get(&self, id: &ConversationId) -> Result<Option<Conversation>, ApplicationError> {
+        let store = self.conversations.read().await;
+        Ok(store.get(&id.to_string()).cloned())
+    }
+
+    async fn update(&self, conversation: &Conversation) -> Result<(), ApplicationError> {
+        let mut store = self.conversations.write().await;
+        store.insert(conversation.id.to_string(), conversation.clone());
+        Ok(())
+    }
+
+    async fn delete(&self, id: &ConversationId) -> Result<(), ApplicationError> {
+        let mut store = self.conversations.write().await;
+        store.remove(&id.to_string());
+        Ok(())
+    }
+
+    async fn add_message(
+        &self,
+        conversation_id: &ConversationId,
+        message: &ChatMessage,
+    ) -> Result<(), ApplicationError> {
+        let mut store = self.conversations.write().await;
+        if let Some(conv) = store.get_mut(&conversation_id.to_string()) {
+            conv.add_message(message.clone());
+        }
+        Ok(())
+    }
+
+    async fn list_recent(&self, limit: usize) -> Result<Vec<Conversation>, ApplicationError> {
+        let store = self.conversations.read().await;
+        let mut convs: Vec<_> = store.values().cloned().collect();
+        convs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        convs.truncate(limit);
+        Ok(convs)
+    }
+
+    async fn search(
+        &self,
+        _query: &str,
+        limit: usize,
+    ) -> Result<Vec<Conversation>, ApplicationError> {
+        self.list_recent(limit).await
+    }
+
+    async fn cleanup_older_than(&self, cutoff: DateTime<Utc>) -> Result<usize, ApplicationError> {
+        let mut store = self.conversations.write().await;
+        let before = store.len();
+        store.retain(|_, conv| conv.updated_at >= cutoff);
+        Ok(before - store.len())
+    }
+}
+
 fn create_test_state() -> AppState {
     let inference: Arc<dyn InferencePort> = Arc::new(MockInference::new());
+    let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
     AppState {
-        chat_service: Arc::new(ChatService::new(inference.clone())),
+        chat_service: Arc::new(ChatService::with_conversation_store(
+            inference.clone(),
+            conversation_store,
+        )),
         agent_service: Arc::new(AgentService::new(inference)),
         approval_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
@@ -132,8 +212,12 @@ fn create_test_state() -> AppState {
 
 fn create_unhealthy_test_state() -> AppState {
     let inference: Arc<dyn InferencePort> = Arc::new(MockInference::unhealthy());
+    let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
     AppState {
-        chat_service: Arc::new(ChatService::new(inference.clone())),
+        chat_service: Arc::new(ChatService::with_conversation_store(
+            inference.clone(),
+            conversation_store,
+        )),
         agent_service: Arc::new(AgentService::new(inference)),
         approval_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
@@ -210,6 +294,7 @@ async fn chat_endpoint_returns_response() {
     assert!(body["message"].is_string());
     assert!(body["model"].is_string());
     assert!(body["latency_ms"].is_number());
+    assert!(body["conversation_id"].is_string());
 }
 
 #[tokio::test]
@@ -230,15 +315,46 @@ async fn chat_endpoint_rejects_empty_message() {
 async fn chat_endpoint_with_conversation_id() {
     let server = create_test_server();
 
+    // First message creates a conversation
+    let first_response = server
+        .post("/v1/chat")
+        .json(&json!({
+            "message": "Hello"
+        }))
+        .await;
+
+    first_response.assert_status_ok();
+    let first_body: serde_json::Value = first_response.json();
+    let conv_id = first_body["conversation_id"].as_str().unwrap();
+
+    // Second message continues the conversation
     let response = server
         .post("/v1/chat")
         .json(&json!({
             "message": "Continue our conversation",
-            "conversation_id": "test-conv-123"
+            "conversation_id": conv_id
         }))
         .await;
 
     response.assert_status_ok();
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["conversation_id"].as_str().unwrap(), conv_id);
+}
+
+#[tokio::test]
+async fn chat_endpoint_with_invalid_conversation_id() {
+    let server = create_test_server();
+
+    let response = server
+        .post("/v1/chat")
+        .json(&json!({
+            "message": "Hello",
+            "conversation_id": "not-a-valid-uuid"
+        }))
+        .await;
+
+    // Invalid UUID should return a validation error
+    response.assert_status_bad_request();
 }
 
 #[tokio::test]
@@ -604,8 +720,12 @@ mod degraded_mode_tests {
 
     fn create_degraded_test_state(fail: bool) -> AppState {
         let inference = create_degraded_inference(fail);
+        let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
         AppState {
-            chat_service: Arc::new(ChatService::new(inference.clone())),
+            chat_service: Arc::new(ChatService::with_conversation_store(
+                inference.clone(),
+                conversation_store,
+            )),
             agent_service: Arc::new(AgentService::new(inference)),
             approval_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),

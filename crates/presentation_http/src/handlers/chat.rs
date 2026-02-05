@@ -38,9 +38,11 @@ pub struct ChatRequest {
     ))]
     #[validate(custom(function = "validate_not_empty_trimmed"))]
     pub message: String,
-    /// Optional conversation ID for context
+    /// Optional conversation ID for context.
+    /// If provided and exists, continues the conversation.
+    /// If provided but doesn't exist, creates a new conversation with that ID.
+    /// If not provided, generates a new conversation ID automatically.
     #[serde(default)]
-    #[allow(dead_code)]
     pub conversation_id: Option<String>,
 }
 
@@ -56,15 +58,24 @@ pub struct ChatResponse {
     pub tokens: Option<u32>,
     /// Latency in milliseconds
     pub latency_ms: u64,
+    /// Conversation ID for continuing the conversation
+    pub conversation_id: String,
 }
 
 /// Handle a chat request
-#[instrument(skip(state, request), fields(message_len = request.message.len()))]
+///
+/// Supports both stateless and contextual chat:
+/// - Without `conversation_id`: Creates a new conversation and returns its ID
+/// - With `conversation_id`: Continues an existing conversation or creates one with that ID
+#[instrument(skip(state, request), fields(message_len = request.message.len(), conv_id = ?request.conversation_id))]
 pub async fn chat(
     State(state): State<AppState>,
     ValidatedJson(request): ValidatedJson<ChatRequest>,
 ) -> Result<Json<ChatResponse>, ApiError> {
-    let response = state.chat_service.chat(&request.message).await?;
+    let (response, conv_id) = state
+        .chat_service
+        .chat_with_context(&request.message, request.conversation_id.as_deref())
+        .await?;
 
     let metadata = response.metadata.as_ref();
 
@@ -73,6 +84,7 @@ pub async fn chat(
         model: metadata.and_then(|m| m.model.clone()).unwrap_or_default(),
         tokens: metadata.and_then(|m| m.tokens),
         latency_ms: metadata.and_then(|m| m.latency_ms).unwrap_or(0),
+        conversation_id: conv_id.to_string(),
     }))
 }
 
@@ -158,11 +170,13 @@ mod tests {
             model: "qwen".to_string(),
             tokens: Some(42),
             latency_ms: 100,
+            conversation_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
         };
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("Hello there"));
         assert!(json.contains("qwen"));
         assert!(json.contains("42"));
+        assert!(json.contains("550e8400-e29b-41d4-a716-446655440000"));
     }
 
     #[test]
@@ -172,9 +186,11 @@ mod tests {
             model: "llama".to_string(),
             tokens: None,
             latency_ms: 50,
+            conversation_id: "test-conv-id".to_string(),
         };
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("tokens"));
+        assert!(json.contains("conversation_id"));
     }
 
     #[test]
@@ -184,9 +200,11 @@ mod tests {
             model: "model".to_string(),
             tokens: None,
             latency_ms: 10,
+            conversation_id: "debug-conv".to_string(),
         };
         let debug = format!("{response:?}");
         assert!(debug.contains("ChatResponse"));
+        assert!(debug.contains("conversation_id"));
     }
 
     #[test]
