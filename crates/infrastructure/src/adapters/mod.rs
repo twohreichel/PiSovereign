@@ -5,6 +5,7 @@
 mod cached_inference_adapter;
 mod caldav_calendar_adapter;
 mod circuit_breaker;
+mod degraded_inference;
 mod env_secret_store;
 mod hailo_inference_adapter;
 mod model_registry_adapter;
@@ -17,6 +18,9 @@ pub use cached_inference_adapter::CachedInferenceAdapter;
 pub use caldav_calendar_adapter::CalDavCalendarAdapter;
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitOpenError, CircuitState,
+};
+pub use degraded_inference::{
+    DegradedInferenceAdapter, DegradedModeConfig, DegradedModeStats, ServiceStatus,
 };
 pub use env_secret_store::EnvSecretStore;
 pub use hailo_inference_adapter::HailoInferenceAdapter;
