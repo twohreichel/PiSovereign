@@ -20,16 +20,16 @@ all-features = true
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-# Fail on any vulnerability
-vulnerability = "deny"
-# Warn on unmaintained crates
-unmaintained = "warn"
+# All vulnerability/unsound/notice advisories now emit errors (cargo-deny 0.18+)
+# Unmaintained crates only warn for workspace crates
+unmaintained = "workspace"
 # Warn on yanked versions
 yanked = "warn"
-# Warn on crates with no security notice
-notice = "warn"
 # Ignore specific advisories (add with justification)
-ignore = []
+ignore = [
+    # bincode is unmaintained but still functional for our use case
+    { id = "RUSTSEC-2025-0141", reason = "bincode v2 is still functional, considering migration to postcard" },
+]
 
 # ============================================================================
 # LICENSES - License compliance checking
@@ -44,6 +44,7 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "0BSD",  # BSD Zero Clause License
     "ISC",
     "Zlib",
     "CC0-1.0",
@@ -51,9 +52,8 @@ allow = [
     "MPL-2.0",  # Mozilla Public License (weak copyleft, file-level)
     "Unicode-3.0",
     "Unicode-DFS-2016",
+    "CDLA-Permissive-2.0",  # Community Data License Agreement Permissive
 ]
-# Deny copyleft licenses by default
-copyleft = "deny"
 
 # Clarify licenses for crates with non-standard license files
 [[licenses.clarify]]
@@ -72,10 +72,8 @@ license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
 [bans]
 # Deny multiple versions of the same crate
 multiple-versions = "warn"
-# Warn on wildcard dependencies
-wildcards = "deny"
-# Allow build dependencies to have multiple versions
-allow-build-scripts = ["*"]
+# Allow wildcard dependencies (workspace internal deps use version.workspace = true)
+wildcards = "allow"
 # Highlight the dependency chain for banned crates
 highlight = "all"
 

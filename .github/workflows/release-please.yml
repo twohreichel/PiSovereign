@@ -121,8 +121,9 @@ jobs:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.93.0"
           targets: ${{ matrix.target }}
 
       - name: Install cross-compilation tools (Linux ARM64)
