@@ -41,6 +41,7 @@ impl HailoInferenceAdapter {
     }
 
     /// Set the default system prompt
+    #[must_use]
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
         self
@@ -107,6 +108,7 @@ impl InferencePort for HailoInferenceAdapter {
 
         let start = Instant::now();
 
+        #[allow(clippy::option_if_let_else)]
         let request = match &self.system_prompt {
             Some(system) => InferenceRequest::with_system(system, message),
             None => InferenceRequest::simple(message),
@@ -134,6 +136,7 @@ impl InferencePort for HailoInferenceAdapter {
                 .map_err(Self::map_error)?,
         };
 
+        #[allow(clippy::cast_possible_truncation)]
         let latency_ms = start.elapsed().as_millis() as u64;
 
         debug!(
@@ -217,6 +220,7 @@ impl InferencePort for HailoInferenceAdapter {
                 .map_err(Self::map_error)?,
         };
 
+        #[allow(clippy::cast_possible_truncation)]
         let latency_ms = start.elapsed().as_millis() as u64;
 
         Ok(InferenceResult {
@@ -268,6 +272,7 @@ impl InferencePort for HailoInferenceAdapter {
                 .map_err(Self::map_error)?,
         };
 
+        #[allow(clippy::cast_possible_truncation)]
         let latency_ms = start.elapsed().as_millis() as u64;
 
         Ok(InferenceResult {
@@ -289,6 +294,7 @@ impl InferencePort for HailoInferenceAdapter {
             ));
         }
 
+        #[allow(clippy::option_if_let_else)]
         let request = match &self.system_prompt {
             Some(system) => InferenceRequest::with_system(system, message).streaming(),
             None => InferenceRequest::simple(message).streaming(),

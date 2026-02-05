@@ -95,9 +95,9 @@ impl CalendarService {
     ) -> Result<String, ApplicationError> {
         info!(title, date = %date, time = %time, "Creating event");
 
-        let start = format!("{}T{}", date, time);
+        let start = format!("{date}T{time}");
         let end_time = time + Duration::minutes(i64::from(duration_minutes));
-        let end = format!("{}T{}", date, end_time);
+        let end = format!("{date}T{end_time}");
 
         let mut event = NewEvent::new(title, start, end);
 
@@ -184,6 +184,7 @@ impl CalendarService {
 
         let conflicts = detect_conflicts(&events);
 
+        #[allow(clippy::cast_possible_truncation)]
         Ok(CalendarBrief {
             event_count: events.len() as u32,
             next_event: next_event.map(|e| EventSummary {

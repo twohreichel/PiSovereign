@@ -40,7 +40,7 @@ pub async fn readiness_check(
 ) -> (StatusCode, Json<ReadinessResponse>) {
     let inference_healthy = state.chat_service.is_healthy().await;
     let model = if inference_healthy {
-        Some(state.chat_service.current_model().to_string())
+        Some(state.chat_service.current_model())
     } else {
         None
     };

@@ -318,10 +318,9 @@ impl SecretStorePort for ChainedSecretStore {
         for store in &self.stores {
             match store.get_secret(key).await {
                 Ok(value) => return Ok(value),
-                Err(ApplicationError::NotFound(_)) => continue,
+                Err(ApplicationError::NotFound(_)) => {},
                 Err(e) => {
                     last_error = Some(e);
-                    continue;
                 },
             }
         }
@@ -337,10 +336,9 @@ impl SecretStorePort for ChainedSecretStore {
         for store in &self.stores {
             match store.get_json(path).await {
                 Ok(value) => return Ok(value),
-                Err(ApplicationError::NotFound(_)) => continue,
+                Err(ApplicationError::NotFound(_)) => {},
                 Err(e) => {
                     last_error = Some(e);
-                    continue;
                 },
             }
         }

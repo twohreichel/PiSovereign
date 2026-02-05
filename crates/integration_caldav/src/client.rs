@@ -292,10 +292,11 @@ impl HttpCalDavClient {
         ical.push_str("PRODID:-//PiSovereign//CalDAV Client//EN\r\n");
         ical.push_str("BEGIN:VEVENT\r\n");
         ical.push_str(&format!("UID:{}\r\n", event.id));
-        ical.push_str(&format!("DTSTAMP:{}\r\n", dtstamp));
+        ical.push_str(&format!("DTSTAMP:{dtstamp}\r\n"));
         ical.push_str(&format!("SUMMARY:{}\r\n", event.summary));
 
         // Format dates - try to parse ISO 8601 and convert to iCalendar format
+        #[allow(clippy::option_if_let_else)]
         let format_date = |date_str: &str| -> String {
             if let Ok(dt) = NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S") {
                 Utc.from_utc_datetime(&dt)
@@ -313,13 +314,13 @@ impl HttpCalDavClient {
         ical.push_str(&format!("DTEND:{}\r\n", format_date(&event.end)));
 
         if let Some(desc) = &event.description {
-            ical.push_str(&format!("DESCRIPTION:{}\r\n", desc));
+            ical.push_str(&format!("DESCRIPTION:{desc}\r\n"));
         }
         if let Some(loc) = &event.location {
-            ical.push_str(&format!("LOCATION:{}\r\n", loc));
+            ical.push_str(&format!("LOCATION:{loc}\r\n"));
         }
         for attendee in &event.attendees {
-            ical.push_str(&format!("ATTENDEE:mailto:{}\r\n", attendee));
+            ical.push_str(&format!("ATTENDEE:mailto:{attendee}\r\n"));
         }
 
         ical.push_str("END:VEVENT\r\n");
@@ -354,7 +355,7 @@ impl CalDavClient for HttpCalDavClient {
         match response.status() {
             StatusCode::UNAUTHORIZED => return Err(CalDavError::AuthenticationFailed),
             status if !status.is_success() && status != StatusCode::MULTI_STATUS => {
-                return Err(CalDavError::RequestFailed(format!("HTTP {}", status)));
+                return Err(CalDavError::RequestFailed(format!("HTTP {status}")));
             },
             _ => {},
         }
@@ -404,12 +405,11 @@ impl CalDavClient for HttpCalDavClient {
   <C:filter>
     <C:comp-filter name="VCALENDAR">
       <C:comp-filter name="VEVENT">
-        <C:time-range start="{}" end="{}"/>
+        <C:time-range start="{start}" end="{end}"/>
       </C:comp-filter>
     </C:comp-filter>
   </C:filter>
-</C:calendar-query>"#,
-            start, end
+</C:calendar-query>"#
         );
 
         let response = self
@@ -426,7 +426,7 @@ impl CalDavClient for HttpCalDavClient {
                 return Err(CalDavError::CalendarNotFound(calendar.to_string()));
             },
             status if !status.is_success() && status != StatusCode::MULTI_STATUS => {
-                return Err(CalDavError::RequestFailed(format!("HTTP {}", status)));
+                return Err(CalDavError::RequestFailed(format!("HTTP {status}")));
             },
             _ => {},
         }
@@ -481,7 +481,7 @@ impl CalDavClient for HttpCalDavClient {
                 debug!(event_id = %event.id, "Event created successfully");
                 Ok(event.id.clone())
             },
-            status => Err(CalDavError::RequestFailed(format!("HTTP {}", status))),
+            status => Err(CalDavError::RequestFailed(format!("HTTP {status}"))),
         }
     }
 
@@ -515,7 +515,7 @@ impl CalDavClient for HttpCalDavClient {
                 debug!(event_id = %event_id, "Event deleted successfully");
                 Ok(())
             },
-            status => Err(CalDavError::RequestFailed(format!("HTTP {}", status))),
+            status => Err(CalDavError::RequestFailed(format!("HTTP {status}"))),
         }
     }
 }

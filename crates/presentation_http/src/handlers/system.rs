@@ -20,7 +20,7 @@ pub async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
 
     Json(StatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        model: state.chat_service.current_model().to_string(),
+        model: state.chat_service.current_model(),
         inference_healthy,
         uptime_info: "Running on Raspberry Pi 5 + Hailo-10H".to_string(),
     })
@@ -48,7 +48,7 @@ pub async fn list_models(State(state): State<AppState>) -> Json<ModelsResponse> 
         .chat_service
         .list_available_models()
         .await
-        .unwrap_or_else(|_| vec![state.chat_service.current_model().to_string()]);
+        .unwrap_or_else(|_| vec![state.chat_service.current_model()]);
 
     let available = model_names
         .into_iter()
@@ -79,7 +79,7 @@ pub async fn list_models(State(state): State<AppState>) -> Json<ModelsResponse> 
         .collect();
 
     Json(ModelsResponse {
-        current: state.chat_service.current_model().to_string(),
+        current: state.chat_service.current_model(),
         available,
     })
 }

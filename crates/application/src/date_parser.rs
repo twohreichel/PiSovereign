@@ -45,16 +45,14 @@ pub fn parse_date(input: &str) -> Option<NaiveDate> {
     }
 
     // Fall back to fuzzydate library
-    match fuzzydate::parse(&input) {
-        Ok(datetime) => {
-            let date = datetime.date();
-            debug!(input = %input, date = %date, "Parsed with fuzzydate");
-            Some(date)
-        },
-        Err(_) => {
-            debug!(input = %input, "Failed to parse date");
-            None
-        },
+    #[allow(clippy::option_if_let_else)]
+    if let Ok(datetime) = fuzzydate::parse(&input) {
+        let date = datetime.date();
+        debug!(input = %input, date = %date, "Parsed with fuzzydate");
+        Some(date)
+    } else {
+        debug!(input = %input, "Failed to parse date");
+        None
     }
 }
 

@@ -60,7 +60,7 @@ impl ProtonSmtpClient {
         let min_protocol = match tls_config.min_tls_version.as_str() {
             "1.0" => native_tls::Protocol::Tlsv10,
             "1.1" => native_tls::Protocol::Tlsv11,
-            "1.2" | _ => native_tls::Protocol::Tlsv12,
+            _ => native_tls::Protocol::Tlsv12,
         };
         builder.min_protocol_version(Some(min_protocol));
 

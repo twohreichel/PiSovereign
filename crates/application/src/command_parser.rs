@@ -165,7 +165,13 @@ impl CommandParser {
             },
             // Morning briefing
             QuickPattern {
-                keywords: vec!["briefing", "morning", "good morning", "what's on", "what is on"],
+                keywords: vec![
+                    "briefing",
+                    "morning",
+                    "good morning",
+                    "what's on",
+                    "what is on",
+                ],
                 builder: |input| {
                     let lower = input.to_lowercase();
                     if lower.contains("briefing")

@@ -44,7 +44,7 @@ impl EnvSecretStore {
     ///
     /// Converts slashes to underscores, hyphens to underscores, and uppercases.
     fn key_to_env_var(&self, key: &str) -> String {
-        let normalized = key.replace('/', "_").replace('-', "_").to_uppercase();
+        let normalized = key.replace(['/', '-'], "_").to_uppercase();
 
         match &self.prefix {
             Some(prefix) => format!("{prefix}_{normalized}"),

@@ -58,7 +58,7 @@ enum Commands {
 }
 
 /// Determine log filter level from verbosity count
-fn log_filter_from_verbosity(verbose: u8) -> &'static str {
+const fn log_filter_from_verbosity(verbose: u8) -> &'static str {
     match verbose {
         0 => "warn",
         1 => "info",

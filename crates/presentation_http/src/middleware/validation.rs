@@ -96,7 +96,7 @@ where
             ValidationError::ValidationFailed(errors.join("; "))
         })?;
 
-        Ok(ValidatedJson(value))
+        Ok(Self(value))
     }
 }
 

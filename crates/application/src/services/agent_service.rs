@@ -93,6 +93,7 @@ impl AgentService {
         // Check if approval is required
         if command.requires_approval() {
             debug!(command = ?command, "Command requires approval");
+            #[allow(clippy::cast_possible_truncation)]
             return Ok(CommandResult {
                 command: command.clone(),
                 success: false,
@@ -108,6 +109,7 @@ impl AgentService {
         // Execute the command
         let result = self.execute_command(&command).await?;
 
+        #[allow(clippy::cast_possible_truncation)]
         Ok(CommandResult {
             command,
             success: result.success,
@@ -228,14 +230,12 @@ impl AgentService {
 
             SystemCommand::SwitchModel { model_name } => {
                 // Switch to the requested model
-                match self.inference.switch_model(&model_name).await {
+                match self.inference.switch_model(model_name).await {
                     Ok(()) => {
                         info!(model = %model_name, "Model switched successfully");
                         Ok(ExecutionResult {
                             success: true,
-                            response: format!(
-                                "✅ Model successfully switched to '{model_name}'."
-                            ),
+                            response: format!("✅ Model successfully switched to '{model_name}'."),
                         })
                     },
                     Err(e) => {
@@ -334,6 +334,7 @@ impl AgentService {
             match email_svc.get_inbox_summary(5, false).await {
                 Ok(summary) => EmailBrief {
                     unread_count: summary.unread_count,
+                    #[allow(clippy::cast_possible_truncation)]
                     important_count: summary.emails.iter().filter(|e| e.is_starred).count() as u32,
                     top_senders: summary
                         .emails
@@ -402,14 +403,11 @@ impl AgentService {
         if briefing.email.unread_count == 0 {
             response.push_str("No unread emails.\n");
         } else {
-            response.push_str(&format!(
-                "{} unread email(s)",
-                briefing.email.unread_count
-            ));
+            response.push_str(&format!("{} unread email(s)", briefing.email.unread_count));
             if briefing.email.important_count > 0 {
                 response.push_str(&format!(", {} important", briefing.email.important_count));
             }
-            response.push_str("\n");
+            response.push('\n');
             for highlight in &briefing.email.highlights {
                 response.push_str(&format!("  • {}: {}\n", highlight.from, highlight.subject));
             }
@@ -419,16 +417,10 @@ impl AgentService {
         if briefing.tasks.due_today > 0 || briefing.tasks.overdue > 0 {
             response.push_str("\n✅ **Tasks**\n");
             if briefing.tasks.due_today > 0 {
-                response.push_str(&format!(
-                    "{} task(s) due today\n",
-                    briefing.tasks.due_today
-                ));
+                response.push_str(&format!("{} task(s) due today\n", briefing.tasks.due_today));
             }
             if briefing.tasks.overdue > 0 {
-                response.push_str(&format!(
-                    "⚠️ {} overdue task(s)\n",
-                    briefing.tasks.overdue
-                ));
+                response.push_str(&format!("⚠️ {} overdue task(s)\n", briefing.tasks.overdue));
             }
         }
 
@@ -463,13 +455,16 @@ impl AgentService {
         }
 
         // Fallback when service not available
-        let filter_msg = if important_only { ", important only" } else { "" };
+        let filter_msg = if important_only {
+            ", important only"
+        } else {
+            ""
+        };
         Ok(ExecutionResult {
             success: true,
             response: format!(
-                "📧 Inbox summary (last {} emails{}):\n\n\
-                 (Email integration not configured. Please set up Proton Bridge.)",
-                email_count, filter_msg
+                "📧 Inbox summary (last {email_count} emails{filter_msg}):\n\n\
+                 (Email integration not configured. Please set up Proton Bridge.)"
             ),
         })
     }

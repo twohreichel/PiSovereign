@@ -72,24 +72,28 @@ impl CalendarEvent {
     }
 
     /// Set the event description
+    #[must_use]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
     }
 
     /// Set the event location
+    #[must_use]
     pub fn with_location(mut self, location: impl Into<String>) -> Self {
         self.location = Some(location.into());
         self
     }
 
     /// Mark as all-day event
+    #[must_use]
     pub const fn as_all_day(mut self) -> Self {
         self.all_day = true;
         self
     }
 
     /// Add an attendee
+    #[must_use]
     pub fn with_attendee(mut self, attendee: impl Into<String>) -> Self {
         self.attendees.push(attendee.into());
         self
@@ -130,18 +134,21 @@ impl NewEvent {
     }
 
     /// Set the description
+    #[must_use]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
     }
 
     /// Set the location
+    #[must_use]
     pub fn with_location(mut self, location: impl Into<String>) -> Self {
         self.location = Some(location.into());
         self
     }
 
     /// Mark as all-day event
+    #[must_use]
     pub const fn as_all_day(mut self) -> Self {
         self.all_day = true;
         self

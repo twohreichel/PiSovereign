@@ -147,7 +147,7 @@ impl fmt::Debug for CircuitBreaker {
         f.debug_struct("CircuitBreaker")
             .field("name", &self.name)
             .field("state", &self.state())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -348,6 +348,7 @@ impl CircuitBreaker {
     /// Returns an error if:
     /// - The circuit is open (`CircuitOpenError`)
     /// - The inner operation fails (the original error)
+    #[allow(clippy::cognitive_complexity)]
     pub fn call_sync<F, T, E>(&self, f: F) -> Result<T, CircuitBreakerError<E>>
     where
         F: FnOnce() -> Result<T, E>,

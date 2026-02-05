@@ -22,7 +22,10 @@ impl std::fmt::Debug for ProtonEmailAdapter {
             .field("client", &self.client)
             .field(
                 "circuit_breaker",
-                &self.circuit_breaker.as_ref().map(|cb| cb.name()),
+                &self
+                    .circuit_breaker
+                    .as_ref()
+                    .map(super::circuit_breaker::CircuitBreaker::name),
             )
             .finish()
     }

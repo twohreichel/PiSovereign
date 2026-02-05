@@ -27,7 +27,7 @@ pub struct SqliteConversationStore {
 impl SqliteConversationStore {
     /// Create a new SQLite conversation store
     #[must_use]
-    pub fn new(pool: Arc<ConnectionPool>) -> Self {
+    pub const fn new(pool: Arc<ConnectionPool>) -> Self {
         Self { pool }
     }
 }

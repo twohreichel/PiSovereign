@@ -54,6 +54,7 @@ impl ChatService {
             None => self.inference.generate(message).await?,
         };
 
+        #[allow(clippy::cast_possible_truncation)]
         let latency = start.elapsed().as_millis() as u64;
 
         debug!(
@@ -82,6 +83,7 @@ impl ChatService {
 
         let result = self.inference.generate_with_context(conversation).await?;
 
+        #[allow(clippy::cast_possible_truncation)]
         let latency = start.elapsed().as_millis() as u64;
 
         debug!(

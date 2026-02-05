@@ -24,7 +24,10 @@ impl std::fmt::Debug for CalDavCalendarAdapter {
             .field("default_calendar", &self.default_calendar)
             .field(
                 "circuit_breaker",
-                &self.circuit_breaker.as_ref().map(|cb| cb.name()),
+                &self
+                    .circuit_breaker
+                    .as_ref()
+                    .map(super::circuit_breaker::CircuitBreaker::name),
             )
             .finish()
     }
@@ -167,8 +170,8 @@ fn is_all_day(datetime: &str) -> bool {
 
 /// Format a date for CalDAV
 fn format_date_for_caldav(date: NaiveDate) -> (String, String) {
-    let start = format!("{}T00:00:00", date);
-    let end = format!("{}T23:59:59", date);
+    let start = format!("{date}T00:00:00");
+    let end = format!("{date}T23:59:59");
     (start, end)
 }
 

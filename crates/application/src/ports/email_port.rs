@@ -60,24 +60,28 @@ impl EmailSummary {
     }
 
     /// Set the snippet/preview text
+    #[must_use]
     pub fn with_snippet(mut self, snippet: impl Into<String>) -> Self {
         self.snippet = snippet.into();
         self
     }
 
     /// Set the received timestamp
+    #[must_use]
     pub fn with_received_at(mut self, received_at: impl Into<String>) -> Self {
         self.received_at = received_at.into();
         self
     }
 
     /// Set the read status
+    #[must_use]
     pub const fn with_is_read(mut self, is_read: bool) -> Self {
         self.is_read = is_read;
         self
     }
 
     /// Set the starred status
+    #[must_use]
     pub const fn with_is_starred(mut self, is_starred: bool) -> Self {
         self.is_starred = is_starred;
         self
@@ -109,6 +113,7 @@ impl EmailDraft {
     }
 
     /// Add a CC recipient
+    #[must_use]
     pub fn with_cc(mut self, cc: impl Into<String>) -> Self {
         self.cc.push(cc.into());
         self

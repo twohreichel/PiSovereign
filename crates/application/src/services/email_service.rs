@@ -61,6 +61,7 @@ impl EmailService {
 
         debug!(email_count = emails.len(), "Retrieved emails");
 
+        #[allow(clippy::cast_possible_truncation)]
         Ok(InboxSummary {
             total_count: emails.len() as u32,
             unread_count,
@@ -151,20 +152,19 @@ impl EmailService {
     ) -> Result<EmailDraft, ApplicationError> {
         info!(to, subject, "Drafting email");
 
+        #[allow(clippy::option_if_let_else)]
         let prompt = if let Some(subj) = subject {
             format!(
-                "Schreibe eine E-Mail an {} mit dem Betreff '{}'.\n\
-                 Anweisungen: {}\n\n\
-                 Schreibe nur den E-Mail-Text, ohne Betreff-Zeile.",
-                to, subj, instructions
+                "Schreibe eine E-Mail an {to} mit dem Betreff '{subj}'.\n\
+                 Anweisungen: {instructions}\n\n\
+                 Schreibe nur den E-Mail-Text, ohne Betreff-Zeile."
             )
         } else {
             format!(
-                "Schreibe eine E-Mail an {}.\n\
-                 Anweisungen: {}\n\n\
+                "Schreibe eine E-Mail an {to}.\n\
+                 Anweisungen: {instructions}\n\n\
                  Generiere einen passenden Betreff und den E-Mail-Text.\n\
-                 Format: BETREFF: [Betreff]\n\nTEXT: [E-Mail-Text]",
-                to, instructions
+                 Format: BETREFF: [Betreff]\n\nTEXT: [E-Mail-Text]"
             )
         };
 

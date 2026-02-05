@@ -197,6 +197,7 @@ impl MetricsCollector {
             success_count: self.success_count.load(Ordering::Relaxed),
             client_error_count: self.client_error_count.load(Ordering::Relaxed),
             server_error_count: self.server_error_count.load(Ordering::Relaxed),
+            #[allow(clippy::cast_precision_loss)]
             avg_response_time_ms: if total > 0 {
                 (total_time as f64) / (total as f64) / 1000.0
             } else {
@@ -216,6 +217,7 @@ impl MetricsCollector {
             total_inferences: total,
             successful_inferences: self.successful_inferences.load(Ordering::Relaxed),
             failed_inferences: self.failed_inferences.load(Ordering::Relaxed),
+            #[allow(clippy::cast_precision_loss)]
             avg_inference_time_ms: if total > 0 {
                 (total_time as f64) / (total as f64) / 1000.0
             } else {
@@ -231,7 +233,7 @@ impl MetricsCollector {
 /// Get metrics endpoint
 pub async fn get_metrics(State(state): State<AppState>) -> Json<MetricsResponse> {
     let inference_healthy = state.chat_service.is_healthy().await;
-    let current_model = state.chat_service.current_model().to_string();
+    let current_model = state.chat_service.current_model();
 
     let metrics = state.metrics.as_ref();
 
@@ -257,10 +259,8 @@ pub async fn get_metrics_prometheus(State(state): State<AppState>) -> String {
     let request_metrics = metrics.request_metrics();
 
     let inference_healthy = state.chat_service.is_healthy().await;
-    let inference_metrics = metrics.inference_metrics(
-        state.chat_service.current_model().to_string(),
-        inference_healthy,
-    );
+    let inference_metrics =
+        metrics.inference_metrics(state.chat_service.current_model(), inference_healthy);
 
     let mut output = String::new();
 

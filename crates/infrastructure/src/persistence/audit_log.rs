@@ -26,7 +26,7 @@ pub struct SqliteAuditLog {
 impl SqliteAuditLog {
     /// Create a new SQLite audit log
     #[must_use]
-    pub fn new(pool: Arc<ConnectionPool>) -> Self {
+    pub const fn new(pool: Arc<ConnectionPool>) -> Self {
         Self { pool }
     }
 }
@@ -55,7 +55,7 @@ impl AuditLogPort for SqliteAuditLog {
                     entry.action,
                     entry.details,
                     entry.ip_address.map(|ip| ip.to_string()),
-                    entry.success as i32,
+                    i32::from(entry.success),
                 ],
             )
             .map_err(|e| ApplicationError::Internal(e.to_string()))?;
@@ -218,6 +218,7 @@ impl AuditLogPort for SqliteAuditLog {
                 })
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
+            #[allow(clippy::cast_sign_loss)]
             Ok(count as u64)
         })
         .await
@@ -239,8 +240,7 @@ fn row_to_audit_entry(row: &Row<'_>) -> rusqlite::Result<AuditEntry> {
     let success: i32 = row.get(9)?;
 
     let timestamp = DateTime::parse_from_rfc3339(&timestamp_str)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now());
+        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
     let event_type = parse_event_type(&event_type_str);
 
@@ -268,11 +268,10 @@ fn parse_event_type(s: &str) -> AuditEventType {
         "command_execution" => AuditEventType::CommandExecution,
         "approval" => AuditEventType::Approval,
         "config_change" => AuditEventType::ConfigChange,
-        "system" => AuditEventType::System,
         "data_access" => AuditEventType::DataAccess,
         "integration" => AuditEventType::Integration,
         "security" => AuditEventType::Security,
-        _ => AuditEventType::System, // Default fallback
+        _ => AuditEventType::System,
     }
 }
 
@@ -311,7 +310,7 @@ fn build_query_sql(query: &AuditQuery) -> (String, Vec<String>) {
 
     if let Some(success) = query.success {
         sql.push_str(&format!(" AND success = ?{param_idx}"));
-        params.push((success as i32).to_string());
+        params.push(i32::from(success).to_string());
         param_idx += 1;
     }
 
@@ -375,7 +374,7 @@ fn build_count_sql(query: &AuditQuery) -> (String, Vec<String>) {
 
     if let Some(success) = query.success {
         sql.push_str(&format!(" AND success = ?{param_idx}"));
-        params.push((success as i32).to_string());
+        params.push(i32::from(success).to_string());
         param_idx += 1;
     }
 

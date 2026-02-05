@@ -233,7 +233,7 @@ impl ApprovalService {
 
     /// Check if a command requires approval
     #[must_use]
-    pub fn requires_approval(command: &AgentCommand) -> bool {
+    pub const fn requires_approval(command: &AgentCommand) -> bool {
         command.requires_approval()
     }
 

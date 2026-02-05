@@ -110,7 +110,7 @@ pub struct BriefingService {
 impl BriefingService {
     /// Create a new briefing service
     #[must_use]
-    pub fn new(timezone_offset: i32) -> Self {
+    pub const fn new(timezone_offset: i32) -> Self {
         Self { timezone_offset }
     }
 

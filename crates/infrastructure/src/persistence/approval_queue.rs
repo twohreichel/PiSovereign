@@ -20,7 +20,7 @@ pub struct SqliteApprovalQueue {
 
 impl SqliteApprovalQueue {
     /// Create a new SQLite approval queue
-    pub fn new(pool: Arc<Pool<SqliteConnectionManager>>) -> Self {
+    pub const fn new(pool: Arc<Pool<SqliteConnectionManager>>) -> Self {
         Self { pool }
     }
 }
@@ -288,7 +288,7 @@ impl ApprovalQueuePort for SqliteApprovalQueue {
     }
 }
 
-fn status_to_str(status: ApprovalStatus) -> &'static str {
+const fn status_to_str(status: ApprovalStatus) -> &'static str {
     match status {
         ApprovalStatus::Pending => "pending",
         ApprovalStatus::Approved => "approved",
