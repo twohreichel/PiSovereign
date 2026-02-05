@@ -1,0 +1,80 @@
+# =============================================================================
+# Docker Build Context Optimization for PiSovereign
+# Reduces build context size and improves caching
+# =============================================================================
+
+# Build artifacts
+target/
+*.rs.bk
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation (built separately)
+docs/
+*.md
+!README.md
+
+# CI/CD configuration
+.github/
+.gitlab-ci.yml
+.travis.yml
+azure-pipelines.yml
+
+# Local configuration
+.env
+.env.*
+!.env.example
+config.local.toml
+*.local.toml
+
+# Test fixtures and coverage
+coverage/
+*.lcov
+lcov.info
+tarpaulin-report.html
+
+# Grafana/Prometheus (mounted separately in docker-compose)
+grafana/
+
+# Benchmarks (not needed in production image)
+benches/
+
+# Development tools configuration
+deny.toml
+release-please-config.json
+.release-please-manifest.json
+rustfmt.toml
+clippy.toml
+.cargo/
+
+# Justfile (development only)
+Justfile
+
+# Docker files (prevent recursive inclusion)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.log
+
+# Secrets (should never be in context)
+*.pem
+*.key
+*.crt
+secrets/
