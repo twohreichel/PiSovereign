@@ -90,6 +90,51 @@ export PISOVEREIGN_INFERENCE_BASE_URL=http://localhost:11434
 export PISOVEREIGN_INFERENCE_DEFAULT_MODEL=qwen2.5-1.5b-instruct
 ```
 
+## Performance Features
+
+### Multi-Layer Caching
+
+PiSovereign uses a two-tier caching system optimized for Raspberry Pi 5:
+
+- **L1 Cache (Moka)**: In-memory, sub-millisecond access
+- **L2 Cache (Sled)**: Persistent embedded store, survives restarts
+
+LLM responses are cached with content-aware TTL:
+- Dynamic content (briefings, email summaries): 1 hour
+- Stable content (system prompts, help text): 24 hours
+
+### Async Database
+
+SQLite database operations use `sqlx` for non-blocking async I/O:
+- Connection pooling for concurrent requests
+- WAL mode for better read/write performance
+- Prepared statements for query optimization
+
+### Monitoring
+
+Prometheus metrics at `/metrics/prometheus`:
+- HTTP request rates and latencies
+- Inference success/failure rates
+- Token generation throughput
+
+Grafana dashboard available in `grafana/dashboards/pisovereign.json`.
+
+## Development
+
+```bash
+# Run tests
+cargo test --workspace
+
+# Format code
+cargo fmt --all
+
+# Lint
+cargo clippy --workspace --all-targets
+
+# Build documentation
+cargo doc --workspace --no-deps
+```
+
 ## License
 
 MIT
