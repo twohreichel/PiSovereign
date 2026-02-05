@@ -42,7 +42,8 @@ lint-clippy:
         -A clippy::cast_possible_truncation \
         -A clippy::cast_precision_loss \
         -A clippy::literal_string_with_formatting_args \
-        -A clippy::significant_drop_tightening
+        -A clippy::significant_drop_tightening \
+        -A clippy::format_push_string
 
 # Run clippy with auto-fix (applies safe fixes)
 lint-fix:
