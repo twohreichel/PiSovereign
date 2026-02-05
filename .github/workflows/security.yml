@@ -1,0 +1,200 @@
+# =============================================================================
+# Security Audit Workflow
+# Automated security scanning for dependencies and vulnerabilities
+# =============================================================================
+#
+# This workflow:
+# 1. Runs cargo-audit for known vulnerabilities (RustSec Advisory DB)
+# 2. Runs cargo-deny for license compliance and banned crates
+# 3. Generates SBOM (Software Bill of Materials)
+# 4. Uploads security reports as artifacts
+#
+# Triggers:
+# - Weekly scheduled scan (Monday 06:00 UTC)
+# - On pull requests (security-relevant files)
+# - Manual workflow dispatch
+#
+# =============================================================================
+
+name: Security
+
+on:
+  schedule:
+    # Run weekly on Monday at 06:00 UTC
+    - cron: "0 6 * * 1"
+  push:
+    branches:
+      - main
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deny.toml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deny.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Cargo Audit - Vulnerability Scanning
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo-audit
+        run: |
+          cargo audit \
+            --json \
+            --output audit-report.json \
+            2>&1 | tee audit-output.txt || true
+
+      - name: Check audit results
+        id: audit-check
+        run: |
+          if cargo audit 2>&1 | grep -q "error: "; then
+            echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
+            echo "## ⚠️ Security Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
+            cargo audit 2>&1 >> $GITHUB_STEP_SUMMARY || true
+          else
+            echo "has_vulnerabilities=false" >> $GITHUB_OUTPUT
+            echo "## ✅ No Known Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-report
+          path: |
+            audit-report.json
+            audit-output.txt
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Cargo Deny - License & Dependency Checks
+  # ---------------------------------------------------------------------------
+  deny:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+
+      - name: Run cargo-deny (advisories)
+        run: cargo deny check advisories
+
+      - name: Run cargo-deny (bans)
+        run: cargo deny check bans
+
+      - name: Run cargo-deny (licenses)
+        run: cargo deny check licenses
+
+      - name: Run cargo-deny (sources)
+        run: cargo deny check sources
+
+      - name: Full deny check summary
+        run: |
+          echo "## 📋 Dependency Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Advisories | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bans | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Licenses | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Sources | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # SBOM Generation
+  # ---------------------------------------------------------------------------
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-sbom
+        run: cargo install cargo-sbom --locked
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          cargo sbom \
+            --output-format cyclonedx_json_1_4 \
+            > sbom-cyclonedx.json
+
+      - name: Generate SBOM (SPDX)
+        run: |
+          cargo sbom \
+            --output-format spdx_json_2_3 \
+            > sbom-spdx.json
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom-cyclonedx.json
+            sbom-spdx.json
+          retention-days: 90
+
+      - name: SBOM summary
+        run: |
+          echo "## 📦 SBOM Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Software Bill of Materials has been generated in the following formats:" >> $GITHUB_STEP_SUMMARY
+          echo "- CycloneDX 1.4 (JSON)" >> $GITHUB_STEP_SUMMARY
+          echo "- SPDX 2.3 (JSON)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          DEPS=$(jq '.components | length' sbom-cyclonedx.json 2>/dev/null || echo "N/A")
+          echo "Total dependencies: ${DEPS}" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Upload SBOM to Release (on release events)
+  # ---------------------------------------------------------------------------
+  upload-sbom-release:
+    name: Attach SBOM to Release
+    needs: sbom
+    if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download SBOM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sbom-cyclonedx.json
+            sbom-spdx.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
