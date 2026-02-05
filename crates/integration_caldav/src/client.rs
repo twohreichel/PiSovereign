@@ -38,7 +38,7 @@ pub enum CalDavError {
 /// CalDAV server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CalDavConfig {
-    /// Server URL (e.g., https://cal.example.com)
+    /// Server URL (e.g., <https://cal.example.com>)
     pub server_url: String,
     /// Username
     pub username: String,

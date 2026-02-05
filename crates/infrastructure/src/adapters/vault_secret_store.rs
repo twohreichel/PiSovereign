@@ -17,7 +17,7 @@ use vaultrs::{
 /// Configuration for Vault connection
 #[derive(Debug, Clone)]
 pub struct VaultConfig {
-    /// Vault server address (e.g., "https://vault.example.com:8200")
+    /// Vault server address (e.g., "<https://vault.example.com:8200>")
     pub address: String,
     /// Authentication token (for token-based auth)
     pub token: Option<String>,
