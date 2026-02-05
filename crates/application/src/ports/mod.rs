@@ -24,6 +24,8 @@ pub use cache_port::{CachePort, CachePortExt, CacheStats, ttl};
 pub use calendar_port::{CalendarError, CalendarEvent, CalendarInfo, CalendarPort, NewEvent};
 pub use conversation_store::ConversationStore;
 pub use draft_store::DraftStorePort;
+#[cfg(test)]
+pub use draft_store::MockDraftStorePort;
 pub use email_port::{EmailDraft, EmailError, EmailPort, EmailSummary};
 pub use inference_port::{InferencePort, InferenceResult, InferenceStream, StreamingChunk};
 pub use message_gateway_port::{IncomingMessage, MessageGatewayPort, OutgoingMessage};

@@ -2,10 +2,14 @@
 
 use std::{fmt, fmt::Write as _, sync::Arc, time::Instant};
 
-use domain::{AgentCommand, SystemCommand};
+use domain::{AgentCommand, PersistedEmailDraft, SystemCommand, UserId};
 use tracing::{debug, info, instrument, warn};
 
-use crate::{command_parser::CommandParser, error::ApplicationError, ports::InferencePort};
+use crate::{
+    command_parser::CommandParser,
+    error::ApplicationError,
+    ports::{DraftStorePort, InferencePort},
+};
 
 /// Result of executing an agent command
 #[derive(Debug, Clone)]
@@ -43,6 +47,8 @@ pub struct AgentService {
     calendar_service: Option<Arc<super::CalendarService>>,
     /// Optional email service for briefing integration
     email_service: Option<Arc<super::EmailService>>,
+    /// Optional draft store for email draft persistence
+    draft_store: Option<Arc<dyn DraftStorePort>>,
 }
 
 impl fmt::Debug for AgentService {
@@ -51,6 +57,7 @@ impl fmt::Debug for AgentService {
             .field("parser", &self.parser)
             .field("has_calendar", &self.calendar_service.is_some())
             .field("has_email", &self.email_service.is_some())
+            .field("has_draft_store", &self.draft_store.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -63,6 +70,7 @@ impl AgentService {
             parser: CommandParser::new(),
             calendar_service: None,
             email_service: None,
+            draft_store: None,
         }
     }
 
@@ -77,6 +85,13 @@ impl AgentService {
     #[must_use]
     pub fn with_email_service(mut self, service: Arc<super::EmailService>) -> Self {
         self.email_service = Some(service);
+        self
+    }
+
+    /// Add draft store for email draft persistence
+    #[must_use]
+    pub fn with_draft_store(mut self, store: Arc<dyn DraftStorePort>) -> Self {
+        self.draft_store = Some(store);
         self
     }
 
@@ -167,10 +182,14 @@ impl AgentService {
                 })
             },
 
+            // Draft email - create and store draft
+            AgentCommand::DraftEmail { to, subject, body } => {
+                self.handle_draft_email(to.as_str(), subject.as_deref(), body)
+                    .await
+            },
+
             // Commands that require approval - should not reach here without approval
-            AgentCommand::CreateCalendarEvent { .. }
-            | AgentCommand::DraftEmail { .. }
-            | AgentCommand::SendEmail { .. } => {
+            AgentCommand::CreateCalendarEvent { .. } | AgentCommand::SendEmail { .. } => {
                 Err(ApplicationError::ApprovalRequired(command.description()))
             },
         }
@@ -467,6 +486,53 @@ impl AgentService {
             response: format!(
                 "📧 Inbox summary (last {email_count} emails{filter_msg}):\n\n\
                  (Email integration not configured. Please set up Proton Bridge.)"
+            ),
+        })
+    }
+
+    /// Handle draft email command - create and store the draft
+    ///
+    /// For now uses a default user ID. Future versions will map API keys to users.
+    async fn handle_draft_email(
+        &self,
+        to: &str,
+        subject: Option<&str>,
+        body: &str,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        // Use default user ID for now (will be replaced with API key mapping)
+        let user_id = UserId::default();
+
+        // Generate subject if not provided
+        let subject = subject
+            .map(String::from)
+            .unwrap_or_else(|| format!("Re: {}", to.split('@').next().unwrap_or("Contact")));
+
+        // Check if draft store is configured
+        let Some(ref draft_store) = self.draft_store else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: "📧 Email draft creation failed:\n\n\
+                          Draft storage is not configured. Please set up database persistence."
+                    .to_string(),
+            });
+        };
+
+        // Create and save the draft
+        let draft = PersistedEmailDraft::new(user_id, to.to_string(), subject.clone(), body.to_string());
+        let draft_id = draft.id;
+
+        draft_store.save(&draft).await?;
+
+        info!(draft_id = %draft_id, to = %to, subject = %subject, "Created email draft");
+
+        Ok(ExecutionResult {
+            success: true,
+            response: format!(
+                "📝 Email draft created:\n\n\
+                 **To:** {to}\n\
+                 **Subject:** {subject}\n\n\
+                 Draft ID: `{draft_id}`\n\n\
+                 To send this email, say 'send email {draft_id}' or 'approve send'."
             ),
         })
     }
@@ -1009,7 +1075,7 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn execute_draft_email_requires_approval() {
+    async fn execute_draft_email_without_store_fallback() {
         let mock = MockInferenceEngine::new();
         let service = AgentService::new(Arc::new(mock));
 
@@ -1021,7 +1087,11 @@ mod async_tests {
             })
             .await;
 
-        assert!(result.is_err());
+        // DraftEmail is now handled but returns unsuccessful when no store is configured
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert!(!result.success);
+        assert!(result.response.contains("not configured"));
     }
 
     #[tokio::test]
@@ -1091,5 +1161,83 @@ mod async_tests {
         let debug = format!("{service:?}");
         assert!(debug.contains("AgentService"));
         assert!(debug.contains("parser"));
+    }
+
+    #[tokio::test]
+    async fn draft_email_without_store_returns_error() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .handle_draft_email("test@example.com", Some("Test Subject"), "Test body")
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result.response.contains("not configured"));
+    }
+
+    #[tokio::test]
+    async fn draft_email_with_store_creates_draft() {
+        use crate::ports::MockDraftStorePort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_store = MockDraftStorePort::new();
+
+        // Expect save to be called and return the draft ID
+        mock_store
+            .expect_save()
+            .returning(|draft| Ok(draft.id));
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_draft_store(Arc::new(mock_store));
+
+        let result = service
+            .handle_draft_email("recipient@example.com", Some("Test Subject"), "Email body content")
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Draft ID:"));
+        assert!(result.response.contains("recipient@example.com"));
+        assert!(result.response.contains("Test Subject"));
+    }
+
+    #[tokio::test]
+    async fn draft_email_generates_subject_when_not_provided() {
+        use crate::ports::MockDraftStorePort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_store = MockDraftStorePort::new();
+
+        mock_store
+            .expect_save()
+            .returning(|draft| Ok(draft.id));
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_draft_store(Arc::new(mock_store));
+
+        let result = service
+            .handle_draft_email("john@example.com", None, "Hello!")
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        // Should generate subject like "Re: john"
+        assert!(result.response.contains("Re: john"));
+    }
+
+    #[tokio::test]
+    async fn agent_service_has_draft_store_in_debug() {
+        use crate::ports::MockDraftStorePort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mock_store = MockDraftStorePort::new();
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_draft_store(Arc::new(mock_store));
+
+        let debug = format!("{service:?}");
+        assert!(debug.contains("has_draft_store"));
     }
 }

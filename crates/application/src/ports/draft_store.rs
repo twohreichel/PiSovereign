@@ -5,6 +5,8 @@
 
 use async_trait::async_trait;
 use domain::{DraftId, PersistedEmailDraft, UserId};
+#[cfg(test)]
+use mockall::automock;
 
 use crate::error::ApplicationError;
 
@@ -13,6 +15,7 @@ use crate::error::ApplicationError;
 /// This port handles storage and retrieval of email drafts, which are
 /// stored temporarily before they are approved and sent. Drafts have
 /// a TTL (time-to-live) and are automatically cleaned up when expired.
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait DraftStorePort: Send + Sync {
     /// Save a new draft
