@@ -9,7 +9,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
-use integration_whatsapp::{WebhookPayload, extract_messages, verify_signature};
+use integration_whatsapp::{
+    WebhookPayload, WhatsAppClient, WhatsAppClientConfig, extract_messages, verify_signature,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
 
@@ -185,6 +187,8 @@ pub async fn handle_webhook(
 
         match result {
             Ok(agent_result) => {
+                let response_text = agent_result.response.clone();
+
                 responses.push(MessageResponse {
                     message_id: message_id.clone(),
                     from: from.clone(),
@@ -193,17 +197,27 @@ pub async fn handle_webhook(
                     } else {
                         "failed".to_string()
                     },
-                    response: Some(agent_result.response),
+                    response: Some(response_text.clone()),
                 });
 
-                // TODO: Send response back via WhatsApp API
-                // This would use the WhatsAppClient to send a message
-                info!(
-                    message_id = %message_id,
-                    from = %from,
-                    success = agent_result.success,
-                    "WhatsApp message processed"
-                );
+                // Send response back via WhatsApp API
+                if let Err(e) =
+                    send_whatsapp_response(&config.whatsapp, &from, &response_text).await
+                {
+                    error!(
+                        error = %e,
+                        message_id = %message_id,
+                        from = %from,
+                        "Failed to send WhatsApp response"
+                    );
+                } else {
+                    info!(
+                        message_id = %message_id,
+                        from = %from,
+                        success = agent_result.success,
+                        "WhatsApp message processed and response sent"
+                    );
+                }
             },
             Err(e) => {
                 error!(
@@ -231,6 +245,44 @@ pub async fn handle_webhook(
         })),
     )
         .into_response()
+}
+
+/// Send a response message via WhatsApp Cloud API
+///
+/// Creates a WhatsApp client from configuration and sends the message.
+/// Returns an error if WhatsApp is not properly configured or if sending fails.
+async fn send_whatsapp_response(
+    config: &infrastructure::WhatsAppConfig,
+    to: &str,
+    message: &str,
+) -> Result<(), String> {
+    // Validate required configuration
+    let access_token = config
+        .access_token
+        .as_ref()
+        .ok_or("WhatsApp access_token not configured")?;
+    let phone_number_id = config
+        .phone_number_id
+        .as_ref()
+        .ok_or("WhatsApp phone_number_id not configured")?;
+
+    let client_config = WhatsAppClientConfig {
+        access_token: access_token.clone(),
+        phone_number_id: phone_number_id.clone(),
+        app_secret: config.app_secret.clone().unwrap_or_default(),
+        verify_token: config.verify_token.clone().unwrap_or_default(),
+        signature_required: config.signature_required,
+        api_version: config.api_version.clone(),
+    };
+
+    let client = WhatsAppClient::new(client_config).map_err(|e| e.to_string())?;
+
+    client
+        .send_message(to, message)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -290,5 +342,53 @@ mod tests {
 
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("response"));
+    }
+
+    #[tokio::test]
+    async fn send_whatsapp_response_fails_without_access_token() {
+        let config = infrastructure::WhatsAppConfig::default();
+        let result = send_whatsapp_response(&config, "+491234567890", "Hello").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("access_token"));
+    }
+
+    #[tokio::test]
+    async fn send_whatsapp_response_fails_without_phone_number_id() {
+        let config = infrastructure::WhatsAppConfig {
+            access_token: Some("test_token".to_string()),
+            phone_number_id: None,
+            ..Default::default()
+        };
+        let result = send_whatsapp_response(&config, "+491234567890", "Hello").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("phone_number_id"));
+    }
+
+    #[test]
+    fn whatsapp_client_config_conversion() {
+        let config = infrastructure::WhatsAppConfig {
+            access_token: Some("token123".to_string()),
+            phone_number_id: Some("phone123".to_string()),
+            app_secret: Some("secret".to_string()),
+            verify_token: Some("verify".to_string()),
+            signature_required: true,
+            api_version: "v18.0".to_string(),
+        };
+
+        let client_config = WhatsAppClientConfig {
+            access_token: config.access_token.clone().unwrap(),
+            phone_number_id: config.phone_number_id.clone().unwrap(),
+            app_secret: config.app_secret.clone().unwrap_or_default(),
+            verify_token: config.verify_token.clone().unwrap_or_default(),
+            signature_required: config.signature_required,
+            api_version: config.api_version.clone(),
+        };
+
+        assert_eq!(client_config.access_token, "token123");
+        assert_eq!(client_config.phone_number_id, "phone123");
+        assert_eq!(client_config.app_secret, "secret");
+        assert_eq!(client_config.verify_token, "verify");
+        assert!(client_config.signature_required);
+        assert_eq!(client_config.api_version, "v18.0");
     }
 }
