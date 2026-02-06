@@ -140,7 +140,13 @@ impl<I: InferencePort, C: CachePort> CachedInferenceAdapter<I, C> {
     }
 
     /// Invalidate cached responses matching a pattern
-    #[allow(dead_code)]
+    ///
+    /// Useful for clearing cache entries when switching models or when
+    /// cached data becomes stale.
+    ///
+    /// Pattern format: `prefix:*` where `*` matches any characters.
+    ///
+    /// Returns the number of entries invalidated.
     pub async fn invalidate_pattern(&self, pattern: &str) -> Result<u64, ApplicationError> {
         self.cache.invalidate_pattern(pattern).await
     }
@@ -294,7 +300,7 @@ impl<I: InferencePort, C: CachePort> InferencePort for CachedInferenceAdapter<I,
     async fn switch_model(&self, model_name: &str) -> Result<(), ApplicationError> {
         // Invalidate model-specific caches when switching
         let pattern = format!("inference:{model_name}:*");
-        let _ = self.cache.invalidate_pattern(&pattern).await;
+        let _ = self.invalidate_pattern(&pattern).await;
 
         self.inner.switch_model(model_name).await
     }
