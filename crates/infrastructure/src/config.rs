@@ -76,6 +76,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub weather: Option<WeatherConfig>,
 
+    /// Retry configuration for external service calls
+    #[serde(default)]
+    pub retry: Option<RetryAppConfig>,
+
     /// Telemetry configuration (optional)
     #[serde(default)]
     pub telemetry: Option<TelemetryAppConfig>,
@@ -844,6 +848,69 @@ impl Default for TelemetryAppConfig {
             otlp_endpoint: default_otlp_endpoint(),
             sample_ratio: Some(1.0),
         }
+    }
+}
+
+/// Retry configuration for external service calls
+///
+/// Configures exponential backoff retry behavior for all external services.
+/// Individual services can override these defaults.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryAppConfig {
+    /// Initial delay before first retry in milliseconds (default: 100ms)
+    #[serde(default = "default_retry_initial_delay")]
+    pub initial_delay_ms: u64,
+
+    /// Maximum delay between retries in milliseconds (default: 10000ms = 10s)
+    #[serde(default = "default_retry_max_delay")]
+    pub max_delay_ms: u64,
+
+    /// Multiplier for exponential backoff (default: 2.0)
+    #[serde(default = "default_retry_multiplier")]
+    pub multiplier: f64,
+
+    /// Maximum number of retry attempts (default: 3)
+    #[serde(default = "default_retry_max_retries")]
+    pub max_retries: u32,
+}
+
+const fn default_retry_initial_delay() -> u64 {
+    100
+}
+
+const fn default_retry_max_delay() -> u64 {
+    10_000
+}
+
+const fn default_retry_multiplier() -> f64 {
+    2.0
+}
+
+const fn default_retry_max_retries() -> u32 {
+    3
+}
+
+impl Default for RetryAppConfig {
+    fn default() -> Self {
+        Self {
+            initial_delay_ms: default_retry_initial_delay(),
+            max_delay_ms: default_retry_max_delay(),
+            multiplier: default_retry_multiplier(),
+            max_retries: default_retry_max_retries(),
+        }
+    }
+}
+
+impl RetryAppConfig {
+    /// Convert to retry::RetryConfig for use with retry operations
+    #[must_use]
+    pub const fn to_retry_config(&self) -> crate::retry::RetryConfig {
+        crate::retry::RetryConfig::new(
+            self.initial_delay_ms,
+            self.max_delay_ms,
+            self.multiplier,
+            self.max_retries,
+        )
     }
 }
 

@@ -151,6 +151,19 @@ failure_threshold = 3
 success_threshold = 2
 
 # ==============================
+# Retry Configuration (Exponential Backoff)
+# ==============================
+[retry]
+# Initial delay before first retry in milliseconds
+initial_delay_ms = 100
+# Maximum delay between retries in milliseconds
+max_delay_ms = 10000
+# Multiplier for exponential backoff (delay = initial * multiplier^attempt)
+multiplier = 2.0
+# Maximum number of retry attempts
+max_retries = 3
+
+# ==============================
 # Weather Integration (Open-Meteo)
 # ==============================
 # [weather]
