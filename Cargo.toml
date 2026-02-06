@@ -132,6 +132,10 @@ proptest = "1.5"
 # HTTP mocking for integration tests
 wiremock = "0.6"
 
+# Container-based integration tests
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres", "redis"] }
+
 # Caching
 moka = { version = "0.12", features = ["future"] }
 blake3 = "1.5"

@@ -10,6 +10,8 @@ pub mod http;
 pub mod persistence;
 pub mod retry;
 pub mod telemetry;
+#[cfg(test)]
+pub mod testing;
 pub mod validation;
 
 pub use adapters::*;

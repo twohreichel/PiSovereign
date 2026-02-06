@@ -58,4 +58,6 @@ rand = "0.8"
 [dev-dependencies]
 tokio-test.workspace = true
 mockall.workspace = true
+testcontainers.workspace = true
+testcontainers-modules.workspace = true
 wiremock.workspace = true
