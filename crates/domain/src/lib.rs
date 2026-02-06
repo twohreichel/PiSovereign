@@ -8,6 +8,9 @@ pub mod entities;
 pub mod errors;
 pub mod value_objects;
 
+// Re-export tenant module for convenient access
+pub use value_objects::tenant;
+
 pub use commands::{AgentCommand, SystemCommand};
 pub use entities::*;
 pub use errors::DomainError;
