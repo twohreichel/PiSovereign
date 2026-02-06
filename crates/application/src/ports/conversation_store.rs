@@ -33,6 +33,22 @@ pub trait ConversationStore: Send + Sync {
         message: &ChatMessage,
     ) -> Result<(), ApplicationError>;
 
+    /// Add multiple messages to a conversation in a single transaction.
+    ///
+    /// This is more efficient than calling `add_message` multiple times
+    /// as it can batch the operations. Returns the number of messages added.
+    async fn add_messages(
+        &self,
+        conversation_id: &ConversationId,
+        messages: &[ChatMessage],
+    ) -> Result<usize, ApplicationError> {
+        // Default implementation calls add_message for each message
+        for message in messages {
+            self.add_message(conversation_id, message).await?;
+        }
+        Ok(messages.len())
+    }
+
     /// Get recent conversations (most recently updated first)
     async fn list_recent(&self, limit: usize) -> Result<Vec<Conversation>, ApplicationError>;
 

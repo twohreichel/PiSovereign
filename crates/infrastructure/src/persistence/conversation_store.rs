@@ -98,12 +98,14 @@ impl ConversationStore for SqliteConversationStore {
                     )
                     .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
-                let messages = stmt
+                let messages: Vec<ChatMessage> = stmt
                     .query_map([&id_str], row_to_message)
                     .map_err(|e| ApplicationError::Internal(e.to_string()))?
                     .filter_map(Result::ok)
                     .collect();
 
+                // Mark all loaded messages as already persisted
+                conv.persisted_message_count = messages.len();
                 conv.messages = messages;
                 Ok(Some(conv))
             } else {
@@ -341,6 +343,8 @@ fn row_to_conversation(row: &Row<'_>) -> rusqlite::Result<Conversation> {
         updated_at,
         title,
         system_prompt,
+        // Will be set after messages are loaded
+        persisted_message_count: 0,
     })
 }
 

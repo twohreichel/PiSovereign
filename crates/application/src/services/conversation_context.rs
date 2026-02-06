@@ -98,7 +98,10 @@ impl<S: ConversationStore + 'static> ConversationContextService<S> {
         }
 
         // Try to load from persistent storage
-        if let Some(conversation) = self.store.get(id).await? {
+        if let Some(mut conversation) = self.store.get(id).await? {
+            // Mark all loaded messages as already persisted
+            conversation.mark_messages_persisted();
+
             let mut cache = self.cache.write();
             cache.insert(
                 *id,
@@ -153,20 +156,33 @@ impl<S: ConversationStore + 'static> ConversationContextService<S> {
             let mut cache = self.cache.write();
             if let Some(entry) = cache.get_mut(conversation_id) {
                 entry.conversation.add_message(message.clone());
-                entry.dirty = true;
+                // Don't mark dirty since we'll persist immediately below
                 entry.last_accessed = Utc::now();
 
-                // Trim messages if too many
+                // Trim messages if too many (but keep persisted_message_count accurate)
                 if entry.conversation.messages.len() > self.config.max_messages_per_conversation {
                     let excess = entry.conversation.messages.len()
                         - self.config.max_messages_per_conversation;
                     entry.conversation.messages.drain(0..excess);
+                    // Adjust persisted count to account for trimmed messages
+                    entry.conversation.persisted_message_count = entry
+                        .conversation
+                        .persisted_message_count
+                        .saturating_sub(excess);
                 }
             }
         }
 
-        // Persist message
+        // Persist message immediately
         self.store.add_message(conversation_id, &message).await?;
+
+        // Mark message as persisted
+        {
+            let mut cache = self.cache.write();
+            if let Some(entry) = cache.get_mut(conversation_id) {
+                entry.conversation.mark_n_messages_persisted(1);
+            }
+        }
 
         debug!("Added message to conversation");
         Ok(())
@@ -185,35 +201,55 @@ impl<S: ConversationStore + 'static> ConversationContextService<S> {
         Ok(messages[start..].to_vec())
     }
 
-    /// Sync all dirty conversations to persistent storage
+    /// Sync all dirty conversations to persistent storage.
+    ///
+    /// Uses incremental persistence - only messages that haven't been
+    /// persisted yet are saved, improving efficiency for large conversations.
     #[instrument(skip(self))]
     pub async fn sync_to_storage(&self) -> Result<usize, ApplicationError> {
-        let dirty_conversations: Vec<Conversation> = {
+        // Collect conversations that need syncing (have unpersisted messages)
+        let conversations_to_sync: Vec<(ConversationId, Vec<ChatMessage>)> = {
             let cache = self.cache.read();
             cache
-                .values()
-                .filter(|e| e.dirty)
-                .map(|e| e.conversation.clone())
+                .iter()
+                .filter(|(_, entry)| entry.conversation.has_unpersisted_messages())
+                .map(|(id, entry)| {
+                    let unpersisted = entry.conversation.unpersisted_messages().to_vec();
+                    (*id, unpersisted)
+                })
                 .collect()
         };
 
-        let count = dirty_conversations.len();
-        for conversation in dirty_conversations {
-            self.store.update(&conversation).await?;
+        if conversations_to_sync.is_empty() {
+            return Ok(0);
         }
 
-        // Mark as clean
+        let mut total_messages = 0;
+
+        for (conv_id, messages) in &conversations_to_sync {
+            let count = self.store.add_messages(conv_id, messages).await?;
+            total_messages += count;
+        }
+
+        // Mark messages as persisted in cache
         {
             let mut cache = self.cache.write();
-            for entry in cache.values_mut() {
-                entry.dirty = false;
+            for (conv_id, _) in &conversations_to_sync {
+                if let Some(entry) = cache.get_mut(conv_id) {
+                    entry.conversation.mark_messages_persisted();
+                    entry.dirty = false;
+                }
             }
         }
 
-        if count > 0 {
-            debug!(count, "Synced conversations to storage");
-        }
-        Ok(count)
+        let conv_count = conversations_to_sync.len();
+        debug!(
+            conversations = conv_count,
+            messages = total_messages,
+            "Synced conversations incrementally to storage"
+        );
+
+        Ok(conv_count)
     }
 
     /// Cleanup old conversations from storage
@@ -483,19 +519,57 @@ mod tests {
         assert_eq!(stats.total, 1);
         assert_eq!(stats.dirty, 0); // Not dirty after initial save
 
-        // Add message (marks as dirty)
+        // Add message - this persists immediately, so dirty stays 0
+        // (incremental persistence happens in add_message now)
         let message = ChatMessage::user("Hello!".to_string());
         service.add_message(&id, message).await.unwrap();
 
         let stats = service.cache_stats();
-        assert_eq!(stats.dirty, 1);
+        // After add_message, the message is already persisted incrementally
+        assert_eq!(stats.dirty, 0);
 
-        // Sync
+        // Sync should find no unpersisted messages (all were persisted in add_message)
         let synced = service.sync_to_storage().await.unwrap();
-        assert_eq!(synced, 1);
+        assert_eq!(synced, 0); // Nothing to sync
 
         let stats = service.cache_stats();
         assert_eq!(stats.dirty, 0);
+    }
+
+    #[tokio::test]
+    async fn test_sync_to_storage_with_batch_messages() {
+        let store = Arc::new(MockStore::new());
+        let config = ConversationContextConfig::default();
+        let service = ConversationContextService::new(Arc::clone(&store), config);
+
+        let id = ConversationId::new();
+        let _ = service.get_or_create(&id).await.unwrap();
+
+        // Manually add messages to cache without going through add_message
+        // to simulate batch operations that need syncing
+        {
+            let mut cache = service.cache.write();
+            if let Some(entry) = cache.get_mut(&id) {
+                entry.conversation.add_message(ChatMessage::user("Test 1"));
+                entry.conversation.add_message(ChatMessage::user("Test 2"));
+                // Don't update persisted_message_count - these are unpersisted
+            }
+        }
+
+        // Verify there are unpersisted messages
+        let stats = service.cache_stats();
+        assert_eq!(stats.total, 1);
+
+        // Sync should persist the unpersisted messages
+        let synced = service.sync_to_storage().await.unwrap();
+        assert_eq!(synced, 1); // One conversation with unpersisted messages
+
+        // Check that persisted_message_count was updated
+        {
+            let cache = service.cache.read();
+            let entry = cache.get(&id).unwrap();
+            assert!(!entry.conversation.has_unpersisted_messages());
+        }
     }
 
     #[tokio::test]
