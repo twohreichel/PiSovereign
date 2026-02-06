@@ -189,7 +189,7 @@ pub trait Retryable {
 // Implement Retryable for ApplicationError
 impl Retryable for application::ApplicationError {
     fn is_retryable(&self) -> bool {
-        application::ApplicationError::is_retryable(self)
+        Self::is_retryable(self)
     }
 }
 

@@ -5,6 +5,8 @@
 
 pub mod adapters;
 pub mod cache;
+#[cfg(test)]
+pub mod chaos;
 pub mod config;
 pub mod http;
 pub mod persistence;

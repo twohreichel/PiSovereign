@@ -98,6 +98,7 @@ impl CorrelatedClientConfig {
     }
 
     /// Add a default header to all requests
+    #[must_use]
     pub fn with_header(
         mut self,
         name: impl TryInto<HeaderName>,
@@ -321,6 +322,7 @@ impl CorrelatedRequestBuilder {
 /// Extension trait for adding correlation to existing reqwest clients
 pub trait RequestBuilderExt {
     /// Add a request ID header for correlation
+    #[must_use]
     fn with_correlation_id(self, id: impl RequestIdProvider) -> Self;
 }
 

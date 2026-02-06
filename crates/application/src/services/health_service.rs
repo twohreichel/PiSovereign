@@ -248,6 +248,7 @@ impl HealthService {
 
     /// Check only the inference engine health
     #[instrument(skip(self))]
+    #[allow(clippy::option_if_let_else)]
     pub async fn check_inference(&self) -> ServiceHealth {
         let timeout_duration = self.config.timeout_for_service("inference");
         let start = std::time::Instant::now();
@@ -276,6 +277,7 @@ impl HealthService {
 
     /// Check email service health
     #[instrument(skip(self))]
+    #[allow(clippy::option_if_let_else)]
     pub async fn check_email(&self) -> ServiceHealth {
         let Some(ref email) = self.email else {
             return ServiceHealth::unconfigured();
@@ -306,6 +308,7 @@ impl HealthService {
 
     /// Check calendar service health
     #[instrument(skip(self))]
+    #[allow(clippy::option_if_let_else)]
     pub async fn check_calendar(&self) -> ServiceHealth {
         let Some(ref calendar) = self.calendar else {
             return ServiceHealth::unconfigured();
@@ -339,6 +342,7 @@ impl HealthService {
 
     /// Check weather service health
     #[instrument(skip(self))]
+    #[allow(clippy::option_if_let_else)]
     pub async fn check_weather(&self) -> ServiceHealth {
         let Some(ref weather) = self.weather else {
             return ServiceHealth::unconfigured();
