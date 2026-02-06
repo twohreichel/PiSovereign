@@ -5,6 +5,7 @@
 #![allow(clippy::print_stdout)]
 
 use clap::{Parser, Subcommand};
+use infrastructure::ApiKeyHasher;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// PiSovereign CLI
@@ -54,6 +55,19 @@ enum Commands {
         /// Server URL
         #[arg(short, long, default_value = "http://localhost:3000")]
         url: String,
+    },
+
+    /// Hash an API key using Argon2 for secure storage in configuration
+    ///
+    /// The output can be used in config.toml for secure API key storage.
+    /// Example: pisovereign-cli hash-api-key sk-my-secret-key
+    HashApiKey {
+        /// The plaintext API key to hash
+        api_key: String,
+
+        /// Verify the hash by re-hashing and comparing (for debugging)
+        #[arg(long)]
+        verify: bool,
     },
 }
 
@@ -145,6 +159,37 @@ async fn main() -> anyhow::Result<()> {
 
             println!("📦 Available Models:");
             println!("{}", serde_json::to_string_pretty(&resp)?);
+        },
+
+        Commands::HashApiKey { api_key, verify } => {
+            let hasher = ApiKeyHasher::new();
+
+            match hasher.hash(&api_key) {
+                Ok(hash) => {
+                    println!("🔐 API Key Hash (Argon2id):");
+                    println!();
+                    println!("{hash}");
+                    println!();
+                    println!("📋 Add to config.toml:");
+                    println!("   [security]");
+                    println!("   api_keys = [");
+                    println!("     {{ hash = \"{hash}\", user_id = \"YOUR-USER-UUID\" }}");
+                    println!("   ]");
+
+                    if verify {
+                        println!();
+                        match hasher.verify(&api_key, &hash) {
+                            Ok(true) => println!("✅ Verification: Hash verified successfully"),
+                            Ok(false) => println!("❌ Verification: Hash does NOT match (unexpected)"),
+                            Err(e) => println!("❌ Verification error: {e}"),
+                        }
+                    }
+                },
+                Err(e) => {
+                    eprintln!("❌ Failed to hash API key: {e}");
+                    std::process::exit(1);
+                },
+            }
         },
     }
 

@@ -2,6 +2,7 @@
 //!
 //! Adapters connect application ports to concrete implementations.
 
+mod api_key_hasher;
 mod cached_inference_adapter;
 mod caldav_calendar_adapter;
 mod circuit_breaker;
@@ -14,6 +15,7 @@ mod task_adapter;
 mod vault_secret_store;
 mod weather_adapter;
 
+pub use api_key_hasher::{ApiKeyHashError, ApiKeyHasher};
 pub use cached_inference_adapter::CachedInferenceAdapter;
 pub use caldav_calendar_adapter::CalDavCalendarAdapter;
 pub use circuit_breaker::{

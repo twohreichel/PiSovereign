@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use application::{AgentService, ApprovalService, ChatService, ports::ConversationStore};
 use infrastructure::{
-    AppConfig, HailoInferenceAdapter,
+    ApiKeyHasher, AppConfig, HailoInferenceAdapter,
     adapters::{DegradedInferenceAdapter, DegradedModeConfig},
     persistence::{SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, create_pool},
     telemetry::{TelemetryConfig, init_telemetry},
@@ -80,6 +80,22 @@ async fn main() -> anyhow::Result<()> {
         model = %initial_config.inference.default_model,
         "Configuration loaded"
     );
+
+    // Security check: warn about plaintext API keys
+    if !initial_config.security.api_key_users.is_empty() {
+        let plaintext_count = ApiKeyHasher::detect_plaintext_keys(
+            initial_config.security.api_key_users.keys().map(String::as_str),
+        );
+        if plaintext_count > 0 {
+            warn!(
+                count = plaintext_count,
+                "⚠️ SECURITY WARNING: {} API key(s) are stored in plaintext. \
+                 Consider hashing them using 'pisovereign-cli hash-api-key <key>' \
+                 or using a secrets manager like HashiCorp Vault.",
+                plaintext_count
+            );
+        }
+    }
 
     // Initialize OpenTelemetry if configured
     let _telemetry_guard = initial_config
@@ -185,6 +201,10 @@ async fn main() -> anyhow::Result<()> {
     // Configure CORS layer
     let cors_layer = if initial_config.server.allowed_origins.is_empty() {
         // Development mode: allow all origins
+        warn!(
+            "⚠️ CORS configured to allow ANY origin - not recommended for production. \
+             Set 'server.allowed_origins' in config.toml to restrict access."
+        );
         CorsLayer::new()
             .allow_origin(Any)
             .allow_methods(Any)

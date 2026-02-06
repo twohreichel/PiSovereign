@@ -148,6 +148,9 @@ utoipa-redoc = { version = "6", features = ["axum"] }
 # Pattern matching optimization
 aho-corasick = "1.1"
 
+# Password hashing
+argon2 = "0.5"
+
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
 
