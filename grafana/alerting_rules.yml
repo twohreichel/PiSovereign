@@ -150,3 +150,8 @@ groups:
       # Record inference rate for capacity planning
       - record: pisovereign:inference_per_second:5m
         expr: rate(inference_requests_total[5m])
+
+# Future enhancements:
+# - Cache hit/miss rate alerts (requires exposing cache metrics from Moka/Redb layers)
+# - Per-user request rate limits
+# - Model-specific inference performance tracking

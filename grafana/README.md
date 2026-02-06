@@ -97,6 +97,21 @@ Response time buckets (ms): 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 1000
 
 Inference time buckets (ms): 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000
 
+**Creating histogram panels in Grafana:**
+
+The application exposes histogram data for response time and inference time distributions.
+To visualize histograms in Grafana:
+
+1. Use the `/metrics` endpoint which provides `response_time_histogram` and `inference_time_histogram` arrays
+2. Each histogram entry contains a bucket upper bound and count
+3. Example panel queries:
+   - Response time P50/P95/P99 percentiles
+   - Inference latency distribution heatmap
+   - Per-bucket request count visualization
+
+Note: The histogram data is available via the JSON `/metrics` endpoint and can be visualized
+using Grafana's JSON API datasource plugin, or by configuring Prometheus to scrape histogram buckets.
+
 ## Alerting Rules
 
 A comprehensive set of Prometheus alerting rules is provided in `alerting_rules.yml`.
