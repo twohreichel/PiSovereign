@@ -4,13 +4,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use application::{
-    AgentService, ChatService,
+    AgentService, ChatService, HealthService,
     error::ApplicationError,
-    ports::{ConversationStore, InferencePort, InferenceResult},
+    ports::{
+        CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
+        InferenceResult, WeatherPort,
+    },
 };
 use async_trait::async_trait;
 use axum_test::TestServer;
 use chrono::{DateTime, Utc};
+use domain::value_objects::GeoLocation;
 use domain::{ChatMessage, Conversation, ConversationId};
 use infrastructure::AppConfig;
 use presentation_http::{
@@ -192,6 +196,263 @@ impl ConversationStore for MockConversationStore {
         let before = store.len();
         store.retain(|_, conv| conv.updated_at >= cutoff);
         Ok(before - store.len())
+    }
+}
+
+// ============================================================================
+// Mock implementations for HealthService integration testing
+// ============================================================================
+
+/// Mock database health port for testing
+struct MockDatabaseHealth {
+    healthy: bool,
+}
+
+impl MockDatabaseHealth {
+    const fn new(healthy: bool) -> Self {
+        Self { healthy }
+    }
+}
+
+#[async_trait]
+impl DatabaseHealthPort for MockDatabaseHealth {
+    async fn is_available(&self) -> bool {
+        self.healthy
+    }
+
+    async fn check_health(&self) -> Result<application::ports::DatabaseHealth, ApplicationError> {
+        if self.healthy {
+            Ok(application::ports::DatabaseHealth::healthy_with_version(
+                "3.45.0",
+            ))
+        } else {
+            Err(ApplicationError::ExternalService(
+                "Mock database unhealthy".to_string(),
+            ))
+        }
+    }
+}
+
+/// Mock email port for testing
+struct MockEmailPort {
+    healthy: bool,
+}
+
+impl MockEmailPort {
+    const fn new(healthy: bool) -> Self {
+        Self { healthy }
+    }
+}
+
+#[async_trait]
+impl EmailPort for MockEmailPort {
+    async fn get_inbox(
+        &self,
+        _count: u32,
+    ) -> Result<Vec<application::ports::EmailSummary>, application::ports::EmailError> {
+        Ok(vec![])
+    }
+
+    async fn get_mailbox(
+        &self,
+        _mailbox: &str,
+        _count: u32,
+    ) -> Result<Vec<application::ports::EmailSummary>, application::ports::EmailError> {
+        Ok(vec![])
+    }
+
+    async fn get_unread_count(&self) -> Result<u32, application::ports::EmailError> {
+        Ok(0)
+    }
+
+    async fn mark_read(&self, _email_id: &str) -> Result<(), application::ports::EmailError> {
+        Ok(())
+    }
+
+    async fn mark_unread(&self, _email_id: &str) -> Result<(), application::ports::EmailError> {
+        Ok(())
+    }
+
+    async fn delete(&self, _email_id: &str) -> Result<(), application::ports::EmailError> {
+        Ok(())
+    }
+
+    async fn send_email(
+        &self,
+        _draft: &application::ports::EmailDraft,
+    ) -> Result<String, application::ports::EmailError> {
+        if self.healthy {
+            Ok("mock-message-id".to_string())
+        } else {
+            Err(application::ports::EmailError::ServiceUnavailable)
+        }
+    }
+
+    async fn is_available(&self) -> bool {
+        self.healthy
+    }
+
+    async fn list_mailboxes(&self) -> Result<Vec<String>, application::ports::EmailError> {
+        Ok(vec!["INBOX".to_string()])
+    }
+}
+
+/// Mock calendar port for testing
+struct MockCalendarPort {
+    healthy: bool,
+}
+
+impl MockCalendarPort {
+    const fn new(healthy: bool) -> Self {
+        Self { healthy }
+    }
+}
+
+#[async_trait]
+impl CalendarPort for MockCalendarPort {
+    async fn list_calendars(
+        &self,
+    ) -> Result<Vec<application::ports::CalendarInfo>, application::ports::CalendarError> {
+        Ok(vec![])
+    }
+
+    async fn get_events_for_date(
+        &self,
+        _date: chrono::NaiveDate,
+    ) -> Result<Vec<application::ports::CalendarEvent>, application::ports::CalendarError> {
+        Ok(vec![])
+    }
+
+    async fn get_events_in_range(
+        &self,
+        _start: DateTime<Utc>,
+        _end: DateTime<Utc>,
+    ) -> Result<Vec<application::ports::CalendarEvent>, application::ports::CalendarError> {
+        Ok(vec![])
+    }
+
+    async fn get_event(
+        &self,
+        _event_id: &str,
+    ) -> Result<application::ports::CalendarEvent, application::ports::CalendarError> {
+        Err(application::ports::CalendarError::EventNotFound(
+            "mock".to_string(),
+        ))
+    }
+
+    async fn create_event(
+        &self,
+        _event: &application::ports::NewEvent,
+    ) -> Result<String, application::ports::CalendarError> {
+        Ok("mock-event-id".to_string())
+    }
+
+    async fn update_event(
+        &self,
+        _event_id: &str,
+        _event: &application::ports::NewEvent,
+    ) -> Result<(), application::ports::CalendarError> {
+        Ok(())
+    }
+
+    async fn delete_event(&self, _event_id: &str) -> Result<(), application::ports::CalendarError> {
+        Ok(())
+    }
+
+    async fn is_available(&self) -> bool {
+        self.healthy
+    }
+
+    async fn get_next_event(
+        &self,
+    ) -> Result<Option<application::ports::CalendarEvent>, application::ports::CalendarError> {
+        Ok(None)
+    }
+}
+
+/// Mock weather port for testing
+struct MockWeatherPort {
+    healthy: bool,
+}
+
+impl MockWeatherPort {
+    const fn new(healthy: bool) -> Self {
+        Self { healthy }
+    }
+}
+
+#[async_trait]
+impl WeatherPort for MockWeatherPort {
+    async fn get_current_weather(
+        &self,
+        _location: &GeoLocation,
+    ) -> Result<application::ports::CurrentWeather, ApplicationError> {
+        if self.healthy {
+            Ok(application::ports::CurrentWeather {
+                temperature: 20.0,
+                apparent_temperature: 18.0,
+                humidity: 65,
+                wind_speed: 10.0,
+                condition: application::ports::WeatherCondition::PartlyCloudy,
+                observed_at: Utc::now(),
+            })
+        } else {
+            Err(ApplicationError::ExternalService(
+                "Mock weather unhealthy".to_string(),
+            ))
+        }
+    }
+
+    async fn get_forecast(
+        &self,
+        _location: &GeoLocation,
+        _days: u8,
+    ) -> Result<Vec<application::ports::DailyForecast>, ApplicationError> {
+        Ok(vec![])
+    }
+
+    async fn is_available(&self) -> bool {
+        self.healthy
+    }
+}
+
+/// Create test state with fully configured HealthService
+#[allow(clippy::fn_params_excessive_bools)]
+fn create_test_state_with_health_service(
+    inference_healthy: bool,
+    db_healthy: bool,
+    email_healthy: bool,
+    calendar_healthy: bool,
+    weather_healthy: bool,
+) -> AppState {
+    let inference: Arc<dyn InferencePort> = if inference_healthy {
+        Arc::new(MockInference::new())
+    } else {
+        Arc::new(MockInference::unhealthy())
+    };
+    let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
+
+    let database: Arc<dyn DatabaseHealthPort> = Arc::new(MockDatabaseHealth::new(db_healthy));
+    let email: Arc<dyn EmailPort> = Arc::new(MockEmailPort::new(email_healthy));
+    let calendar: Arc<dyn CalendarPort> = Arc::new(MockCalendarPort::new(calendar_healthy));
+    let weather: Arc<dyn WeatherPort> = Arc::new(MockWeatherPort::new(weather_healthy));
+
+    let health_service = HealthService::new(Arc::clone(&inference))
+        .with_database(database)
+        .with_email(email)
+        .with_calendar(calendar)
+        .with_weather(weather);
+
+    AppState {
+        chat_service: Arc::new(ChatService::with_conversation_store(
+            inference.clone(),
+            conversation_store,
+        )),
+        agent_service: Arc::new(AgentService::new(inference)),
+        approval_service: None,
+        health_service: Some(Arc::new(health_service)),
+        config: presentation_http::ReloadableConfig::new(AppConfig::default()),
+        metrics: Arc::new(MetricsCollector::new()),
     }
 }
 
@@ -1513,5 +1774,294 @@ mod workflow_tests {
 
         let response = unhealthy_server.get("/ready").await;
         response.assert_status(axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    }
+}
+
+// ============================================================================
+// HealthService E2E Integration Tests
+// ============================================================================
+
+mod health_service_e2e_tests {
+    use super::*;
+
+    #[allow(clippy::fn_params_excessive_bools)]
+    fn create_health_test_server(
+        inference: bool,
+        db: bool,
+        email: bool,
+        calendar: bool,
+        weather: bool,
+    ) -> TestServer {
+        let state = create_test_state_with_health_service(inference, db, email, calendar, weather);
+        let router = create_router(state);
+        TestServer::new(router).expect("Failed to create test server")
+    }
+
+    #[tokio::test]
+    async fn health_service_all_services_healthy() {
+        let server = create_health_test_server(true, true, true, true, true);
+
+        let response = server.get("/ready").await;
+        response.assert_status_ok();
+
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["ready"], true);
+        assert_eq!(body["inference"]["healthy"], true);
+    }
+
+    #[tokio::test]
+    async fn health_service_inference_unhealthy() {
+        let server = create_health_test_server(false, true, true, true, true);
+
+        let response = server.get("/ready").await;
+        response.assert_status_service_unavailable();
+
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["ready"], false);
+        assert_eq!(body["inference"]["healthy"], false);
+    }
+
+    #[tokio::test]
+    async fn health_service_database_unhealthy() {
+        // Database is not a critical service for readiness (inference is required)
+        let server = create_health_test_server(true, false, true, true, true);
+
+        let response = server.get("/ready").await;
+        // Should still be ready as long as inference is healthy
+        response.assert_status_ok();
+
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["ready"], true);
+    }
+
+    #[tokio::test]
+    async fn health_service_multiple_services_unhealthy() {
+        let server = create_health_test_server(true, false, false, false, false);
+
+        let response = server.get("/ready").await;
+        // Should still be ready as inference is healthy
+        response.assert_status_ok();
+
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["ready"], true);
+        assert_eq!(body["inference"]["healthy"], true);
+    }
+
+    #[tokio::test]
+    async fn health_endpoint_always_returns_status() {
+        // Even with some services unhealthy, /health should return basic status
+        let server = create_health_test_server(true, false, false, false, false);
+
+        let response = server.get("/health").await;
+        response.assert_status_ok();
+
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["status"], "ok");
+        assert!(body["version"].is_string());
+    }
+
+    #[tokio::test]
+    async fn health_service_response_includes_model_info() {
+        let server = create_health_test_server(true, true, true, true, true);
+
+        let response = server.get("/ready").await;
+        response.assert_status_ok();
+
+        let body: serde_json::Value = response.json();
+        assert!(body["inference"]["model"].is_string());
+    }
+
+    #[tokio::test]
+    async fn health_service_graceful_with_partial_configuration() {
+        // Test with minimal configuration (only inference)
+        let inference: Arc<dyn InferencePort> = Arc::new(MockInference::new());
+        let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
+
+        let health_service = HealthService::new(Arc::clone(&inference));
+
+        let state = AppState {
+            chat_service: Arc::new(ChatService::with_conversation_store(
+                inference.clone(),
+                conversation_store,
+            )),
+            agent_service: Arc::new(AgentService::new(inference)),
+            approval_service: None,
+            health_service: Some(Arc::new(health_service)),
+            config: presentation_http::ReloadableConfig::new(AppConfig::default()),
+            metrics: Arc::new(MetricsCollector::new()),
+        };
+
+        let router = create_router(state);
+        let server = TestServer::new(router).expect("Failed to create test server");
+
+        let response = server.get("/ready").await;
+        response.assert_status_ok();
+    }
+}
+
+// ============================================================================
+// SecurityValidator Scenario Tests
+// ============================================================================
+
+mod security_validator_tests {
+    #![allow(clippy::field_reassign_with_default)]
+    use infrastructure::config::Environment;
+    use infrastructure::{AppConfig, SecurityValidator};
+
+    #[test]
+    fn security_validator_default_config_has_warnings() {
+        let config = AppConfig::default();
+        let warnings = SecurityValidator::validate(&config);
+
+        // Default config should have some warnings (no CORS origins, no API key)
+        assert!(
+            !warnings.is_empty(),
+            "Default config should produce warnings"
+        );
+    }
+
+    #[test]
+    fn security_validator_production_config_blocks_startup_without_cors() {
+        let mut config = AppConfig::default();
+        config.environment = Some(Environment::Production);
+        // No allowed origins configured
+
+        let warnings = SecurityValidator::validate(&config);
+        let should_block = SecurityValidator::should_block_startup(&config, &warnings);
+
+        // Should block in production with no CORS configured
+        assert!(should_block, "Production should block without CORS config");
+    }
+
+    #[test]
+    fn security_validator_development_config_does_not_block() {
+        let mut config = AppConfig::default();
+        config.environment = Some(Environment::Development);
+
+        let warnings = SecurityValidator::validate(&config);
+        let should_block = SecurityValidator::should_block_startup(&config, &warnings);
+
+        // Development should not block even with warnings
+        assert!(
+            !should_block,
+            "Development should not block startup with warnings"
+        );
+    }
+
+    #[test]
+    fn security_validator_secure_production_config_does_not_block() {
+        let mut config = AppConfig::default();
+        config.environment = Some(Environment::Production);
+        config.server.allowed_origins = vec!["https://example.com".to_string()];
+        config.security.api_key_users.insert(
+            "sk-secure-key".to_string(),
+            "550e8400-e29b-41d4-a716-446655440000".to_string(),
+        );
+        config.security.tls_verify_certs = true;
+        config.security.rate_limit_enabled = true;
+        config.database.run_migrations = false;
+
+        let warnings = SecurityValidator::validate(&config);
+        let should_block = SecurityValidator::should_block_startup(&config, &warnings);
+
+        // Secure production config should not block
+        assert!(
+            !should_block,
+            "Secure production config should not block startup"
+        );
+    }
+
+    #[test]
+    fn security_validator_tls_disabled_warning_severity() {
+        let mut config = AppConfig::default();
+        config.security.tls_verify_certs = false;
+
+        let warnings = SecurityValidator::validate(&config);
+        let tls_warning = warnings.iter().find(|w| w.code == "SEC001");
+
+        assert!(tls_warning.is_some(), "Should have TLS warning");
+
+        // In development, TLS warning should not be critical
+        let warning = tls_warning.unwrap();
+        assert!(!warning.is_critical() || config.environment == Some(Environment::Production));
+    }
+
+    #[test]
+    fn security_validator_warns_on_plaintext_secrets() {
+        let mut config = AppConfig::default();
+        config.security.api_key = Some("sk-secret-production-key-12345".to_string());
+
+        let warnings = SecurityValidator::validate(&config);
+
+        // Should detect plaintext API key
+        let has_plaintext_warning = warnings.iter().any(|w| w.code == "SEC003");
+        assert!(has_plaintext_warning, "Should warn about plaintext API key");
+    }
+
+    #[test]
+    fn security_validator_accepts_env_var_references() {
+        let mut config = AppConfig::default();
+        config.security.api_key = Some("${API_KEY}".to_string());
+
+        let warnings = SecurityValidator::validate(&config);
+
+        // Should not warn about env var references
+        let has_plaintext_warning = warnings.iter().any(|w| w.code == "SEC003");
+        assert!(
+            !has_plaintext_warning,
+            "Should not warn about env var references"
+        );
+    }
+
+    #[test]
+    fn security_validator_rate_limiting_in_production() {
+        let mut config = AppConfig::default();
+        config.environment = Some(Environment::Production);
+        config.security.rate_limit_enabled = false;
+
+        let warnings = SecurityValidator::validate(&config);
+
+        // Should warn about disabled rate limiting in production
+        let has_rate_limit_warning = warnings.iter().any(|w| w.code == "SEC008");
+        assert!(
+            has_rate_limit_warning,
+            "Should warn about disabled rate limiting in production"
+        );
+    }
+
+    #[test]
+    fn security_validator_auto_migrations_in_production() {
+        let mut config = AppConfig::default();
+        config.environment = Some(Environment::Production);
+        config.database.run_migrations = true;
+
+        let warnings = SecurityValidator::validate(&config);
+
+        // Should warn about auto migrations in production
+        let has_migration_warning = warnings.iter().any(|w| w.code == "SEC009");
+        assert!(
+            has_migration_warning,
+            "Should warn about auto migrations in production"
+        );
+    }
+
+    #[test]
+    fn security_validator_warnings_sorted_by_severity() {
+        let mut config = AppConfig::default();
+        config.environment = Some(Environment::Production);
+        config.security.tls_verify_certs = false;
+        config.security.rate_limit_enabled = false;
+
+        let warnings = SecurityValidator::validate(&config);
+
+        // Verify warnings are sorted by severity (critical first)
+        let severities: Vec<_> = warnings.iter().map(|w| w.severity).collect();
+        let mut sorted_severities = severities.clone();
+        sorted_severities.sort_by(|a, b| b.cmp(a)); // Sort descending (critical first)
+
+        assert_eq!(
+            severities, sorted_severities,
+            "Warnings should be sorted by severity"
+        );
     }
 }
