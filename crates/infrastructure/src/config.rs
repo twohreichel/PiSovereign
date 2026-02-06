@@ -2,10 +2,52 @@
 
 use ai_core::InferenceConfig;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+
+/// Application environment (development or production)
+///
+/// Controls security validation strictness and default behaviors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Environment {
+    /// Development environment - relaxed security warnings
+    #[default]
+    Development,
+    /// Production environment - strict security validation
+    Production,
+}
+
+impl fmt::Display for Environment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Development => write!(f, "development"),
+            Self::Production => write!(f, "production"),
+        }
+    }
+}
+
+impl std::str::FromStr for Environment {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "development" | "dev" => Ok(Self::Development),
+            "production" | "prod" => Ok(Self::Production),
+            _ => Err(format!("Invalid environment: {s}. Use 'development' or 'production'")),
+        }
+    }
+}
 
 /// Main application configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// Application environment (development or production)
+    ///
+    /// Controls security validation strictness. In production, critical
+    /// security warnings will prevent startup unless PISOVEREIGN_ALLOW_INSECURE_CONFIG=true.
+    #[serde(default)]
+    pub environment: Option<Environment>,
+
     /// Server configuration
     #[serde(default)]
     pub server: ServerConfig,
@@ -391,6 +433,75 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Environment tests
+    #[test]
+    fn environment_default_is_development() {
+        let env = Environment::default();
+        assert_eq!(env, Environment::Development);
+    }
+
+    #[test]
+    fn environment_display() {
+        assert_eq!(format!("{}", Environment::Development), "development");
+        assert_eq!(format!("{}", Environment::Production), "production");
+    }
+
+    #[test]
+    fn environment_from_str() {
+        assert_eq!(
+            "development".parse::<Environment>().unwrap(),
+            Environment::Development
+        );
+        assert_eq!(
+            "production".parse::<Environment>().unwrap(),
+            Environment::Production
+        );
+        assert_eq!("dev".parse::<Environment>().unwrap(), Environment::Development);
+        assert_eq!("prod".parse::<Environment>().unwrap(), Environment::Production);
+    }
+
+    #[test]
+    fn environment_from_str_case_insensitive() {
+        assert_eq!(
+            "DEVELOPMENT".parse::<Environment>().unwrap(),
+            Environment::Development
+        );
+        assert_eq!(
+            "PRODUCTION".parse::<Environment>().unwrap(),
+            Environment::Production
+        );
+    }
+
+    #[test]
+    fn environment_from_str_invalid() {
+        let result = "invalid".parse::<Environment>();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid environment"));
+    }
+
+    #[test]
+    fn environment_serialize() {
+        let env = Environment::Production;
+        let json = serde_json::to_string(&env).unwrap();
+        assert_eq!(json, "\"production\"");
+    }
+
+    #[test]
+    fn environment_deserialize() {
+        let env: Environment = serde_json::from_str("\"production\"").unwrap();
+        assert_eq!(env, Environment::Production);
+
+        let env: Environment = serde_json::from_str("\"development\"").unwrap();
+        assert_eq!(env, Environment::Development);
+    }
+
+    #[test]
+    fn app_config_with_environment() {
+        let json = r#"{"environment":"production"}"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.environment, Some(Environment::Production));
+    }
 
     #[test]
     fn app_config_default() {
