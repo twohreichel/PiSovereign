@@ -48,3 +48,8 @@ tokio-test.workspace = true
 axum-test = "18"
 mockall.workspace = true
 async-trait.workspace = true
+criterion = { workspace = true, features = ["async_tokio"] }
+
+[[bench]]
+name = "chat_pipeline"
+harness = false
