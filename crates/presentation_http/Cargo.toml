@@ -39,6 +39,9 @@ arc-swap.workspace = true
 futures = "0.3"
 subtle = "2.6"
 axum-extra = { version = "0.10", features = ["typed-header"] }
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
+utoipa-redoc.workspace = true
 
 [dev-dependencies]
 tokio-test.workspace = true

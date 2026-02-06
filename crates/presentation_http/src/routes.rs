@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
 };
 
-use crate::{handlers, state::AppState};
+use crate::{handlers, openapi::create_openapi_routes, state::AppState};
 
 /// Create the main router with all routes
 pub fn create_router(state: AppState) -> Router {
@@ -45,6 +45,8 @@ pub fn create_router(state: AppState) -> Router {
             "/webhook/whatsapp",
             get(handlers::whatsapp::verify_webhook).post(handlers::whatsapp::handle_webhook),
         )
+        // OpenAPI documentation
+        .merge(create_openapi_routes())
         // Attach state
         .with_state(state)
 }

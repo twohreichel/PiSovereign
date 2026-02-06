@@ -10,11 +10,12 @@ use std::{
 
 use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
 /// Metrics response containing all application metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MetricsResponse {
     /// Application metadata
     pub app: AppMetrics,
@@ -27,7 +28,7 @@ pub struct MetricsResponse {
 }
 
 /// Application metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AppMetrics {
     /// Application version
     pub version: String,
@@ -40,7 +41,7 @@ pub struct AppMetrics {
 }
 
 /// Request statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestMetrics {
     /// Total requests received
     pub total_requests: u64,
@@ -57,7 +58,7 @@ pub struct RequestMetrics {
 }
 
 /// Inference engine metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InferenceMetrics {
     /// Total inference requests
     pub total_inferences: u64,
@@ -76,7 +77,7 @@ pub struct InferenceMetrics {
 }
 
 /// System metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SystemMetrics {
     /// Rust allocator memory usage estimate (if available)
     pub memory_estimate_bytes: Option<u64>,
@@ -231,6 +232,14 @@ impl MetricsCollector {
 }
 
 /// Get metrics endpoint
+#[utoipa::path(
+    get,
+    path = "/metrics",
+    tag = "metrics",
+    responses(
+        (status = 200, description = "Application metrics", body = MetricsResponse)
+    )
+)]
 pub async fn get_metrics(State(state): State<AppState>) -> Json<MetricsResponse> {
     let inference_healthy = state.chat_service.is_healthy().await;
     let current_model = state.chat_service.current_model();
@@ -254,6 +263,14 @@ pub async fn get_metrics(State(state): State<AppState>) -> Json<MetricsResponse>
 }
 
 /// Prometheus-style metrics endpoint
+#[utoipa::path(
+    get,
+    path = "/metrics/prometheus",
+    tag = "metrics",
+    responses(
+        (status = 200, description = "Prometheus metrics", content_type = "text/plain")
+    )
+)]
 pub async fn get_metrics_prometheus(State(state): State<AppState>) -> String {
     let metrics = state.metrics.as_ref();
     let request_metrics = metrics.request_metrics();

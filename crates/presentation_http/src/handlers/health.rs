@@ -2,17 +2,29 @@
 
 use axum::{Json, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
 /// Health check response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[schema(example = json!({"status": "ok", "version": "0.1.0"}))]
 pub struct HealthResponse {
+    /// Health status (always "ok" if responding)
     pub status: String,
+    /// Application version
     pub version: String,
 }
 
 /// Liveness check - is the server running?
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is alive", body = HealthResponse)
+    )
+)]
 pub async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
@@ -21,20 +33,33 @@ pub async fn health_check() -> Json<HealthResponse> {
 }
 
 /// Readiness response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ReadinessResponse {
+    /// Whether the service is ready to handle requests
     pub ready: bool,
+    /// Inference engine status
     pub inference: ServiceStatus,
 }
 
 /// Status of a service
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ServiceStatus {
+    /// Whether the service is healthy
     pub healthy: bool,
+    /// Current model name if healthy
     pub model: Option<String>,
 }
 
 /// Readiness check - is the server ready to accept requests?
+#[utoipa::path(
+    get,
+    path = "/ready",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is ready", body = ReadinessResponse),
+        (status = 503, description = "Service is not ready", body = ReadinessResponse)
+    )
+)]
 pub async fn readiness_check(
     State(state): State<AppState>,
 ) -> (StatusCode, Json<ReadinessResponse>) {
