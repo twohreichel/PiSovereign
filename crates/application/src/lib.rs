@@ -7,10 +7,12 @@ pub mod command_parser;
 pub mod date_parser;
 pub mod error;
 pub mod ports;
+pub mod request_context;
 pub mod services;
 
 pub use command_parser::CommandParser;
 pub use date_parser::{extract_date_from_text, parse_date};
 pub use error::ApplicationError;
 pub use ports::*;
+pub use request_context::RequestContext;
 pub use services::*;
