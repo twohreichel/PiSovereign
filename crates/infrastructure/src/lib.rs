@@ -24,7 +24,9 @@ pub use config::{
     WeatherConfig, WhatsAppConfig,
 };
 pub use http::{CorrelatedClientConfig, CorrelatedHttpClient, RequestIdProvider, X_REQUEST_ID};
-pub use persistence::{ConnectionPool, SqliteConversationStore, SqliteDraftStore, create_pool};
+pub use persistence::{
+    ConnectionPool, SqliteConversationStore, SqliteDatabaseHealth, SqliteDraftStore, create_pool,
+};
 pub use retry::{RetryConfig, RetryResult, Retryable, retry, with_retry};
 pub use telemetry::{TelemetryConfig, TelemetryGuard, init_telemetry};
 pub use validation::{SecurityValidator, SecurityWarning, WarningSeverity};

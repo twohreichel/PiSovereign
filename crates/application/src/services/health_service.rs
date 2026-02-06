@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 use tracing::{debug, instrument, warn};
 
-use crate::ports::{CalendarPort, EmailPort, InferencePort, WeatherPort};
+use crate::ports::{CalendarPort, DatabaseHealthPort, EmailPort, InferencePort, WeatherPort};
 
 /// Default global timeout for health checks in seconds
 const DEFAULT_HEALTH_CHECK_TIMEOUT_SECS: u64 = 5;
@@ -170,6 +170,7 @@ impl HealthReport {
 pub struct HealthService {
     config: HealthConfig,
     inference: Arc<dyn InferencePort>,
+    database: Option<Arc<dyn DatabaseHealthPort>>,
     email: Option<Arc<dyn EmailPort>>,
     calendar: Option<Arc<dyn CalendarPort>>,
     weather: Option<Arc<dyn WeatherPort>>,
@@ -180,6 +181,7 @@ impl std::fmt::Debug for HealthService {
         f.debug_struct("HealthService")
             .field("config", &self.config)
             .field("inference", &"<InferencePort>")
+            .field("database", &self.database.is_some())
             .field("email", &self.email.is_some())
             .field("calendar", &self.calendar.is_some())
             .field("weather", &self.weather.is_some())
@@ -194,6 +196,7 @@ impl HealthService {
         Self {
             config: HealthConfig::default(),
             inference,
+            database: None,
             email: None,
             calendar: None,
             weather: None,
@@ -204,6 +207,13 @@ impl HealthService {
     #[must_use]
     pub fn with_config(mut self, config: HealthConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    /// Add database for health checking
+    #[must_use]
+    pub fn with_database(mut self, database: Arc<dyn DatabaseHealthPort>) -> Self {
+        self.database = Some(database);
         self
     }
 
@@ -235,6 +245,9 @@ impl HealthService {
 
         // Check inference (always required)
         services.insert("inference".to_string(), self.check_inference().await);
+
+        // Check database (optional but important)
+        services.insert("database".to_string(), self.check_database().await);
 
         // Check optional services
         services.insert("email".to_string(), self.check_email().await);
@@ -271,6 +284,37 @@ impl HealthService {
             }
         } else {
             warn!("Inference health check timed out");
+            ServiceHealth::timeout()
+        }
+    }
+
+    /// Check database health
+    #[instrument(skip(self))]
+    #[allow(clippy::option_if_let_else)]
+    pub async fn check_database(&self) -> ServiceHealth {
+        let Some(ref database) = self.database else {
+            return ServiceHealth::unconfigured();
+        };
+
+        let timeout_duration = self.config.timeout_for_service("database");
+        let start = std::time::Instant::now();
+
+        let result = timeout(timeout_duration, database.is_available()).await;
+
+        if let Ok(available) = result {
+            // SAFETY: Response time in milliseconds will never exceed u64::MAX in practice.
+            #[allow(clippy::cast_possible_truncation)]
+            let response_time = start.elapsed().as_millis() as u64;
+            if available {
+                debug!(response_time_ms = response_time, "Database healthy");
+                ServiceHealth::healthy().with_response_time(response_time)
+            } else {
+                warn!(response_time_ms = response_time, "Database unhealthy");
+                ServiceHealth::unhealthy("Database unavailable")
+                    .with_response_time(response_time)
+            }
+        } else {
+            warn!("Database health check timed out");
             ServiceHealth::timeout()
         }
     }

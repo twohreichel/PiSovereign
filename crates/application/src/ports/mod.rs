@@ -8,6 +8,7 @@ mod audit_log;
 mod cache_port;
 mod calendar_port;
 mod conversation_store;
+mod database_health_port;
 mod draft_store;
 mod email_port;
 mod inference_port;
@@ -23,6 +24,9 @@ pub use audit_log::{AuditLogPort, AuditQuery};
 pub use cache_port::{CachePort, CachePortExt, CacheStats, ttl};
 pub use calendar_port::{CalendarError, CalendarEvent, CalendarInfo, CalendarPort, NewEvent};
 pub use conversation_store::ConversationStore;
+pub use database_health_port::{DatabaseHealth, DatabaseHealthPort};
+#[cfg(test)]
+pub use database_health_port::MockDatabaseHealthPort;
 pub use draft_store::DraftStorePort;
 #[cfg(test)]
 pub use draft_store::MockDraftStorePort;

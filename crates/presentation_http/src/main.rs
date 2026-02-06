@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use application::{
     AgentService, ApprovalService, ChatService, HealthService,
-    ports::{CalendarPort, ConversationStore, EmailPort, InferencePort, WeatherPort},
+    ports::{CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort, WeatherPort},
 };
 use infrastructure::{
     ApiKeyHasher, AppConfig, HailoInferenceAdapter, SecurityValidator,
@@ -14,7 +14,10 @@ use infrastructure::{
         CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig, ProtonEmailAdapter,
         WeatherAdapter,
     },
-    persistence::{SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, create_pool},
+    persistence::{
+        SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, SqliteDatabaseHealth,
+        create_pool,
+    },
     telemetry::{TelemetryConfig, init_telemetry},
 };
 use presentation_http::{
@@ -214,25 +217,32 @@ async fn main() -> anyhow::Result<()> {
         });
 
     // Initialize database connection pool
-    let (approval_service, conversation_store) = match create_pool(&initial_config.database) {
-        Ok(pool) => {
-            let pool = Arc::new(pool);
-            let approval_queue = Arc::new(SqliteApprovalQueue::new(Arc::clone(&pool)));
-            let audit_log = Arc::new(SqliteAuditLog::new(Arc::clone(&pool)));
-            let approval_service = ApprovalService::new(approval_queue, audit_log);
-            let conversation_store: Arc<dyn ConversationStore> =
-                Arc::new(SqliteConversationStore::new(Arc::clone(&pool)));
-            info!("✅ Database initialized with conversation and approval stores");
-            (Some(Arc::new(approval_service)), Some(conversation_store))
-        },
-        Err(e) => {
-            warn!(
-                error = %e,
-                "⚠️ Failed to initialize database, persistence features disabled"
-            );
-            (None, None)
-        },
-    };
+    let (approval_service, conversation_store, database_health_port) =
+        match create_pool(&initial_config.database) {
+            Ok(pool) => {
+                let pool = Arc::new(pool);
+                let approval_queue = Arc::new(SqliteApprovalQueue::new(Arc::clone(&pool)));
+                let audit_log = Arc::new(SqliteAuditLog::new(Arc::clone(&pool)));
+                let approval_service = ApprovalService::new(approval_queue, audit_log);
+                let conversation_store: Arc<dyn ConversationStore> =
+                    Arc::new(SqliteConversationStore::new(Arc::clone(&pool)));
+                let database_health: Arc<dyn DatabaseHealthPort> =
+                    Arc::new(SqliteDatabaseHealth::new(Arc::clone(&pool)));
+                info!("✅ Database initialized with conversation and approval stores");
+                (
+                    Some(Arc::new(approval_service)),
+                    Some(conversation_store),
+                    Some(database_health),
+                )
+            },
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "⚠️ Failed to initialize database, persistence features disabled"
+                );
+                (None, None, None)
+            },
+        };
 
     // Initialize services
     let chat_service = conversation_store.as_ref().map_or_else(
@@ -250,6 +260,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Build HealthService with all available ports
     let mut health_service = HealthService::new(Arc::clone(&inference));
+    if let Some(ref database) = database_health_port {
+        health_service = health_service.with_database(Arc::clone(database));
+    }
     if let Some(ref email) = email_port {
         health_service = health_service.with_email(Arc::clone(email));
     }
