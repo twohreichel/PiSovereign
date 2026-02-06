@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 
 use crate::{imap_client::ProtonImapClient, smtp_client::ProtonSmtpClient};
 
@@ -118,8 +118,19 @@ impl TlsConfig {
     /// Create a TLS config that accepts self-signed certificates
     ///
     /// Use this for Proton Bridge which uses self-signed certificates.
-    /// **Warning:** This disables certificate verification.
+    /// **Warning:** This disables certificate verification and should only
+    /// be used for local Proton Bridge connections.
+    ///
+    /// # Security Warning
+    ///
+    /// Disabling TLS certificate verification makes the connection vulnerable
+    /// to man-in-the-middle attacks. Only use this for trusted local connections.
+    #[must_use]
     pub fn insecure() -> Self {
+        warn!(
+            "⚠️ TLS certificate verification disabled - use only for local Proton Bridge. \
+             This configuration is NOT suitable for production use over untrusted networks."
+        );
         Self {
             verify_certificates: Some(false),
             ca_cert_path: None,
