@@ -44,8 +44,8 @@ impl AuditLogPort for SqliteAuditLog {
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
             conn.execute(
-                "INSERT INTO audit_log (timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO audit_log (timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     entry.timestamp.to_rfc3339(),
                     entry.event_type.to_string(),
@@ -56,6 +56,7 @@ impl AuditLogPort for SqliteAuditLog {
                     entry.details,
                     entry.ip_address.map(|ip| ip.to_string()),
                     i32::from(entry.success),
+                    entry.request_id.map(|id| id.to_string()),
                 ],
             )
             .map_err(|e| ApplicationError::Internal(e.to_string()))?;
@@ -109,7 +110,7 @@ impl AuditLogPort for SqliteAuditLog {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success
+                    "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id
                      FROM audit_log
                      ORDER BY timestamp DESC
                      LIMIT ?1",
@@ -145,7 +146,7 @@ impl AuditLogPort for SqliteAuditLog {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success
+                    "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id
                      FROM audit_log
                      WHERE resource_type = ?1 AND resource_id = ?2
                      ORDER BY timestamp DESC",
@@ -180,7 +181,7 @@ impl AuditLogPort for SqliteAuditLog {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success
+                    "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id
                      FROM audit_log
                      WHERE actor = ?1
                      ORDER BY timestamp DESC
@@ -238,6 +239,7 @@ fn row_to_audit_entry(row: &Row<'_>) -> rusqlite::Result<AuditEntry> {
     let details: Option<String> = row.get(7)?;
     let ip_str: Option<String> = row.get(8)?;
     let success: i32 = row.get(9)?;
+    let request_id_str: Option<String> = row.get(10)?;
 
     let timestamp = DateTime::parse_from_rfc3339(&timestamp_str)
         .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
@@ -245,6 +247,8 @@ fn row_to_audit_entry(row: &Row<'_>) -> rusqlite::Result<AuditEntry> {
     let event_type = parse_event_type(&event_type_str);
 
     let ip_address = ip_str.and_then(|s| s.parse::<IpAddr>().ok());
+
+    let request_id = request_id_str.and_then(|s| uuid::Uuid::parse_str(&s).ok());
 
     Ok(AuditEntry {
         id: Some(id),
@@ -257,6 +261,7 @@ fn row_to_audit_entry(row: &Row<'_>) -> rusqlite::Result<AuditEntry> {
         details,
         ip_address,
         success: success != 0,
+        request_id,
     })
 }
 
@@ -278,7 +283,7 @@ fn parse_event_type(s: &str) -> AuditEventType {
 /// Build the SQL query based on the audit query parameters
 fn build_query_sql(query: &AuditQuery) -> (String, Vec<String>) {
     let mut sql = String::from(
-        "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success
+        "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id
          FROM audit_log WHERE 1=1",
     );
     let mut params: Vec<String> = Vec::new();

@@ -29,7 +29,7 @@ use tracing::{debug, error, info};
 use super::connection::DatabaseError;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
@@ -81,6 +81,17 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
                     version = 4,
                     error = %e,
                     "Migration V004 (message sequence) failed. Check migrations/V004__message_sequence.sql for the expected schema."
+                );
+                return Err(e);
+            }
+        }
+
+        if current_version < 5 {
+            if let Err(e) = migrate_v5(conn) {
+                error!(
+                    version = 5,
+                    error = %e,
+                    "Migration V005 (audit request_id) failed. Check migrations/V005__audit_request_id.sql for the expected schema."
                 );
                 return Err(e);
             }
@@ -278,6 +289,23 @@ fn migrate_v4(conn: &Connection) -> Result<(), DatabaseError> {
                  OR (m2.created_at = messages.created_at AND m2.id < messages.id))
         );
         ",
+    )?;
+
+    Ok(())
+}
+
+/// Migration to version 5: Add request_id to audit_log for tracing
+/// See: migrations/V005__audit_request_id.sql
+fn migrate_v5(conn: &Connection) -> Result<(), DatabaseError> {
+    debug!("Applying migration V005: Audit log request_id");
+
+    // Add request_id column (nullable for historical entries)
+    conn.execute("ALTER TABLE audit_log ADD COLUMN request_id TEXT", [])?;
+
+    // Create index for efficient queries by request_id
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audit_log_request_id ON audit_log(request_id)",
+        [],
     )?;
 
     Ok(())
