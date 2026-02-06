@@ -24,9 +24,9 @@ pub use audit_log::{AuditLogPort, AuditQuery};
 pub use cache_port::{CachePort, CachePortExt, CacheStats, ttl};
 pub use calendar_port::{CalendarError, CalendarEvent, CalendarInfo, CalendarPort, NewEvent};
 pub use conversation_store::ConversationStore;
-pub use database_health_port::{DatabaseHealth, DatabaseHealthPort};
 #[cfg(test)]
 pub use database_health_port::MockDatabaseHealthPort;
+pub use database_health_port::{DatabaseHealth, DatabaseHealthPort};
 pub use draft_store::DraftStorePort;
 #[cfg(test)]
 pub use draft_store::MockDraftStorePort;

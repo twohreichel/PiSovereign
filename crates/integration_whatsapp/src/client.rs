@@ -226,7 +226,7 @@ impl WhatsAppClient {
             .query(&[("fields", "about,address,description,vertical")])
             .send()
             .await
-            .map_or(false, |res| res.status().is_success())
+            .is_ok_and(|res| res.status().is_success())
     }
 }
 

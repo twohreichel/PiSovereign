@@ -154,17 +154,21 @@ impl ConversationStore for AsyncConversationStore {
 
         // Convert to domain types
         let mut messages = Vec::with_capacity(message_rows.len());
-        for msg_row in message_rows {
+        for (idx, msg_row) in message_rows.into_iter().enumerate() {
             let metadata: Option<MessageMetadata> = msg_row
                 .metadata
                 .as_deref()
                 .and_then(|s| serde_json::from_str(s).ok());
 
+            // Note: Conversations never realistically exceed u32::MAX messages
+            #[allow(clippy::cast_possible_truncation)]
+            let seq = (idx as u32) + 1;
             messages.push(ChatMessage {
                 id: Self::parse_uuid(&msg_row.id)?,
                 role: Self::parse_role(&msg_row.role)?,
                 content: msg_row.content,
                 created_at: parse_datetime(&msg_row.created_at)?,
+                sequence_number: seq,
                 metadata,
             });
         }
@@ -325,17 +329,21 @@ impl ConversationStore for AsyncConversationStore {
             .map_err(map_sqlx_error)?;
 
             let mut messages = Vec::with_capacity(message_rows.len());
-            for msg_row in message_rows {
+            for (idx, msg_row) in message_rows.into_iter().enumerate() {
                 let metadata: Option<MessageMetadata> = msg_row
                     .metadata
                     .as_deref()
                     .and_then(|s| serde_json::from_str(s).ok());
 
+                // Note: Conversations never realistically exceed u32::MAX messages
+                #[allow(clippy::cast_possible_truncation)]
+                let seq = (idx as u32) + 1;
                 messages.push(ChatMessage {
                     id: Self::parse_uuid(&msg_row.id)?,
                     role: Self::parse_role(&msg_row.role)?,
                     content: msg_row.content,
                     created_at: parse_datetime(&msg_row.created_at)?,
+                    sequence_number: seq,
                     metadata,
                 });
             }
@@ -398,17 +406,21 @@ impl ConversationStore for AsyncConversationStore {
             .map_err(map_sqlx_error)?;
 
             let mut messages = Vec::with_capacity(message_rows.len());
-            for msg_row in message_rows {
+            for (idx, msg_row) in message_rows.into_iter().enumerate() {
                 let metadata: Option<MessageMetadata> = msg_row
                     .metadata
                     .as_deref()
                     .and_then(|s| serde_json::from_str(s).ok());
 
+                // Note: Conversations never realistically exceed u32::MAX messages
+                #[allow(clippy::cast_possible_truncation)]
+                let seq = (idx as u32) + 1;
                 messages.push(ChatMessage {
                     id: Self::parse_uuid(&msg_row.id)?,
                     role: Self::parse_role(&msg_row.role)?,
                     content: msg_row.content,
                     created_at: parse_datetime(&msg_row.created_at)?,
+                    sequence_number: seq,
                     metadata,
                 });
             }

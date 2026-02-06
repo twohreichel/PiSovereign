@@ -90,11 +90,11 @@ impl ConversationStore for SqliteConversationStore {
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
             if let Some(mut conv) = conversation {
-                // Load messages
+                // Load messages ordered by sequence_number for reliable ordering
                 let mut stmt = conn
                     .prepare(
-                        "SELECT id, role, content, created_at, tokens, model
-                         FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
+                        "SELECT id, role, content, created_at, tokens, model, sequence_number
+                         FROM messages WHERE conversation_id = ?1 ORDER BY sequence_number ASC",
                     )
                     .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
@@ -191,6 +191,64 @@ impl ConversationStore for SqliteConversationStore {
 
             debug!("Added message to conversation");
             Ok(())
+        })
+        .await
+        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+    }
+
+    #[instrument(skip(self, messages), fields(conversation_id = %conversation_id, message_count = messages.len()))]
+    async fn add_messages(
+        &self,
+        conversation_id: &ConversationId,
+        messages: &[ChatMessage],
+    ) -> Result<usize, ApplicationError> {
+        if messages.is_empty() {
+            return Ok(0);
+        }
+
+        let pool = Arc::clone(&self.pool);
+        let conv_id = *conversation_id;
+        let messages = messages.to_vec();
+
+        task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+
+            // Get current max sequence number in a single query
+            let max_seq: u32 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(sequence_number), 0) FROM messages WHERE conversation_id = ?1",
+                    [conv_id.to_string()],
+                    |row| row.get(0),
+                )
+                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+
+            // Only insert messages with sequence_number > max_seq (incremental append)
+            let new_messages: Vec<_> = messages
+                .iter()
+                .filter(|m| m.sequence_number > max_seq)
+                .collect();
+
+            if new_messages.is_empty() {
+                debug!(max_seq, "No new messages to add");
+                return Ok(0);
+            }
+
+            for message in &new_messages {
+                insert_message(&conn, &conv_id, message)?;
+            }
+
+            // Update conversation updated_at
+            conn.execute(
+                "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+                params![Utc::now().to_rfc3339(), conv_id.to_string()],
+            )
+            .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+
+            let added = new_messages.len();
+            debug!(added, max_seq, "Added messages incrementally");
+            Ok(added)
         })
         .await
         .map_err(|e| ApplicationError::Internal(e.to_string()))?
@@ -306,8 +364,8 @@ fn insert_message(
         .map_or((None, None), |m| (m.tokens, m.model.clone()));
 
     conn.execute(
-        "INSERT INTO messages (id, conversation_id, role, content, created_at, tokens, model)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO messages (id, conversation_id, role, content, created_at, tokens, model, sequence_number)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             message.id.to_string(),
             conversation_id.to_string(),
@@ -316,6 +374,7 @@ fn insert_message(
             message.created_at.to_rfc3339(),
             tokens,
             model,
+            message.sequence_number,
         ],
     )
     .map_err(|e| ApplicationError::Internal(e.to_string()))?;
@@ -355,6 +414,7 @@ fn row_to_message(row: &Row<'_>) -> rusqlite::Result<ChatMessage> {
     let created_at_str: String = row.get(3)?;
     let tokens: Option<u32> = row.get(4)?;
     let model: Option<String> = row.get(5)?;
+    let sequence_number: u32 = row.get(6)?;
 
     let id = Uuid::parse_str(&id_str).unwrap_or_else(|_| Uuid::new_v4());
     let role = match role_str.as_str() {
@@ -380,6 +440,7 @@ fn row_to_message(row: &Row<'_>) -> rusqlite::Result<ChatMessage> {
         role,
         content,
         created_at,
+        sequence_number,
         metadata,
     })
 }
@@ -507,5 +568,87 @@ mod tests {
 
         let results = store.search("meeting", 10).await.unwrap();
         assert!(!results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn messages_have_sequence_numbers() {
+        let store = create_test_store();
+
+        let mut conversation = Conversation::new();
+        conversation.add_user_message("First");
+        conversation.add_assistant_message("Second");
+        conversation.add_user_message("Third");
+        let id = conversation.id;
+
+        store.save(&conversation).await.unwrap();
+
+        let retrieved = store.get(&id).await.unwrap().unwrap();
+        assert_eq!(retrieved.messages.len(), 3);
+        assert_eq!(retrieved.messages[0].sequence_number, 1);
+        assert_eq!(retrieved.messages[1].sequence_number, 2);
+        assert_eq!(retrieved.messages[2].sequence_number, 3);
+    }
+
+    #[tokio::test]
+    async fn add_messages_incremental() {
+        let store = create_test_store();
+
+        let mut conversation = Conversation::new();
+        conversation.add_user_message("First");
+        conversation.add_assistant_message("Second");
+        let id = conversation.id;
+
+        store.save(&conversation).await.unwrap();
+
+        // Add more messages (simulating incremental sync)
+        let new_messages = vec![
+            ChatMessage::user("Third").with_sequence_number(3),
+            ChatMessage::assistant("Fourth").with_sequence_number(4),
+        ];
+        let added = store.add_messages(&id, &new_messages).await.unwrap();
+        assert_eq!(added, 2);
+
+        let retrieved = store.get(&id).await.unwrap().unwrap();
+        assert_eq!(retrieved.messages.len(), 4);
+        assert_eq!(retrieved.messages[2].content, "Third");
+        assert_eq!(retrieved.messages[3].content, "Fourth");
+    }
+
+    #[tokio::test]
+    async fn add_messages_skips_already_persisted() {
+        let store = create_test_store();
+
+        let mut conversation = Conversation::new();
+        conversation.add_user_message("First");
+        conversation.add_assistant_message("Second");
+        let id = conversation.id;
+
+        store.save(&conversation).await.unwrap();
+
+        // Try adding messages that already exist (sequence <= max)
+        let duplicate_messages = vec![
+            ChatMessage::user("First dup").with_sequence_number(1),
+            ChatMessage::assistant("Second dup").with_sequence_number(2),
+        ];
+        let added = store.add_messages(&id, &duplicate_messages).await.unwrap();
+        assert_eq!(added, 0);
+
+        // Verify original messages unchanged
+        let retrieved = store.get(&id).await.unwrap().unwrap();
+        assert_eq!(retrieved.messages.len(), 2);
+        assert_eq!(retrieved.messages[0].content, "First");
+    }
+
+    #[tokio::test]
+    async fn add_messages_empty_list() {
+        let store = create_test_store();
+
+        let conversation = Conversation::new();
+        let id = conversation.id;
+
+        store.save(&conversation).await.unwrap();
+
+        let added = store.add_messages(&id, &[]).await.unwrap();
+        assert_eq!(added, 0);
     }
 }

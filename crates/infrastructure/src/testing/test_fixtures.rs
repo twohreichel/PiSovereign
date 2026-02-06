@@ -179,6 +179,7 @@ impl TestMessage {
             role: self.role,
             content: self.content,
             created_at: self.created_at.unwrap_or_else(Utc::now),
+            sequence_number: 0,
             metadata: None,
         }
     }

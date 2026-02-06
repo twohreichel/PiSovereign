@@ -29,7 +29,7 @@ use tracing::{debug, error, info};
 use super::connection::DatabaseError;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
@@ -70,6 +70,17 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
                     version = 3,
                     error = %e,
                     "Migration V003 (email drafts) failed. Check migrations/V003__email_drafts.sql for the expected schema."
+                );
+                return Err(e);
+            }
+        }
+
+        if current_version < 4 {
+            if let Err(e) = migrate_v4(conn) {
+                error!(
+                    version = 4,
+                    error = %e,
+                    "Migration V004 (message sequence) failed. Check migrations/V004__message_sequence.sql for the expected schema."
                 );
                 return Err(e);
             }
@@ -231,6 +242,41 @@ fn migrate_v3(conn: &Connection) -> Result<(), DatabaseError> {
         -- Indexes for efficient lookups
         CREATE INDEX IF NOT EXISTS idx_email_drafts_user_id ON email_drafts(user_id);
         CREATE INDEX IF NOT EXISTS idx_email_drafts_expires_at ON email_drafts(expires_at);
+        ",
+    )?;
+
+    Ok(())
+}
+
+/// Migration to version 4: Message sequence numbers
+/// See: migrations/V004__message_sequence.sql
+fn migrate_v4(conn: &Connection) -> Result<(), DatabaseError> {
+    debug!("Applying migration V004: Message sequence numbers");
+
+    // Add sequence_number column with default 0 for existing rows
+    conn.execute(
+        "ALTER TABLE messages ADD COLUMN sequence_number INTEGER NOT NULL DEFAULT 0",
+        [],
+    )?;
+
+    // Create index for efficient ordering queries
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_sequence ON messages(conversation_id, sequence_number)",
+        [],
+    )?;
+
+    // Update existing messages to have sequence numbers based on creation order
+    // Use a subquery to assign sequential numbers per conversation
+    conn.execute_batch(
+        "
+        UPDATE messages
+        SET sequence_number = (
+            SELECT COUNT(*) + 1
+            FROM messages m2
+            WHERE m2.conversation_id = messages.conversation_id
+            AND (m2.created_at < messages.created_at
+                 OR (m2.created_at = messages.created_at AND m2.id < messages.id))
+        );
         ",
     )?;
 

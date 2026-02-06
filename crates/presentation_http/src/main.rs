@@ -6,7 +6,9 @@ use std::{sync::Arc, time::Duration};
 
 use application::{
     AgentService, ApprovalService, ChatService, HealthService,
-    ports::{CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort, WeatherPort},
+    ports::{
+        CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort, WeatherPort,
+    },
 };
 use infrastructure::{
     ApiKeyHasher, AppConfig, HailoInferenceAdapter, SecurityValidator,
@@ -180,18 +182,20 @@ async fn main() -> anyhow::Result<()> {
     let inference: Arc<dyn InferencePort> = Arc::new(degraded_adapter);
 
     // Initialize optional weather adapter
-    let weather_port: Option<Arc<dyn WeatherPort>> = initial_config.weather.as_ref().and_then(|_| {
-        match WeatherAdapter::new() {
-            Ok(adapter) => {
-                info!("🌤️ Weather adapter initialized");
-                Some(Arc::new(adapter.with_circuit_breaker()) as Arc<dyn WeatherPort>)
-            },
-            Err(e) => {
-                warn!(error = %e, "⚠️ Failed to initialize weather adapter");
-                None
-            },
-        }
-    });
+    let weather_port: Option<Arc<dyn WeatherPort>> =
+        initial_config
+            .weather
+            .as_ref()
+            .and_then(|_| match WeatherAdapter::new() {
+                Ok(adapter) => {
+                    info!("🌤️ Weather adapter initialized");
+                    Some(Arc::new(adapter.with_circuit_breaker()) as Arc<dyn WeatherPort>)
+                },
+                Err(e) => {
+                    warn!(error = %e, "⚠️ Failed to initialize weather adapter");
+                    None
+                },
+            });
 
     // Initialize optional CalDAV calendar adapter
     let calendar_port: Option<Arc<dyn CalendarPort>> =
@@ -209,12 +213,11 @@ async fn main() -> anyhow::Result<()> {
         });
 
     // Initialize optional Proton email adapter
-    let email_port: Option<Arc<dyn EmailPort>> =
-        initial_config.proton.as_ref().map(|config| {
-            let adapter = ProtonEmailAdapter::new(config.to_proton_config()).with_circuit_breaker();
-            info!("📧 Proton email adapter initialized");
-            Arc::new(adapter) as Arc<dyn EmailPort>
-        });
+    let email_port: Option<Arc<dyn EmailPort>> = initial_config.proton.as_ref().map(|config| {
+        let adapter = ProtonEmailAdapter::new(config.to_proton_config()).with_circuit_breaker();
+        info!("📧 Proton email adapter initialized");
+        Arc::new(adapter) as Arc<dyn EmailPort>
+    });
 
     // Initialize database connection pool
     let (approval_service, conversation_store, database_health_port) =

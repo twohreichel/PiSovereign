@@ -53,8 +53,15 @@ impl Conversation {
         conv
     }
 
-    /// Add a message to the conversation
-    pub fn add_message(&mut self, message: ChatMessage) {
+    /// Add a message to the conversation.
+    ///
+    /// Automatically assigns the next sequence number to the message.
+    pub fn add_message(&mut self, mut message: ChatMessage) {
+        // Assign next sequence number (1-based)
+        // Note: In practice, conversations never exceed u32::MAX messages
+        #[allow(clippy::cast_possible_truncation)]
+        let next_seq = (self.messages.len() as u32).saturating_add(1);
+        message.sequence_number = next_seq;
         self.messages.push(message);
         self.updated_at = Utc::now();
     }

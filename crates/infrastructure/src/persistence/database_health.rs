@@ -29,7 +29,7 @@ impl std::fmt::Debug for SqliteDatabaseHealth {
 impl SqliteDatabaseHealth {
     /// Create a new database health adapter with the given connection pool
     #[must_use]
-    pub fn new(pool: Arc<ConnectionPool>) -> Self {
+    pub const fn new(pool: Arc<ConnectionPool>) -> Self {
         Self { pool }
     }
 }
@@ -42,7 +42,10 @@ impl DatabaseHealthPort for SqliteDatabaseHealth {
         let result = tokio::task::spawn_blocking(move || {
             pool.get()
                 .ok()
-                .and_then(|conn| conn.query_row("SELECT 1", [], |row| row.get::<_, i32>(0)).ok())
+                .and_then(|conn| {
+                    conn.query_row("SELECT 1", [], |row| row.get::<_, i32>(0))
+                        .ok()
+                })
                 .is_some()
         })
         .await;
@@ -77,7 +80,9 @@ impl DatabaseHealthPort for SqliteDatabaseHealth {
             // Execute health check query
             let _: i32 = conn
                 .query_row("SELECT 1", [], |row| row.get(0))
-                .map_err(|e| ApplicationError::Internal(format!("Health check query failed: {e}")))?;
+                .map_err(|e| {
+                    ApplicationError::Internal(format!("Health check query failed: {e}"))
+                })?;
 
             // Get SQLite version
             let version: String = conn
@@ -86,15 +91,14 @@ impl DatabaseHealthPort for SqliteDatabaseHealth {
 
             // Get pool state
             let state = pool.state();
-            // SAFETY: Pool connections count is always small (configured max is typically 5-20),
-            // so it will fit in u32.
-            #[allow(clippy::cast_possible_truncation)]
-            let pool_size = state.connections as u32;
+            let pool_size = state.connections;
 
             Ok::<_, ApplicationError>((version, pool_size))
         })
         .await
-        .map_err(|e| ApplicationError::Internal(format!("Database health check task failed: {e}")))?;
+        .map_err(|e| {
+            ApplicationError::Internal(format!("Database health check task failed: {e}"))
+        })?;
 
         match result {
             Ok((version, pool_size)) => {
@@ -110,9 +114,11 @@ impl DatabaseHealthPort for SqliteDatabaseHealth {
                     "Database health check passed"
                 );
 
-                Ok(DatabaseHealth::healthy_with_version(format!("SQLite {version}"))
-                    .with_pool_size(pool_size)
-                    .with_response_time(response_time_ms))
+                Ok(
+                    DatabaseHealth::healthy_with_version(format!("SQLite {version}"))
+                        .with_pool_size(pool_size)
+                        .with_response_time(response_time_ms),
+                )
             },
             Err(e) => {
                 warn!(error = %e, "Database health check failed");

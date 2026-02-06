@@ -310,8 +310,7 @@ impl HealthService {
                 ServiceHealth::healthy().with_response_time(response_time)
             } else {
                 warn!(response_time_ms = response_time, "Database unhealthy");
-                ServiceHealth::unhealthy("Database unavailable")
-                    .with_response_time(response_time)
+                ServiceHealth::unhealthy("Database unavailable").with_response_time(response_time)
             }
         } else {
             warn!("Database health check timed out");
