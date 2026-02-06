@@ -3,12 +3,7 @@
 //! Extracts or generates a unique request ID for each incoming request,
 //! making it available in the tracing span for log correlation.
 
-use axum::{
-    body::Body,
-    extract::Request,
-    http::header::HeaderValue,
-    response::Response,
-};
+use axum::{body::Body, extract::Request, http::header::HeaderValue, response::Response};
 use std::{
     future::Future,
     pin::Pin,

@@ -6,11 +6,7 @@
 // Allow clippy warnings from macro-generated code in utoipa derive
 #![allow(clippy::needless_for_each)]
 
-use axum::{
-    Router,
-    response::Html,
-    routing::get,
-};
+use axum::{Router, response::Html, routing::get};
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable as RedocServable};
 use utoipa_swagger_ui::SwaggerUi;

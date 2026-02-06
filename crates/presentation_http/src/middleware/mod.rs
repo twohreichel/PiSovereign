@@ -12,5 +12,5 @@ pub use auth::{ApiKeyAuth, ApiKeyAuthLayer};
 pub use rate_limit::{
     RateLimiter, RateLimiterConfig, RateLimiterLayer, RateLimiterState, spawn_cleanup_task,
 };
-pub use request_id::{RequestId, RequestIdLayer, REQUEST_ID_HEADER};
+pub use request_id::{REQUEST_ID_HEADER, RequestId, RequestIdLayer};
 pub use validation::{ValidatedJson, ValidationError};

@@ -421,7 +421,9 @@ pub async fn get_metrics_prometheus(State(state): State<AppState>) -> String {
     #[allow(clippy::cast_precision_loss)]
     let response_time_sum =
         request_metrics.avg_response_time_ms * request_metrics.total_requests as f64;
-    output.push_str(&format!("http_response_time_ms_sum {response_time_sum:.2}\n"));
+    output.push_str(&format!(
+        "http_response_time_ms_sum {response_time_sum:.2}\n"
+    ));
     output.push_str(&format!(
         "http_response_time_ms_count {}\n\n",
         request_metrics.total_requests
