@@ -1,9 +1,30 @@
 //! Database migrations
 //!
 //! Manages database schema versioning and migrations.
+//!
+//! ## Migration Files
+//!
+//! SQL migration files are stored in the `/migrations` directory at the project root.
+//! These files serve as documentation and can be used for manual database setup.
+//! The actual migration code is embedded in this module for runtime execution.
+//!
+//! ## Rollback Strategy
+//!
+//! Rollbacks are manual - if a migration fails:
+//! 1. Check the error message for details
+//! 2. Fix the underlying issue
+//! 3. Manually repair the database if needed
+//! 4. Re-run migrations
+//!
+//! ## Adding New Migrations
+//!
+//! 1. Create a new SQL file: `migrations/VXXX__description.sql`
+//! 2. Increment `SCHEMA_VERSION` constant
+//! 3. Add a new `migrate_vX` function
+//! 4. Update `run_migrations` to call the new function
 
 use rusqlite::Connection;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use super::connection::DatabaseError;
 
@@ -22,15 +43,36 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
         );
 
         if current_version < 1 {
-            migrate_v1(conn)?;
+            if let Err(e) = migrate_v1(conn) {
+                error!(
+                    version = 1,
+                    error = %e,
+                    "Migration V001 (initial schema) failed. Check migrations/V001__initial_schema.sql for the expected schema."
+                );
+                return Err(e);
+            }
         }
 
         if current_version < 2 {
-            migrate_v2(conn)?;
+            if let Err(e) = migrate_v2(conn) {
+                error!(
+                    version = 2,
+                    error = %e,
+                    "Migration V002 (user profiles) failed. Check migrations/V002__user_profiles.sql for the expected schema."
+                );
+                return Err(e);
+            }
         }
 
         if current_version < 3 {
-            migrate_v3(conn)?;
+            if let Err(e) = migrate_v3(conn) {
+                error!(
+                    version = 3,
+                    error = %e,
+                    "Migration V003 (email drafts) failed. Check migrations/V003__email_drafts.sql for the expected schema."
+                );
+                return Err(e);
+            }
         }
 
         set_schema_version(conn, SCHEMA_VERSION)?;
@@ -74,8 +116,9 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<(), DatabaseErr
 }
 
 /// Migration to version 1: Initial schema
+/// See: migrations/V001__initial_schema.sql
 fn migrate_v1(conn: &Connection) -> Result<(), DatabaseError> {
-    debug!("Applying migration v1: Initial schema");
+    debug!("Applying migration V001: Initial schema");
 
     conn.execute_batch(
         "
@@ -142,8 +185,9 @@ fn migrate_v1(conn: &Connection) -> Result<(), DatabaseError> {
 }
 
 /// Migration to version 2: User profiles
+/// See: migrations/V002__user_profiles.sql
 fn migrate_v2(conn: &Connection) -> Result<(), DatabaseError> {
-    debug!("Applying migration v2: User profiles");
+    debug!("Applying migration V002: User profiles");
 
     conn.execute_batch(
         "
@@ -166,8 +210,9 @@ fn migrate_v2(conn: &Connection) -> Result<(), DatabaseError> {
 }
 
 /// Migration to version 3: Email drafts
+/// See: migrations/V003__email_drafts.sql
 fn migrate_v3(conn: &Connection) -> Result<(), DatabaseError> {
-    debug!("Applying migration v3: Email drafts");
+    debug!("Applying migration V003: Email drafts");
 
     conn.execute_batch(
         "
