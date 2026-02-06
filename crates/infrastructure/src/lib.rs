@@ -6,6 +6,7 @@
 pub mod adapters;
 pub mod cache;
 pub mod config;
+pub mod http;
 pub mod persistence;
 pub mod retry;
 pub mod telemetry;
@@ -17,6 +18,7 @@ pub use config::{
     AppConfig, DatabaseConfig, DegradedModeAppConfig, Environment, RetryAppConfig, SecurityConfig,
     ServerConfig, TelemetryAppConfig, WhatsAppConfig,
 };
+pub use http::{CorrelatedClientConfig, CorrelatedHttpClient, RequestIdProvider, X_REQUEST_ID};
 pub use persistence::{ConnectionPool, SqliteConversationStore, SqliteDraftStore, create_pool};
 pub use retry::{RetryConfig, RetryResult, Retryable, retry, with_retry};
 pub use telemetry::{TelemetryConfig, TelemetryGuard, init_telemetry};
