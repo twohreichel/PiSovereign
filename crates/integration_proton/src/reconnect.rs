@@ -393,6 +393,8 @@ mod tests {
 
         // With jitter, delay should be within +/- 20% of base
         let delay = config.calculate_delay(0);
+        // Delay values in tests are small enough that precision loss is negligible
+        #[allow(clippy::cast_precision_loss)]
         let delay_ms = delay.as_millis() as f64;
 
         // Base is 1000, jitter range is 200, so should be between 800-1200

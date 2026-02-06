@@ -115,7 +115,7 @@ impl RequestContext {
     /// );
     /// ```
     #[must_use]
-    pub fn restore(user_id: UserId, request_id: Uuid, timestamp: DateTime<Utc>) -> Self {
+    pub const fn restore(user_id: UserId, request_id: Uuid, timestamp: DateTime<Utc>) -> Self {
         Self {
             user_id,
             request_id,

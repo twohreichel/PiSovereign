@@ -135,7 +135,7 @@ impl AgentService {
 
     /// Set default weather location (fallback when user profile has no location)
     #[must_use]
-    pub fn with_default_weather_location(mut self, location: GeoLocation) -> Self {
+    pub const fn with_default_weather_location(mut self, location: GeoLocation) -> Self {
         self.default_weather_location = Some(location);
         self
     }
@@ -712,6 +712,9 @@ impl AgentService {
         match weather_svc.get_weather_summary(&location, 1).await {
             Ok((current, forecast)) => {
                 // Get today's forecast for high/low temps
+                // Temperature values are well within f32 range (-273.15°C to ~1000°C),
+                // so truncation is acceptable and expected
+                #[allow(clippy::cast_possible_truncation)]
                 let (high, low) = forecast.first().map_or_else(
                     || {
                         (
@@ -722,8 +725,11 @@ impl AgentService {
                     |f| (f.temperature_max as f32, f.temperature_min as f32),
                 );
 
+                #[allow(clippy::cast_possible_truncation)]
+                let temperature = current.temperature as f32;
+
                 Some(WeatherSummary {
-                    temperature: current.temperature as f32,
+                    temperature,
                     condition: current.condition.to_string(),
                     high,
                     low,

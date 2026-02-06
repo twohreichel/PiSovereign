@@ -119,7 +119,7 @@ impl Default for BriefingService {
 impl BriefingService {
     /// Create a new briefing service with a timezone
     #[must_use]
-    pub fn new(timezone: Timezone) -> Self {
+    pub const fn new(timezone: Timezone) -> Self {
         Self { timezone }
     }
 
@@ -145,7 +145,7 @@ impl BriefingService {
 
     /// Get the configured timezone
     #[must_use]
-    pub fn timezone(&self) -> &Timezone {
+    pub const fn timezone(&self) -> &Timezone {
         &self.timezone
     }
 
