@@ -82,14 +82,46 @@ PiSovereign exposes metrics at:
 | `http_requests_server_error_total` | counter | 5xx responses |
 | `http_requests_active` | gauge | Currently active requests |
 | `http_response_time_avg_ms` | gauge | Average response time |
+| `http_response_time_ms_bucket` | histogram | Response time distribution |
 | `inference_requests_total` | counter | Total inference requests |
 | `inference_requests_success_total` | counter | Successful inferences |
 | `inference_requests_failed_total` | counter | Failed inferences |
 | `inference_time_avg_ms` | gauge | Average inference latency |
+| `inference_time_ms_bucket` | histogram | Inference time distribution |
 | `inference_tokens_total` | counter | Total tokens generated |
 | `inference_healthy` | gauge | Inference health (0/1) |
 
-## Alerts (Optional)
+### Histogram Buckets
+
+Response time buckets (ms): 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000
+
+Inference time buckets (ms): 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000
+
+## Alerting Rules
+
+A comprehensive set of Prometheus alerting rules is provided in `alerting_rules.yml`.
+Copy to your Prometheus configuration and include in `rule_files`:
+
+```yaml
+# /etc/prometheus/prometheus.yml
+rule_files:
+  - /etc/prometheus/rules/alerting_rules.yml
+```
+
+### Included Alerts
+
+| Alert | Severity | Description |
+|-------|----------|-------------|
+| PiSovereignDown | critical | Application is unreachable |
+| InferenceEngineUnhealthy | critical | AI engine unhealthy for >2min |
+| HighResponseTime | warning | Avg response time >5s |
+| HighInferenceTime | warning | Avg inference time >10s |
+| HighErrorRate | warning | Server error rate >5% |
+| InferenceFailures | warning | Inference failure rate >10% |
+| NoTraffic | info | No requests for >15min |
+| HighTokenUsage | info | Token rate >100k/hour |
+
+## Alerts (Quick Start)
 
 Add alert rules to Prometheus for:
 

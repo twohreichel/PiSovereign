@@ -85,6 +85,18 @@ pub struct SystemMetrics {
     pub active_tasks: Option<u64>,
 }
 
+/// Histogram buckets for response time (in milliseconds)
+/// Standard buckets: 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s
+pub const RESPONSE_TIME_BUCKETS_MS: &[f64] = &[
+    5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0,
+];
+
+/// Histogram buckets for inference time (in milliseconds)
+/// Inference typically takes longer: 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s, 30s, 60s
+pub const INFERENCE_TIME_BUCKETS_MS: &[f64] = &[
+    100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0,
+];
+
 /// Atomic counters for request metrics
 #[derive(Debug)]
 pub struct MetricsCollector {
@@ -102,6 +114,8 @@ pub struct MetricsCollector {
     active_requests: AtomicU64,
     /// Total response time in microseconds
     total_response_time_us: AtomicU64,
+    /// Response time histogram buckets (counts)
+    response_time_buckets: [AtomicU64; 11],
     /// Inference requests
     total_inferences: AtomicU64,
     /// Successful inferences
@@ -110,6 +124,8 @@ pub struct MetricsCollector {
     failed_inferences: AtomicU64,
     /// Total inference time in microseconds
     total_inference_time_us: AtomicU64,
+    /// Inference time histogram buckets (counts)
+    inference_time_buckets: [AtomicU64; 9],
     /// Total tokens generated
     total_tokens_generated: AtomicU64,
 }
@@ -118,6 +134,18 @@ impl Default for MetricsCollector {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Helper macro to create array of AtomicU64 with zeros
+const fn atomic_array<const N: usize>() -> [AtomicU64; N] {
+    // Initialize with constant evaluation
+    let mut arr = [const { AtomicU64::new(0) }; N];
+    let mut i = 0;
+    while i < N {
+        arr[i] = AtomicU64::new(0);
+        i += 1;
+    }
+    arr
 }
 
 impl MetricsCollector {
@@ -132,10 +160,12 @@ impl MetricsCollector {
             server_error_count: AtomicU64::new(0),
             active_requests: AtomicU64::new(0),
             total_response_time_us: AtomicU64::new(0),
+            response_time_buckets: atomic_array::<11>(),
             total_inferences: AtomicU64::new(0),
             successful_inferences: AtomicU64::new(0),
             failed_inferences: AtomicU64::new(0),
             total_inference_time_us: AtomicU64::new(0),
+            inference_time_buckets: atomic_array::<9>(),
             total_tokens_generated: AtomicU64::new(0),
         }
     }
@@ -147,10 +177,20 @@ impl MetricsCollector {
     }
 
     /// Record end of a request
+    #[allow(clippy::similar_names)]
     pub fn request_end(&self, response_time_us: u64, status_code: u16) {
         self.active_requests.fetch_sub(1, Ordering::Relaxed);
         self.total_response_time_us
             .fetch_add(response_time_us, Ordering::Relaxed);
+
+        // Update histogram buckets
+        #[allow(clippy::cast_precision_loss)]
+        let response_time_ms = response_time_us as f64 / 1000.0;
+        for (i, &bucket) in RESPONSE_TIME_BUCKETS_MS.iter().enumerate() {
+            if response_time_ms <= bucket {
+                self.response_time_buckets[i].fetch_add(1, Ordering::Relaxed);
+            }
+        }
 
         match status_code {
             200..=299 => {
@@ -167,6 +207,7 @@ impl MetricsCollector {
     }
 
     /// Record an inference operation
+    #[allow(clippy::similar_names)]
     pub fn record_inference(&self, success: bool, duration_us: u64, tokens: u64) {
         self.total_inferences.fetch_add(1, Ordering::Relaxed);
         self.total_inference_time_us
@@ -174,11 +215,40 @@ impl MetricsCollector {
         self.total_tokens_generated
             .fetch_add(tokens, Ordering::Relaxed);
 
+        // Update histogram buckets
+        #[allow(clippy::cast_precision_loss)]
+        let duration_ms = duration_us as f64 / 1000.0;
+        for (i, &bucket) in INFERENCE_TIME_BUCKETS_MS.iter().enumerate() {
+            if duration_ms <= bucket {
+                self.inference_time_buckets[i].fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
         if success {
             self.successful_inferences.fetch_add(1, Ordering::Relaxed);
         } else {
             self.failed_inferences.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    /// Get response time histogram bucket counts
+    #[must_use]
+    pub fn response_time_histogram(&self) -> Vec<(f64, u64)> {
+        RESPONSE_TIME_BUCKETS_MS
+            .iter()
+            .zip(self.response_time_buckets.iter())
+            .map(|(&bucket, count)| (bucket, count.load(Ordering::Relaxed)))
+            .collect()
+    }
+
+    /// Get inference time histogram bucket counts
+    #[must_use]
+    pub fn inference_time_histogram(&self) -> Vec<(f64, u64)> {
+        INFERENCE_TIME_BUCKETS_MS
+            .iter()
+            .zip(self.inference_time_buckets.iter())
+            .map(|(&bucket, count)| (bucket, count.load(Ordering::Relaxed)))
+            .collect()
     }
 
     /// Get uptime in seconds
@@ -332,6 +402,31 @@ pub async fn get_metrics_prometheus(State(state): State<AppState>) -> String {
         request_metrics.avg_response_time_ms
     ));
 
+    // Response time histogram
+    output.push_str(
+        "# HELP http_response_time_ms_bucket HTTP response time histogram (cumulative)\n\
+         # TYPE http_response_time_ms_bucket histogram\n",
+    );
+    let response_histogram = metrics.response_time_histogram();
+    for (bucket, count) in &response_histogram {
+        output.push_str(&format!(
+            "http_response_time_ms_bucket{{le=\"{bucket}\"}} {count}\n"
+        ));
+    }
+    output.push_str(&format!(
+        "http_response_time_ms_bucket{{le=\"+Inf\"}} {}\n",
+        request_metrics.total_requests
+    ));
+    // Calculate sum from avg * count
+    #[allow(clippy::cast_precision_loss)]
+    let response_time_sum =
+        request_metrics.avg_response_time_ms * request_metrics.total_requests as f64;
+    output.push_str(&format!("http_response_time_ms_sum {response_time_sum:.2}\n"));
+    output.push_str(&format!(
+        "http_response_time_ms_count {}\n\n",
+        request_metrics.total_requests
+    ));
+
     // Inference metrics
     output.push_str(&format!(
         "# HELP inference_requests_total Total inference requests\n\
@@ -359,6 +454,30 @@ pub async fn get_metrics_prometheus(State(state): State<AppState>) -> String {
          # TYPE inference_time_avg_ms gauge\n\
          inference_time_avg_ms {:.2}\n\n",
         inference_metrics.avg_inference_time_ms
+    ));
+
+    // Inference time histogram
+    output.push_str(
+        "# HELP inference_time_ms_bucket Inference time histogram (cumulative)\n\
+         # TYPE inference_time_ms_bucket histogram\n",
+    );
+    let inference_histogram = metrics.inference_time_histogram();
+    for (bucket, count) in &inference_histogram {
+        output.push_str(&format!(
+            "inference_time_ms_bucket{{le=\"{bucket}\"}} {count}\n"
+        ));
+    }
+    output.push_str(&format!(
+        "inference_time_ms_bucket{{le=\"+Inf\"}} {}\n",
+        inference_metrics.total_inferences
+    ));
+    #[allow(clippy::cast_precision_loss)]
+    let inference_time_sum =
+        inference_metrics.avg_inference_time_ms * inference_metrics.total_inferences as f64;
+    output.push_str(&format!("inference_time_ms_sum {inference_time_sum:.2}\n"));
+    output.push_str(&format!(
+        "inference_time_ms_count {}\n\n",
+        inference_metrics.total_inferences
     ));
 
     output.push_str(&format!(

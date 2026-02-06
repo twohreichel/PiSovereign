@@ -1,0 +1,152 @@
+# PiSovereign Prometheus Alerting Rules
+#
+# These rules define alerts for monitoring the PiSovereign AI assistant.
+# Copy to your Prometheus config and include in rule_files configuration.
+
+groups:
+  - name: pisovereign_availability
+    interval: 30s
+    rules:
+      # Alert when application is down
+      - alert: PiSovereignDown
+        expr: up{job="pisovereign"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PiSovereign is down"
+          description: "PiSovereign instance {{ $labels.instance }} has been down for more than 1 minute."
+
+      # Alert when inference engine is unhealthy
+      - alert: InferenceEngineUnhealthy
+        expr: inference_healthy == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Inference engine is unhealthy"
+          description: "The AI inference engine has been unhealthy for more than 2 minutes."
+
+  - name: pisovereign_performance
+    interval: 30s
+    rules:
+      # Alert when response time is high
+      - alert: HighResponseTime
+        expr: http_response_time_avg_ms > 5000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High average response time"
+          description: "Average HTTP response time is {{ $value }}ms (threshold: 5000ms)."
+
+      # Alert when inference time is high
+      - alert: HighInferenceTime
+        expr: inference_time_avg_ms > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High inference latency"
+          description: "Average inference time is {{ $value }}ms (threshold: 10000ms)."
+
+      # Alert when too many active requests
+      - alert: HighActiveRequests
+        expr: http_requests_active > 50
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of active requests"
+          description: "{{ $value }} active HTTP requests (threshold: 50)."
+
+  - name: pisovereign_errors
+    interval: 30s
+    rules:
+      # Alert on high error rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(http_requests_server_error_total[5m]) / 
+            rate(http_requests_total[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High server error rate"
+          description: "Server error rate is {{ $value | humanizePercentage }} (threshold: 5%)."
+
+      # Alert on high client error rate (might indicate API misuse)
+      - alert: HighClientErrorRate
+        expr: |
+          (
+            rate(http_requests_client_error_total[5m]) / 
+            rate(http_requests_total[5m])
+          ) > 0.20
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "High client error rate"
+          description: "Client error rate is {{ $value | humanizePercentage }} (threshold: 20%)."
+
+      # Alert on inference failures
+      - alert: InferenceFailures
+        expr: |
+          (
+            rate(inference_requests_failed_total[5m]) / 
+            rate(inference_requests_total[5m])
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High inference failure rate"
+          description: "Inference failure rate is {{ $value | humanizePercentage }} (threshold: 10%)."
+
+  - name: pisovereign_capacity
+    interval: 60s
+    rules:
+      # Alert when no requests received (might indicate network issues)
+      - alert: NoTraffic
+        expr: rate(http_requests_total[10m]) == 0
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "No traffic received"
+          description: "No HTTP requests received in the last 15 minutes."
+
+      # Alert on high token generation (cost monitoring)
+      - alert: HighTokenUsage
+        expr: rate(inference_tokens_total[1h]) > 100000
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "High token generation rate"
+          description: "Token generation rate is {{ $value | humanize }}/hour."
+
+  - name: pisovereign_trends
+    interval: 5m
+    rules:
+      # Record inference success rate for trending
+      - record: pisovereign:inference_success_rate:5m
+        expr: |
+          rate(inference_requests_success_total[5m]) /
+          rate(inference_requests_total[5m])
+
+      # Record HTTP success rate for trending
+      - record: pisovereign:http_success_rate:5m
+        expr: |
+          rate(http_requests_success_total[5m]) /
+          rate(http_requests_total[5m])
+
+      # Record request rate for capacity planning
+      - record: pisovereign:http_requests_per_second:5m
+        expr: rate(http_requests_total[5m])
+
+      # Record inference rate for capacity planning
+      - record: pisovereign:inference_per_second:5m
+        expr: rate(inference_requests_total[5m])
