@@ -94,9 +94,24 @@ pub struct SecurityConfig {
     #[serde(default)]
     pub whitelisted_phones: Vec<String>,
 
-    /// API key for HTTP API (optional)
+    /// API key for HTTP API (optional, legacy single-key mode)
     #[serde(default)]
     pub api_key: Option<String>,
+
+    /// API key to User ID mapping for multi-user authentication
+    ///
+    /// Maps API keys to their corresponding user UUIDs. When an API key
+    /// is provided in the Authorization header, the system looks up the
+    /// associated user ID to establish the request context.
+    ///
+    /// Example in config.toml:
+    /// ```toml
+    /// [security.api_key_users]
+    /// "sk-abc123" = "550e8400-e29b-41d4-a716-446655440000"
+    /// "sk-xyz789" = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+    /// ```
+    #[serde(default)]
+    pub api_key_users: std::collections::HashMap<String, String>,
 
     /// Enable rate limiting
     #[serde(default = "default_true")]
@@ -152,6 +167,7 @@ impl Default for SecurityConfig {
         Self {
             whitelisted_phones: Vec::new(),
             api_key: None,
+            api_key_users: std::collections::HashMap::new(),
             rate_limit_enabled: true,
             rate_limit_rpm: default_rate_limit(),
             rate_limit_cleanup_interval_secs: default_cleanup_interval(),
@@ -555,6 +571,52 @@ mod tests {
         assert!(json.contains("enabled"));
         assert!(json.contains("ttl_short_secs"));
         assert!(json.contains("l1_max_entries"));
+    }
+
+    #[test]
+    fn security_config_api_key_users_default_empty() {
+        let config = SecurityConfig::default();
+        assert!(config.api_key_users.is_empty());
+    }
+
+    #[test]
+    fn security_config_api_key_users_deserialize() {
+        let json = r#"{"api_key_users":{"sk-abc123":"550e8400-e29b-41d4-a716-446655440000","sk-xyz789":"6ba7b810-9dad-11d1-80b4-00c04fd430c8"}}"#;
+        let config: SecurityConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.api_key_users.len(), 2);
+        assert_eq!(
+            config.api_key_users.get("sk-abc123"),
+            Some(&"550e8400-e29b-41d4-a716-446655440000".to_string())
+        );
+        assert_eq!(
+            config.api_key_users.get("sk-xyz789"),
+            Some(&"6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string())
+        );
+    }
+
+    #[test]
+    fn security_config_api_key_users_serialize() {
+        let mut config = SecurityConfig::default();
+        config.api_key_users.insert(
+            "sk-test".to_string(),
+            "550e8400-e29b-41d4-a716-446655440000".to_string(),
+        );
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("api_key_users"));
+        assert!(json.contains("sk-test"));
+    }
+
+    #[test]
+    fn security_config_api_key_users_lookup() {
+        let json = r#"{"api_key_users":{"my-key":"user-uuid-123"}}"#;
+        let config: SecurityConfig = serde_json::from_str(json).unwrap();
+        // Key exists
+        assert_eq!(
+            config.api_key_users.get("my-key"),
+            Some(&"user-uuid-123".to_string())
+        );
+        // Key does not exist
+        assert_eq!(config.api_key_users.get("unknown-key"), None);
     }
 }
 

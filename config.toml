@@ -39,8 +39,15 @@ top_p = 0.9
 [security]
 # Whitelisted phone numbers for WhatsApp (empty = allow all)
 whitelisted_phones = []
-# API key for HTTP API authentication (optional)
+# API key for HTTP API authentication (optional, legacy single-key mode)
 # api_key = "your-secret-key"
+
+# API key to User ID mapping for multi-user authentication
+# Maps API keys to their corresponding user UUIDs
+# [security.api_key_users]
+# "sk-abc123" = "550e8400-e29b-41d4-a716-446655440000"
+# "sk-xyz789" = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+
 # Enable rate limiting
 rate_limit_enabled = true
 # Requests per minute per IP
