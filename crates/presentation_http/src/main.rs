@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use application::{AgentService, ApprovalService, ChatService, ports::ConversationStore};
 use infrastructure::{
-    ApiKeyHasher, AppConfig, HailoInferenceAdapter,
+    ApiKeyHasher, AppConfig, HailoInferenceAdapter, SecurityValidator,
     adapters::{DegradedInferenceAdapter, DegradedModeConfig},
     persistence::{SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, create_pool},
     telemetry::{TelemetryConfig, init_telemetry},
@@ -21,7 +21,7 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// System prompt for the AI assistant
@@ -74,6 +74,20 @@ async fn main() -> anyhow::Result<()> {
     init_tracing(&initial_config.server.log_format);
 
     info!("🤖 PiSovereign v{} starting...", env!("CARGO_PKG_VERSION"));
+
+    // Validate security configuration
+    let security_warnings = SecurityValidator::validate(&initial_config);
+    if !security_warnings.is_empty() {
+        SecurityValidator::log_warnings(&security_warnings);
+
+        if SecurityValidator::should_block_startup(&initial_config, &security_warnings) {
+            error!(
+                "🛑 Startup blocked due to critical security issues in production mode. \
+                 Set PISOVEREIGN_ALLOW_INSECURE_CONFIG=true to override (not recommended)."
+            );
+            std::process::exit(1);
+        }
+    }
 
     info!(
         host = %initial_config.server.host,
