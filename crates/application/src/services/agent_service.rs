@@ -244,18 +244,38 @@ impl AgentService {
             }),
 
             SystemCommand::ListModels => {
-                // TODO: Query available models from Hailo
-                Ok(ExecutionResult {
-                    success: true,
-                    response: format!(
-                        "📦 Available Models:\n\n\
-                         • qwen2.5-1.5b-instruct (active)\n\
-                         • llama3.2-1b-instruct\n\
-                         • qwen2-1.5b-function-calling\n\n\
-                         Current: {}",
-                        self.inference.current_model()
-                    ),
-                })
+                let current_model = self.inference.current_model();
+                match self.inference.list_available_models().await {
+                    Ok(models) => {
+                        let model_list: String = models
+                            .iter()
+                            .map(|m| {
+                                if m == &current_model {
+                                    format!("• {m} (active)")
+                                } else {
+                                    format!("• {m}")
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+
+                        Ok(ExecutionResult {
+                            success: true,
+                            response: format!(
+                                "📦 Available Models:\n\n{model_list}\n\nCurrent: {current_model}"
+                            ),
+                        })
+                    },
+                    Err(e) => {
+                        warn!(error = %e, "Failed to list models from inference service");
+                        Ok(ExecutionResult {
+                            success: false,
+                            response: format!(
+                                "⚠️ Could not retrieve model list: {e}\n\nCurrent: {current_model}"
+                            ),
+                        })
+                    },
+                }
             },
 
             SystemCommand::SwitchModel { model_name } => {
@@ -1008,10 +1028,17 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn execute_system_list_models() {
+    async fn execute_system_list_models_success() {
         let mut mock = MockInferenceEngine::new();
         mock.expect_current_model()
             .returning(|| "qwen2.5-1.5b".to_string());
+        mock.expect_list_available_models().returning(|| {
+            Ok(vec![
+                "qwen2.5-1.5b".to_string(),
+                "llama3.2-1b".to_string(),
+                "mistral-7b".to_string(),
+            ])
+        });
 
         let service = AgentService::new(Arc::new(mock));
 
@@ -1021,7 +1048,53 @@ mod async_tests {
             .unwrap();
 
         assert!(result.success);
-        assert!(result.response.contains("Models"));
+        assert!(result.response.contains("Available Models"));
+        assert!(result.response.contains("qwen2.5-1.5b (active)"));
+        assert!(result.response.contains("• llama3.2-1b"));
+        assert!(result.response.contains("• mistral-7b"));
+        assert!(!result.response.contains("llama3.2-1b (active)"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_list_models_error_fallback() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_current_model()
+            .returning(|| "qwen2.5-1.5b".to_string());
+        mock.expect_list_available_models().returning(|| {
+            Err(ApplicationError::ExternalService(
+                "Circuit breaker open".to_string(),
+            ))
+        });
+
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::ListModels))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result.response.contains("Could not retrieve model list"));
+        assert!(result.response.contains("Current: qwen2.5-1.5b"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_list_models_empty() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_current_model()
+            .returning(|| "unknown".to_string());
+        mock.expect_list_available_models().returning(|| Ok(vec![]));
+
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::ListModels))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Available Models"));
+        assert!(result.response.contains("Current: unknown"));
     }
 
     #[tokio::test]
