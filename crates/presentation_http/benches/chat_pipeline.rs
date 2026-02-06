@@ -3,6 +3,8 @@
 //! These benchmarks measure the performance of the chat service and HTTP handlers
 //! using a mock inference engine to isolate the pipeline overhead.
 
+#![allow(clippy::expect_used)]
+
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use application::{
@@ -341,10 +343,7 @@ fn bench_conversation_accumulation(c: &mut Criterion) {
                     let mut conv_id = None;
                     for i in 0..count {
                         let (_, id) = chat_service
-                            .chat_with_context(
-                                &format!("Message number {i}"),
-                                conv_id.as_deref(),
-                            )
+                            .chat_with_context(&format!("Message number {i}"), conv_id.as_deref())
                             .await
                             .expect("Chat should succeed");
                         conv_id = Some(id.to_string());

@@ -981,14 +981,16 @@ mod workflow_tests {
             location: Option<&GeoLocation>,
         ) -> Result<bool, ApplicationError> {
             let mut store = self.profiles.write().await;
-            store.get_mut(&user_id.to_string()).map_or(Ok(false), |profile| {
-                if let Some(loc) = location {
-                    profile.update_location(*loc);
-                } else {
-                    profile.clear_location();
-                }
-                Ok(true)
-            })
+            store
+                .get_mut(&user_id.to_string())
+                .map_or(Ok(false), |profile| {
+                    if let Some(loc) = location {
+                        profile.update_location(*loc);
+                    } else {
+                        profile.clear_location();
+                    }
+                    Ok(true)
+                })
         }
 
         async fn update_timezone(
@@ -997,10 +999,12 @@ mod workflow_tests {
             timezone: &Timezone,
         ) -> Result<bool, ApplicationError> {
             let mut store = self.profiles.write().await;
-            store.get_mut(&user_id.to_string()).map_or(Ok(false), |profile| {
-                profile.update_timezone(timezone.clone());
-                Ok(true)
-            })
+            store
+                .get_mut(&user_id.to_string())
+                .map_or(Ok(false), |profile| {
+                    profile.update_timezone(timezone.clone());
+                    Ok(true)
+                })
         }
     }
 
@@ -1338,8 +1342,7 @@ mod workflow_tests {
         ));
 
         let agent_service = Arc::new(
-            AgentService::new(inference)
-                .with_draft_store(draft_store as Arc<dyn DraftStorePort>),
+            AgentService::new(inference).with_draft_store(draft_store as Arc<dyn DraftStorePort>),
         );
 
         let state = AppState {
@@ -1363,7 +1366,9 @@ mod workflow_tests {
 
         response.assert_status_ok();
         let body: serde_json::Value = response.json();
-        let conversation_id = body["conversation_id"].as_str().expect("Should have conversation_id");
+        let conversation_id = body["conversation_id"]
+            .as_str()
+            .expect("Should have conversation_id");
         assert!(!body["message"].as_str().unwrap().is_empty());
 
         // Second message - continues conversation
@@ -1442,10 +1447,7 @@ mod workflow_tests {
             conversation_store,
         ));
 
-        let agent_service = Arc::new(
-            AgentService::new(inference)
-                .with_draft_store(draft_store),
-        );
+        let agent_service = Arc::new(AgentService::new(inference).with_draft_store(draft_store));
 
         let state = AppState {
             chat_service,

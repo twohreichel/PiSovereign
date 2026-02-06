@@ -180,13 +180,15 @@ async fn main() -> anyhow::Result<()> {
                         println!();
                         match hasher.verify(&api_key, &hash) {
                             Ok(true) => println!("✅ Verification: Hash verified successfully"),
-                            Ok(false) => println!("❌ Verification: Hash does NOT match (unexpected)"),
+                            Ok(false) => {
+                                println!("❌ Verification: Hash does NOT match (unexpected)");
+                            },
                             Err(e) => println!("❌ Verification error: {e}"),
                         }
                     }
                 },
                 Err(e) => {
-                    eprintln!("❌ Failed to hash API key: {e}");
+                    println!("❌ Failed to hash API key: {e}");
                     std::process::exit(1);
                 },
             }

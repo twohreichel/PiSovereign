@@ -267,8 +267,12 @@ mod tests {
         assert!(ApiKeyHasher::is_hashed(
             "$argon2id$v=19$m=19456,t=2,p=1$abc$def"
         ));
-        assert!(ApiKeyHasher::is_hashed("$argon2i$v=19$m=65536,t=3,p=4$abc$def"));
-        assert!(ApiKeyHasher::is_hashed("$argon2d$v=19$m=65536,t=3,p=4$abc$def"));
+        assert!(ApiKeyHasher::is_hashed(
+            "$argon2i$v=19$m=65536,t=3,p=4$abc$def"
+        ));
+        assert!(ApiKeyHasher::is_hashed(
+            "$argon2d$v=19$m=65536,t=3,p=4$abc$def"
+        ));
     }
 
     #[test]

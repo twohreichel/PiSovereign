@@ -54,7 +54,7 @@ impl ApiKeyUserMap {
 
     /// Create from a HashMap
     #[must_use]
-    pub fn from_map(map: HashMap<String, String>) -> Self {
+    pub const fn from_map(map: HashMap<String, String>) -> Self {
         Self { inner: map }
     }
 
@@ -285,9 +285,7 @@ mod tests {
     }
 
     /// Handler that extracts and returns the user ID from RequestContext
-    async fn user_id_handler(
-        Extension(ctx): Extension<RequestContext>,
-    ) -> String {
+    async fn user_id_handler(Extension(ctx): Extension<RequestContext>) -> String {
         ctx.user_id().to_string()
     }
 
@@ -508,14 +506,9 @@ mod tests {
         );
 
         // Create layer with both single key and multi-user
-        let layer = ApiKeyAuthLayer::with_config(
-            Some("sk-single".to_string()),
-            users,
-        );
+        let layer = ApiKeyAuthLayer::with_config(Some("sk-single".to_string()), users);
 
-        let app = Router::new()
-            .route("/test", get(test_handler))
-            .layer(layer);
+        let app = Router::new().route("/test", get(test_handler)).layer(layer);
 
         // Multi-user key should work
         let response = app

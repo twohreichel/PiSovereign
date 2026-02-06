@@ -58,6 +58,7 @@ fn init_tracing(log_format: &str) {
 }
 
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() -> anyhow::Result<()> {
     // Load configuration first to determine log format
     let initial_config = AppConfig::load().unwrap_or_else(|e| {
@@ -84,7 +85,11 @@ async fn main() -> anyhow::Result<()> {
     // Security check: warn about plaintext API keys
     if !initial_config.security.api_key_users.is_empty() {
         let plaintext_count = ApiKeyHasher::detect_plaintext_keys(
-            initial_config.security.api_key_users.keys().map(String::as_str),
+            initial_config
+                .security
+                .api_key_users
+                .keys()
+                .map(String::as_str),
         );
         if plaintext_count > 0 {
             warn!(

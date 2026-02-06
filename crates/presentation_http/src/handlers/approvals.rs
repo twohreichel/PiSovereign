@@ -90,9 +90,7 @@ pub async fn list_approvals(
     };
 
     // Extract user ID from request context, fall back to default for backward compatibility
-    let user_id = ctx
-        .map(|Extension(c)| c.user_id())
-        .unwrap_or_default();
+    let user_id = ctx.map(|Extension(c)| c.user_id()).unwrap_or_default();
     let limit = query.limit.unwrap_or(50);
 
     // Currently only pending requests are supported via the API
@@ -206,9 +204,7 @@ pub async fn approve_request(
         .map_err(|e| ApiError::BadRequest(format!("Invalid approval ID: {e}")))?;
 
     // Extract user ID from request context, fall back to default for backward compatibility
-    let user_id = ctx
-        .map(|Extension(c)| c.user_id())
-        .unwrap_or_default();
+    let user_id = ctx.map(|Extension(c)| c.user_id()).unwrap_or_default();
 
     let request = approval_service.approve(&approval_id, &user_id).await?;
 
@@ -264,9 +260,7 @@ pub async fn deny_request(
         .map_err(|e| ApiError::BadRequest(format!("Invalid approval ID: {e}")))?;
 
     // Extract user ID from request context, fall back to default for backward compatibility
-    let user_id = ctx
-        .map(|Extension(c)| c.user_id())
-        .unwrap_or_default();
+    let user_id = ctx.map(|Extension(c)| c.user_id()).unwrap_or_default();
 
     let request = approval_service
         .deny(&approval_id, &user_id, body.reason)
@@ -322,9 +316,7 @@ pub async fn cancel_request(
         .map_err(|e| ApiError::BadRequest(format!("Invalid approval ID: {e}")))?;
 
     // Extract user ID from request context, fall back to default for backward compatibility
-    let user_id = ctx
-        .map(|Extension(c)| c.user_id())
-        .unwrap_or_default();
+    let user_id = ctx.map(|Extension(c)| c.user_id()).unwrap_or_default();
 
     let request = approval_service.cancel(&approval_id, &user_id).await?;
 
