@@ -220,18 +220,13 @@ impl WhatsAppClient {
     pub async fn is_available(&self) -> bool {
         // Try to get business profile as a health check
         // This is a read-only operation that doesn't send messages
-        let response = self
-            .client
+        self.client
             .get(format!("{}/whatsapp_business_profile", self.base_url))
             .bearer_auth(&self.config.access_token)
             .query(&[("fields", "about,address,description,vertical")])
             .send()
-            .await;
-
-        match response {
-            Ok(res) => res.status().is_success(),
-            Err(_) => false,
-        }
+            .await
+            .map_or(false, |res| res.status().is_success())
     }
 }
 
