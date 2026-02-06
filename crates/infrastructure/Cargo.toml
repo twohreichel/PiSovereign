@@ -52,3 +52,4 @@ metrics.workspace = true
 [dev-dependencies]
 tokio-test.workspace = true
 mockall.workspace = true
+wiremock.workspace = true
