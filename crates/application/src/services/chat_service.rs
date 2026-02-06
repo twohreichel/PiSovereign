@@ -208,18 +208,19 @@ impl ChatService {
             let conv_id = ConversationId::parse(id_str).map_err(|e| {
                 ApplicationError::InvalidOperation(format!("Invalid conversation ID: {e}"))
             })?;
-            if let Some(conv) = store.get(&conv_id).await? {
-                (conv, false)
-            } else {
-                // Create new conversation with the provided ID
-                let mut conv = self
-                    .system_prompt
-                    .as_ref()
-                    .map_or_else(Conversation::new, Conversation::with_system_prompt);
-                // Override the auto-generated ID with the provided one
-                conv.id = conv_id;
-                (conv, true)
-            }
+            store.get(&conv_id).await?.map_or_else(
+                || {
+                    // Create new conversation with the provided ID
+                    let mut conv = self
+                        .system_prompt
+                        .as_ref()
+                        .map_or_else(Conversation::new, Conversation::with_system_prompt);
+                    // Override the auto-generated ID with the provided one
+                    conv.id = conv_id;
+                    (conv, true)
+                },
+                |conv| (conv, false),
+            )
         } else {
             // Create new conversation with auto-generated ID
             let conv = self

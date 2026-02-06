@@ -53,16 +53,10 @@ pub struct ApiKeyHasher {
 }
 
 /// Configuration for Argon2 hashing
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct Argon2Config {
     // Using Argon2 defaults which are secure for most use cases
     // Memory: 19 MiB, Iterations: 2, Parallelism: 1
-}
-
-impl Default for Argon2Config {
-    fn default() -> Self {
-        Self {}
-    }
 }
 
 impl ApiKeyHasher {
@@ -286,13 +280,13 @@ mod tests {
 
     #[test]
     fn detect_plaintext_keys_counts_correctly() {
-        let keys = vec![
+        let keys: &[&str] = &[
             "sk-plaintext-1",
             "$argon2id$v=19$m=19456,t=2,p=1$abc$def",
             "sk-plaintext-2",
         ];
 
-        let count = ApiKeyHasher::detect_plaintext_keys(keys.iter().map(|s| s.as_ref()));
+        let count = ApiKeyHasher::detect_plaintext_keys(keys.iter().copied());
         assert_eq!(count, 2);
     }
 

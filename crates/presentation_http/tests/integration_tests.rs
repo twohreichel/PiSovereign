@@ -981,16 +981,14 @@ mod workflow_tests {
             location: Option<&GeoLocation>,
         ) -> Result<bool, ApplicationError> {
             let mut store = self.profiles.write().await;
-            if let Some(profile) = store.get_mut(&user_id.to_string()) {
+            store.get_mut(&user_id.to_string()).map_or(Ok(false), |profile| {
                 if let Some(loc) = location {
                     profile.update_location(*loc);
                 } else {
                     profile.clear_location();
                 }
                 Ok(true)
-            } else {
-                Ok(false)
-            }
+            })
         }
 
         async fn update_timezone(
@@ -999,12 +997,10 @@ mod workflow_tests {
             timezone: &Timezone,
         ) -> Result<bool, ApplicationError> {
             let mut store = self.profiles.write().await;
-            if let Some(profile) = store.get_mut(&user_id.to_string()) {
+            store.get_mut(&user_id.to_string()).map_or(Ok(false), |profile| {
                 profile.update_timezone(timezone.clone());
                 Ok(true)
-            } else {
-                Ok(false)
-            }
+            })
         }
     }
 

@@ -20,7 +20,6 @@ pub enum ApiError {
     Unauthorized(String),
 
     #[error("Not found: {0}")]
-    #[allow(dead_code)]
     NotFound(String),
 
     #[error("Rate limited")]

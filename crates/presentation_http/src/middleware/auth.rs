@@ -47,7 +47,9 @@ impl ApiKeyUserMap {
     /// Create a new empty API key user map
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            inner: HashMap::new(),
+        }
     }
 
     /// Create from a HashMap
@@ -260,8 +262,7 @@ fn inject_request_context(req: &mut Request, user_id: UserId) {
     let request_id = req
         .extensions()
         .get::<RequestId>()
-        .map(|r| r.0)
-        .unwrap_or_else(uuid::Uuid::new_v4);
+        .map_or_else(uuid::Uuid::new_v4, |r| r.0);
 
     let ctx = RequestContext::with_request_id(user_id, request_id);
     req.extensions_mut().insert(ctx);
