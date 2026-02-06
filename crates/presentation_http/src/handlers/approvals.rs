@@ -2,8 +2,9 @@
 //!
 //! REST API endpoints for managing approval requests.
 
+use application::RequestContext;
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
@@ -76,9 +77,10 @@ pub struct DenyRequest {
     ),
     security(("api_key" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, ctx))]
 pub async fn list_approvals(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     axum::extract::Query(query): axum::extract::Query<ListApprovalsQuery>,
 ) -> Result<Json<Vec<ApprovalResponse>>, ApiError> {
     let Some(approval_service) = &state.approval_service else {
@@ -87,8 +89,10 @@ pub async fn list_approvals(
         ));
     };
 
-    // For now, use a default user ID. In production, this would come from auth.
-    let user_id = UserId::default();
+    // Extract user ID from request context, fall back to default for backward compatibility
+    let user_id = ctx
+        .map(|Extension(c)| c.user_id())
+        .unwrap_or_else(UserId::default);
     let limit = query.limit.unwrap_or(50);
 
     // Currently only pending requests are supported via the API
@@ -186,9 +190,10 @@ pub async fn get_approval(
     ),
     security(("api_key" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, ctx))]
 pub async fn approve_request(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let Some(approval_service) = &state.approval_service else {
@@ -200,8 +205,10 @@ pub async fn approve_request(
     let approval_id = ApprovalId::parse(&id)
         .map_err(|e| ApiError::BadRequest(format!("Invalid approval ID: {e}")))?;
 
-    // For now, use a default user ID. In production, this would come from auth.
-    let user_id = UserId::default();
+    // Extract user ID from request context, fall back to default for backward compatibility
+    let user_id = ctx
+        .map(|Extension(c)| c.user_id())
+        .unwrap_or_else(UserId::default);
 
     let request = approval_service.approve(&approval_id, &user_id).await?;
 
@@ -240,9 +247,10 @@ pub async fn approve_request(
     ),
     security(("api_key" = []))
 )]
-#[instrument(skip(state, body))]
+#[instrument(skip(state, ctx, body))]
 pub async fn deny_request(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     Path(id): Path<String>,
     Json(body): Json<DenyRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -255,8 +263,10 @@ pub async fn deny_request(
     let approval_id = ApprovalId::parse(&id)
         .map_err(|e| ApiError::BadRequest(format!("Invalid approval ID: {e}")))?;
 
-    // For now, use a default user ID. In production, this would come from auth.
-    let user_id = UserId::default();
+    // Extract user ID from request context, fall back to default for backward compatibility
+    let user_id = ctx
+        .map(|Extension(c)| c.user_id())
+        .unwrap_or_else(UserId::default);
 
     let request = approval_service
         .deny(&approval_id, &user_id, body.reason)
@@ -296,9 +306,10 @@ pub async fn deny_request(
     ),
     security(("api_key" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, ctx))]
 pub async fn cancel_request(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let Some(approval_service) = &state.approval_service else {
@@ -310,8 +321,10 @@ pub async fn cancel_request(
     let approval_id = ApprovalId::parse(&id)
         .map_err(|e| ApiError::BadRequest(format!("Invalid approval ID: {e}")))?;
 
-    // For now, use a default user ID. In production, this would come from auth.
-    let user_id = UserId::default();
+    // Extract user ID from request context, fall back to default for backward compatibility
+    let user_id = ctx
+        .map(|Extension(c)| c.user_id())
+        .unwrap_or_else(UserId::default);
 
     let request = approval_service.cancel(&approval_id, &user_id).await?;
 

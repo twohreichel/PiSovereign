@@ -8,7 +8,7 @@ pub mod rate_limit;
 pub mod request_id;
 pub mod validation;
 
-pub use auth::{ApiKeyAuth, ApiKeyAuthLayer};
+pub use auth::{ApiKeyAuth, ApiKeyAuthLayer, ApiKeyUserMap};
 pub use rate_limit::{
     RateLimiter, RateLimiterConfig, RateLimiterLayer, RateLimiterState, spawn_cleanup_task,
 };

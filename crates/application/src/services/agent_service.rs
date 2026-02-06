@@ -143,6 +143,19 @@ impl AgentService {
     /// Parse and execute a command from natural language input
     #[instrument(skip(self, input), fields(input_len = input.len()))]
     pub async fn handle_input(&self, input: &str) -> Result<CommandResult, ApplicationError> {
+        self.handle_input_with_user(input, None).await
+    }
+
+    /// Parse and execute a command with explicit user context
+    ///
+    /// This method should be used when the caller has access to the authenticated
+    /// user's identity (e.g., from `RequestContext` in HTTP handlers).
+    #[instrument(skip(self, input, user_id), fields(input_len = input.len()))]
+    pub async fn handle_input_with_user(
+        &self,
+        input: &str,
+        user_id: Option<UserId>,
+    ) -> Result<CommandResult, ApplicationError> {
         let start = Instant::now();
 
         // First, try to parse the command using the LLM
@@ -166,8 +179,8 @@ impl AgentService {
             });
         }
 
-        // Execute the command
-        let result = self.execute_command(&command).await?;
+        // Execute the command with user context
+        let result = self.execute_command_with_user(&command, user_id).await?;
 
         #[allow(clippy::cast_possible_truncation)]
         Ok(CommandResult {
@@ -184,6 +197,20 @@ impl AgentService {
     pub async fn execute_command(
         &self,
         command: &AgentCommand,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        self.execute_command_with_user(command, None).await
+    }
+
+    /// Execute a specific command with explicit user context
+    ///
+    /// This method should be used when the caller has access to the authenticated
+    /// user's identity. Commands that need user context (like fetching tasks)
+    /// will use the provided user ID instead of the default.
+    #[instrument(skip(self, command, user_id))]
+    pub async fn execute_command_with_user(
+        &self,
+        command: &AgentCommand,
+        user_id: Option<UserId>,
     ) -> Result<ExecutionResult, ApplicationError> {
         match command {
             AgentCommand::Echo { message } => Ok(ExecutionResult {
@@ -209,7 +236,9 @@ impl AgentService {
                 })
             },
 
-            AgentCommand::MorningBriefing { date } => self.handle_morning_briefing(*date).await,
+            AgentCommand::MorningBriefing { date } => {
+                self.handle_morning_briefing(*date, user_id).await
+            },
 
             AgentCommand::SummarizeInbox {
                 count,
@@ -386,6 +415,7 @@ impl AgentService {
     async fn handle_morning_briefing(
         &self,
         date: Option<chrono::NaiveDate>,
+        user_id: Option<UserId>,
     ) -> Result<ExecutionResult, ApplicationError> {
         use chrono::Local;
 
@@ -450,10 +480,11 @@ impl AgentService {
         };
 
         // Collect task data if service available
+        // Use provided user_id from request context, fall back to default
         let task_brief = if let Some(ref task_svc) = self.task_service {
-            // TODO: Get user_id from RequestContext once HTTP middleware is updated
-            let user_id = UserId::default();
-            self.fetch_task_brief(task_svc.as_ref(), &user_id).await
+            let effective_user_id = user_id.unwrap_or_default();
+            self.fetch_task_brief(task_svc.as_ref(), &effective_user_id)
+                .await
         } else {
             TaskBrief::default()
         };

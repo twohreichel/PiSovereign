@@ -218,8 +218,11 @@ async fn main() -> anyhow::Result<()> {
         Duration::from_secs(initial_config.security.rate_limit_cleanup_max_age_secs),
     );
 
-    // Configure API key auth
-    let auth_layer = ApiKeyAuthLayer::new(initial_config.security.api_key.clone());
+    // Configure API key auth with both single-key and multi-user support
+    let auth_layer = ApiKeyAuthLayer::with_config(
+        initial_config.security.api_key.clone(),
+        initial_config.security.api_key_users.clone(),
+    );
 
     // Add middleware (order matters: first added = outermost)
     // Request ID layer is outermost to ensure all logs have the correlation ID

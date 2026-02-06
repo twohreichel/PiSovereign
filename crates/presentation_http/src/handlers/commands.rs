@@ -1,7 +1,7 @@
 //! Command handlers
 
-use application::ApprovalStatus;
-use axum::{Json, extract::State};
+use application::{ApprovalStatus, RequestContext};
+use axum::{Extension, Json, extract::State};
 use domain::AgentCommand;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -54,16 +54,23 @@ pub struct ExecuteCommandResponse {
     ),
     security(("api_key" = []))
 )]
-#[instrument(skip(state, request), fields(input_len = request.input.len()))]
+#[instrument(skip(state, ctx, request), fields(input_len = request.input.len()))]
 pub async fn execute_command(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     Json(request): Json<ExecuteCommandRequest>,
 ) -> Result<Json<ExecuteCommandResponse>, ApiError> {
     if request.input.trim().is_empty() {
         return Err(ApiError::BadRequest("Input cannot be empty".to_string()));
     }
 
-    let result = state.agent_service.handle_input(&request.input).await?;
+    // Extract user ID from request context for user-specific operations
+    let user_id = ctx.map(|Extension(c)| c.user_id());
+
+    let result = state
+        .agent_service
+        .handle_input_with_user(&request.input, user_id)
+        .await?;
 
     Ok(Json(ExecuteCommandResponse {
         success: result.success,
