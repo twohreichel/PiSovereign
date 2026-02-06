@@ -292,8 +292,7 @@ pub trait CalDavTaskClient: Send + Sync {
 
 impl HttpCalDavClient {
     /// Parse VTODO components from iCalendar data
-    #[allow(clippy::unused_self)]
-    pub(crate) fn parse_vtodo(&self, ical_data: &str) -> Result<Vec<CalendarTask>, CalDavError> {
+    pub(crate) fn parse_vtodo(ical_data: &str) -> Result<Vec<CalendarTask>, CalDavError> {
         let calendars = parser::unfold(ical_data);
         let parsed = parser::read_calendar(&calendars)
             .map_err(|e| CalDavError::ParseError(format!("iCalendar parse error: {e}")))?;
@@ -419,8 +418,7 @@ impl HttpCalDavClient {
     }
 
     /// Build iCalendar VTODO from `CalendarTask`
-    #[allow(clippy::unused_self)]
-    fn build_vtodo(&self, task: &CalendarTask) -> String {
+    fn build_vtodo(task: &CalendarTask) -> String {
         let now: DateTime<Utc> = Utc::now();
         let dtstamp = now.format("%Y%m%dT%H%M%SZ").to_string();
 
@@ -542,7 +540,7 @@ impl CalDavTaskClient for HttpCalDavClient {
 
         let mut all_tasks = Vec::new();
         for ical_data in ical_data_list {
-            if let Ok(tasks) = self.parse_vtodo(&ical_data) {
+            if let Ok(tasks) = Self::parse_vtodo(&ical_data) {
                 all_tasks.extend(tasks);
             }
         }
@@ -600,7 +598,7 @@ impl CalDavTaskClient for HttpCalDavClient {
         task: &CalendarTask,
     ) -> Result<String, CalDavError> {
         let url = self.task_url(calendar, &task.id);
-        let ical = self.build_vtodo(task);
+        let ical = Self::build_vtodo(task);
 
         let response = self
             .client

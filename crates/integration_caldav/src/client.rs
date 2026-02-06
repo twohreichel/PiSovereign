@@ -164,8 +164,7 @@ impl HttpCalDavClient {
     }
 
     /// Parse iCalendar data to extract events
-    #[allow(clippy::unused_self)]
-    fn parse_icalendar(&self, ical_data: &str) -> Result<Vec<CalendarEvent>, CalDavError> {
+    fn parse_icalendar(ical_data: &str) -> Result<Vec<CalendarEvent>, CalDavError> {
         use icalendar::{CalendarComponent, Component, parser};
 
         let calendars = parser::unfold(ical_data);
@@ -281,8 +280,7 @@ impl HttpCalDavClient {
     }
 
     /// Build iCalendar VEVENT from `CalendarEvent`
-    #[allow(clippy::unused_self)]
-    fn build_icalendar(&self, event: &CalendarEvent) -> String {
+    fn build_icalendar(event: &CalendarEvent) -> String {
         use chrono::{NaiveDateTime, TimeZone};
 
         let now: DateTime<Utc> = Utc::now();
@@ -445,7 +443,7 @@ impl CalDavClient for HttpCalDavClient {
 
         let mut all_events = Vec::new();
         for ical_data in ical_data_list {
-            if let Ok(events) = self.parse_icalendar(&ical_data) {
+            if let Ok(events) = Self::parse_icalendar(&ical_data) {
                 all_events.extend(events);
             }
         }
@@ -464,7 +462,7 @@ impl CalDavClient for HttpCalDavClient {
             self.calendar_url(calendar).trim_end_matches('/'),
             event.id
         );
-        let ical = self.build_icalendar(event);
+        let ical = Self::build_icalendar(event);
 
         let response = self
             .client
@@ -699,7 +697,7 @@ mod tests {
     #[test]
     fn http_client_build_icalendar_basic() {
         let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
-        let client = HttpCalDavClient::new(config).unwrap();
+        let _client = HttpCalDavClient::new(config).unwrap();
 
         let event = CalendarEvent {
             id: "test-event-123".to_string(),
@@ -711,7 +709,7 @@ mod tests {
             attendees: vec!["user@example.com".to_string()],
         };
 
-        let ical = client.build_icalendar(&event);
+        let ical = HttpCalDavClient::build_icalendar(&event);
 
         assert!(ical.starts_with("BEGIN:VCALENDAR\r\n"));
         assert!(ical.ends_with("END:VCALENDAR\r\n"));
@@ -727,7 +725,7 @@ mod tests {
     #[test]
     fn http_client_build_icalendar_no_optional_fields() {
         let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
-        let client = HttpCalDavClient::new(config).unwrap();
+        let _client = HttpCalDavClient::new(config).unwrap();
 
         let event = CalendarEvent {
             id: "simple-event".to_string(),
@@ -739,7 +737,7 @@ mod tests {
             attendees: vec![],
         };
 
-        let ical = client.build_icalendar(&event);
+        let ical = HttpCalDavClient::build_icalendar(&event);
 
         assert!(ical.contains("UID:simple-event\r\n"));
         assert!(ical.contains("SUMMARY:Simple Event\r\n"));
@@ -751,7 +749,7 @@ mod tests {
     #[test]
     fn http_client_parse_icalendar_valid() {
         let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
-        let client = HttpCalDavClient::new(config).unwrap();
+        let _client = HttpCalDavClient::new(config).unwrap();
 
         let ical_data = r"BEGIN:VCALENDAR
 VERSION:2.0
@@ -766,7 +764,7 @@ LOCATION:Test Location
 END:VEVENT
 END:VCALENDAR";
 
-        let events = client.parse_icalendar(ical_data).unwrap();
+        let events = HttpCalDavClient::parse_icalendar(ical_data).unwrap();
         assert_eq!(events.len(), 1);
 
         let event = &events[0];
@@ -781,7 +779,7 @@ END:VCALENDAR";
     #[test]
     fn http_client_parse_icalendar_multiple_events() {
         let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
-        let client = HttpCalDavClient::new(config).unwrap();
+        let _client = HttpCalDavClient::new(config).unwrap();
 
         let ical_data = r"BEGIN:VCALENDAR
 VERSION:2.0
@@ -799,7 +797,7 @@ DTEND:20250201T120000Z
 END:VEVENT
 END:VCALENDAR";
 
-        let events = client.parse_icalendar(ical_data).unwrap();
+        let events = HttpCalDavClient::parse_icalendar(ical_data).unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].id, "event-1");
         assert_eq!(events[0].summary, "First Event");
@@ -810,7 +808,7 @@ END:VCALENDAR";
     #[test]
     fn http_client_parse_icalendar_skips_incomplete_events() {
         let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
-        let client = HttpCalDavClient::new(config).unwrap();
+        let _client = HttpCalDavClient::new(config).unwrap();
 
         // Event without UID should be skipped
         let ical_data = r"BEGIN:VCALENDAR
@@ -828,7 +826,7 @@ DTEND:20250201T120000Z
 END:VEVENT
 END:VCALENDAR";
 
-        let events = client.parse_icalendar(ical_data).unwrap();
+        let events = HttpCalDavClient::parse_icalendar(ical_data).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].id, "valid-event");
     }
@@ -836,10 +834,10 @@ END:VCALENDAR";
     #[test]
     fn http_client_parse_icalendar_empty_result() {
         let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
-        let client = HttpCalDavClient::new(config).unwrap();
+        let _client = HttpCalDavClient::new(config).unwrap();
 
         // Parser is lenient; non-calendar data returns empty events
-        let result = client.parse_icalendar("not valid icalendar data");
+        let result = HttpCalDavClient::parse_icalendar("not valid icalendar data");
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }
