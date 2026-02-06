@@ -119,6 +119,14 @@ Prometheus metrics at `/metrics/prometheus`:
 
 Grafana dashboard available in `grafana/dashboards/pisovereign.json`.
 
+## Documentation
+
+Detailed guides are available in the `docs/` directory:
+
+- **[Deployment Guide](docs/deployment.md)** – Production deployment with Docker or native binaries
+- **[Hardware Setup](docs/hardware-setup.md)** – Raspberry Pi 5 + Hailo-10H assembly and configuration
+- **[Security Guide](docs/security.md)** – API key hashing, TLS, CORS, and security best practices
+
 ## Development
 
 ```bash
