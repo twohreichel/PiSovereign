@@ -30,6 +30,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub cache: CacheConfig,
 
+    /// Weather configuration (optional)
+    #[serde(default)]
+    pub weather: Option<WeatherConfig>,
+
     /// Telemetry configuration (optional)
     #[serde(default)]
     pub telemetry: Option<TelemetryAppConfig>,
@@ -617,6 +621,79 @@ mod tests {
         );
         // Key does not exist
         assert_eq!(config.api_key_users.get("unknown-key"), None);
+    }
+}
+
+/// Weather service configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeatherConfig {
+    /// Open-Meteo API base URL
+    #[serde(default = "default_weather_base_url")]
+    pub base_url: String,
+
+    /// Connection timeout in seconds
+    #[serde(default = "default_weather_timeout")]
+    pub timeout_secs: u64,
+
+    /// Number of forecast days (1-16)
+    #[serde(default = "default_forecast_days")]
+    pub forecast_days: u8,
+
+    /// Cache TTL in minutes
+    #[serde(default = "default_cache_ttl_minutes")]
+    pub cache_ttl_minutes: u32,
+
+    /// Default location for weather when user profile has no location
+    ///
+    /// Configured as inline table: `{ latitude = 52.52, longitude = 13.405 }`
+    #[serde(default)]
+    pub default_location: Option<GeoLocationConfig>,
+}
+
+/// Geographic location configuration (latitude/longitude pair)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct GeoLocationConfig {
+    /// Latitude (-90.0 to 90.0)
+    pub latitude: f64,
+    /// Longitude (-180.0 to 180.0)
+    pub longitude: f64,
+}
+
+impl GeoLocationConfig {
+    /// Convert to domain GeoLocation value object
+    ///
+    /// Returns `None` if coordinates are invalid.
+    #[must_use]
+    pub fn to_geo_location(&self) -> Option<domain::GeoLocation> {
+        domain::GeoLocation::new(self.latitude, self.longitude).ok()
+    }
+}
+
+fn default_weather_base_url() -> String {
+    "https://api.open-meteo.com/v1".to_string()
+}
+
+const fn default_weather_timeout() -> u64 {
+    30
+}
+
+const fn default_forecast_days() -> u8 {
+    7
+}
+
+const fn default_cache_ttl_minutes() -> u32 {
+    30
+}
+
+impl Default for WeatherConfig {
+    fn default() -> Self {
+        Self {
+            base_url: default_weather_base_url(),
+            timeout_secs: default_weather_timeout(),
+            forecast_days: default_forecast_days(),
+            cache_ttl_minutes: default_cache_ttl_minutes(),
+            default_location: None,
+        }
     }
 }
 

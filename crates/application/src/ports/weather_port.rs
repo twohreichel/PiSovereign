@@ -5,6 +5,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use domain::value_objects::GeoLocation;
+#[cfg(test)]
+use mockall::automock;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApplicationError;
@@ -121,6 +123,8 @@ impl std::fmt::Display for WeatherCondition {
 }
 
 /// Port for weather service operations
+#[allow(clippy::struct_field_names)] // automock generates struct with `get_*` prefixes
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait WeatherPort: Send + Sync {
     /// Get current weather for a location

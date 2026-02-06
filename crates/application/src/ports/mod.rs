@@ -35,4 +35,6 @@ pub use secret_store::{SecretStoreExt, SecretStorePort};
 pub use task_port::MockTaskPort;
 pub use task_port::{NewTask, Task, TaskPort, TaskQuery, TaskStatus, TaskUpdates};
 pub use user_profile_store::UserProfileStore;
+#[cfg(test)]
+pub use weather_port::MockWeatherPort;
 pub use weather_port::{CurrentWeather, DailyForecast, WeatherCondition, WeatherPort};

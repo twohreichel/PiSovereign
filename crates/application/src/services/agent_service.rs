@@ -3,13 +3,14 @@
 use std::{fmt, fmt::Write as _, sync::Arc, time::Instant};
 
 use chrono::Utc;
-use domain::{AgentCommand, PersistedEmailDraft, SystemCommand, TaskItem, UserId};
+use domain::{AgentCommand, GeoLocation, PersistedEmailDraft, SystemCommand, TaskItem, UserId};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{
     command_parser::CommandParser,
     error::ApplicationError,
-    ports::{DraftStorePort, InferencePort, Task, TaskPort, UserProfileStore},
+    ports::{DraftStorePort, InferencePort, Task, TaskPort, UserProfileStore, WeatherPort},
+    services::briefing_service::WeatherSummary,
 };
 
 /// Result of executing an agent command
@@ -54,6 +55,10 @@ pub struct AgentService {
     user_profile_store: Option<Arc<dyn UserProfileStore>>,
     /// Optional task service for todo/task integration
     task_service: Option<Arc<dyn TaskPort>>,
+    /// Optional weather service for weather integration
+    weather_service: Option<Arc<dyn WeatherPort>>,
+    /// Default location for weather when user profile has no location
+    default_weather_location: Option<GeoLocation>,
 }
 
 impl fmt::Debug for AgentService {
@@ -65,6 +70,7 @@ impl fmt::Debug for AgentService {
             .field("has_draft_store", &self.draft_store.is_some())
             .field("has_user_profile", &self.user_profile_store.is_some())
             .field("has_task", &self.task_service.is_some())
+            .field("has_weather", &self.weather_service.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -80,6 +86,8 @@ impl AgentService {
             draft_store: None,
             user_profile_store: None,
             task_service: None,
+            weather_service: None,
+            default_weather_location: None,
         }
     }
 
@@ -115,6 +123,20 @@ impl AgentService {
     #[must_use]
     pub fn with_task_service(mut self, service: Arc<dyn TaskPort>) -> Self {
         self.task_service = Some(service);
+        self
+    }
+
+    /// Add weather service for weather integration
+    #[must_use]
+    pub fn with_weather_service(mut self, service: Arc<dyn WeatherPort>) -> Self {
+        self.weather_service = Some(service);
+        self
+    }
+
+    /// Set default weather location (fallback when user profile has no location)
+    #[must_use]
+    pub fn with_default_weather_location(mut self, location: GeoLocation) -> Self {
+        self.default_weather_location = Some(location);
         self
     }
 
@@ -436,13 +458,20 @@ impl AgentService {
             TaskBrief::default()
         };
 
+        // Collect weather data if service available
+        let weather_summary = if let Some(ref weather_svc) = self.weather_service {
+            self.fetch_weather_summary(weather_svc.as_ref()).await
+        } else {
+            None
+        };
+
         // Generate briefing using BriefingService with user's timezone
         let briefing_service = BriefingService::new(user_timezone);
         let briefing = briefing_service.generate_briefing(
             calendar_brief,
             email_brief,
             task_brief,
-            None, // TODO: Implement weather integration
+            weather_summary,
         );
 
         // Format briefing response
@@ -498,6 +527,16 @@ impl AgentService {
             if briefing.tasks.overdue > 0 {
                 let _ = writeln!(response, "⚠️ {} overdue task(s)", briefing.tasks.overdue);
             }
+        }
+
+        // Add weather section if available
+        if let Some(ref weather) = briefing.weather {
+            response.push_str("\n🌤️ **Weather**\n");
+            let _ = writeln!(
+                response,
+                "{}, {:.0}°C (High: {:.0}°C, Low: {:.0}°C)",
+                weather.condition, weather.temperature, weather.high, weather.low
+            );
         }
 
         Ok(ExecutionResult {
@@ -652,6 +691,72 @@ impl AgentService {
         }
 
         item
+    }
+
+    /// Fetches weather summary for the morning briefing.
+    ///
+    /// Location resolution order:
+    /// 1. User profile location (if available)
+    /// 2. Default weather location from config (if configured)
+    /// 3. None if neither is available
+    async fn fetch_weather_summary(&self, weather_svc: &dyn WeatherPort) -> Option<WeatherSummary> {
+        // Determine location: user profile > config default
+        let location = self.get_weather_location().await;
+
+        let Some(location) = location else {
+            warn!("No location available for weather (user profile or config default)");
+            return None;
+        };
+
+        // Fetch current weather and today's forecast
+        match weather_svc.get_weather_summary(&location, 1).await {
+            Ok((current, forecast)) => {
+                // Get today's forecast for high/low temps
+                let (high, low) = forecast.first().map_or_else(
+                    || {
+                        (
+                            current.temperature as f32,
+                            current.apparent_temperature as f32,
+                        )
+                    },
+                    |f| (f.temperature_max as f32, f.temperature_min as f32),
+                );
+
+                Some(WeatherSummary {
+                    temperature: current.temperature as f32,
+                    condition: current.condition.to_string(),
+                    high,
+                    low,
+                })
+            },
+            Err(e) => {
+                warn!(error = %e, "Failed to fetch weather data");
+                None
+            },
+        }
+    }
+
+    /// Gets the location for weather, preferring user profile over config default.
+    async fn get_weather_location(&self) -> Option<GeoLocation> {
+        // First try to get location from user profile
+        if let Some(ref profile_store) = self.user_profile_store {
+            // Use default user ID for now
+            let user_id = UserId::default();
+            if let Ok(Some(profile)) = profile_store.get(&user_id).await {
+                if let Some(location) = profile.location() {
+                    debug!("Using location from user profile");
+                    return Some(location);
+                }
+            }
+        }
+
+        // Fall back to config default
+        if let Some(ref default_location) = self.default_weather_location {
+            debug!("Using default weather location from config");
+            return Some(*default_location);
+        }
+
+        None
     }
 
     /// Handle draft email command - create and store the draft
@@ -1616,5 +1721,220 @@ mod async_tests {
         let item = AgentService::task_to_item(&task, today);
 
         assert!(!item.is_overdue);
+    }
+
+    #[tokio::test]
+    async fn fetch_weather_summary_returns_weather_data() {
+        use chrono::{NaiveDate, Utc};
+
+        use crate::ports::{CurrentWeather, DailyForecast, MockWeatherPort, WeatherCondition};
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_weather = MockWeatherPort::new();
+
+        let current = CurrentWeather {
+            temperature: 20.5,
+            apparent_temperature: 19.0,
+            humidity: 65,
+            wind_speed: 10.0,
+            condition: WeatherCondition::PartlyCloudy,
+            observed_at: Utc::now(),
+        };
+
+        let forecast = vec![DailyForecast {
+            date: NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(),
+            temperature_max: 25.0,
+            temperature_min: 15.0,
+            condition: WeatherCondition::PartlyCloudy,
+            precipitation_probability: 20,
+            precipitation_sum: 0.0,
+            sunrise: None,
+            sunset: None,
+        }];
+
+        mock_weather
+            .expect_get_weather_summary()
+            .returning(move |_, _| Ok((current.clone(), forecast.clone())));
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_weather_service(Arc::new(mock_weather))
+            .with_default_weather_location(GeoLocation::berlin());
+
+        let summary = service
+            .fetch_weather_summary(service.weather_service.as_ref().unwrap().as_ref())
+            .await;
+
+        assert!(summary.is_some());
+        let summary = summary.unwrap();
+        assert!((summary.temperature - 20.5).abs() < 0.01);
+        assert!((summary.high - 25.0).abs() < 0.01);
+        assert!((summary.low - 15.0).abs() < 0.01);
+        assert_eq!(summary.condition, "Partly cloudy");
+    }
+
+    #[tokio::test]
+    async fn fetch_weather_summary_returns_none_on_error() {
+        use crate::ports::MockWeatherPort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_weather = MockWeatherPort::new();
+
+        mock_weather
+            .expect_get_weather_summary()
+            .returning(|_, _| Err(ApplicationError::ExternalService("Weather API".into())));
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_weather_service(Arc::new(mock_weather))
+            .with_default_weather_location(GeoLocation::berlin());
+
+        let summary = service
+            .fetch_weather_summary(service.weather_service.as_ref().unwrap().as_ref())
+            .await;
+
+        assert!(summary.is_none());
+    }
+
+    #[tokio::test]
+    async fn fetch_weather_summary_returns_none_without_location() {
+        use crate::ports::MockWeatherPort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mock_weather = MockWeatherPort::new();
+
+        // No default location, no user profile store
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_weather_service(Arc::new(mock_weather));
+
+        let summary = service
+            .fetch_weather_summary(service.weather_service.as_ref().unwrap().as_ref())
+            .await;
+
+        assert!(summary.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_weather_location_prefers_user_profile() {
+        use std::sync::Arc;
+
+        // Create a simple mock for UserProfileStore that returns a profile with location
+        struct TestProfileStore;
+
+        #[async_trait::async_trait]
+        impl UserProfileStore for TestProfileStore {
+            async fn save(
+                &self,
+                _profile: &domain::entities::UserProfile,
+            ) -> Result<(), ApplicationError> {
+                Ok(())
+            }
+
+            async fn get(
+                &self,
+                _user_id: &UserId,
+            ) -> Result<Option<domain::entities::UserProfile>, ApplicationError> {
+                // Return a profile with Berlin location
+                Ok(Some(domain::entities::UserProfile::with_defaults(
+                    UserId::default(),
+                    GeoLocation::berlin(),
+                    domain::value_objects::Timezone::berlin(),
+                )))
+            }
+
+            async fn delete(&self, _user_id: &UserId) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+
+            async fn update_location(
+                &self,
+                _user_id: &UserId,
+                _location: Option<&GeoLocation>,
+            ) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+
+            async fn update_timezone(
+                &self,
+                _user_id: &UserId,
+                _timezone: &domain::value_objects::Timezone,
+            ) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+        }
+
+        let mock_inference = MockInferenceEngine::new();
+
+        // Service with both user profile and default location
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_user_profile_store(Arc::new(TestProfileStore))
+            .with_default_weather_location(GeoLocation::london()); // London as fallback
+
+        let location = service.get_weather_location().await;
+
+        // Should get Berlin (user profile) not London (default)
+        assert!(location.is_some());
+        let loc = location.unwrap();
+        assert!((loc.latitude() - 52.52).abs() < 0.01);
+        assert!((loc.longitude() - 13.405).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn get_weather_location_falls_back_to_default() {
+        use std::sync::Arc;
+
+        // Profile store that returns no location
+        struct NoLocationProfileStore;
+
+        #[async_trait::async_trait]
+        impl UserProfileStore for NoLocationProfileStore {
+            async fn save(
+                &self,
+                _profile: &domain::entities::UserProfile,
+            ) -> Result<(), ApplicationError> {
+                Ok(())
+            }
+
+            async fn get(
+                &self,
+                _user_id: &UserId,
+            ) -> Result<Option<domain::entities::UserProfile>, ApplicationError> {
+                // Return a profile without location
+                Ok(Some(domain::entities::UserProfile::new(UserId::default())))
+            }
+
+            async fn delete(&self, _user_id: &UserId) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+
+            async fn update_location(
+                &self,
+                _user_id: &UserId,
+                _location: Option<&GeoLocation>,
+            ) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+
+            async fn update_timezone(
+                &self,
+                _user_id: &UserId,
+                _timezone: &domain::value_objects::Timezone,
+            ) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+        }
+
+        let mock_inference = MockInferenceEngine::new();
+
+        // Service with user profile without location, but with default
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_user_profile_store(Arc::new(NoLocationProfileStore))
+            .with_default_weather_location(GeoLocation::london()); // London as default
+
+        let location = service.get_weather_location().await;
+
+        // Should get London (default) since user profile has no location
+        assert!(location.is_some());
+        let loc = location.unwrap();
+        assert!((loc.latitude() - 51.5074).abs() < 0.01);
+        assert!((loc.longitude() - (-0.1278)).abs() < 0.01);
     }
 }
