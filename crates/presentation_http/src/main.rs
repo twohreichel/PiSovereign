@@ -4,10 +4,16 @@
 
 use std::{sync::Arc, time::Duration};
 
-use application::{AgentService, ApprovalService, ChatService, ports::ConversationStore};
+use application::{
+    AgentService, ApprovalService, ChatService, HealthService,
+    ports::{CalendarPort, ConversationStore, EmailPort, InferencePort, WeatherPort},
+};
 use infrastructure::{
     ApiKeyHasher, AppConfig, HailoInferenceAdapter, SecurityValidator,
-    adapters::{DegradedInferenceAdapter, DegradedModeConfig},
+    adapters::{
+        CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig, ProtonEmailAdapter,
+        WeatherAdapter,
+    },
     persistence::{SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, create_pool},
     telemetry::{TelemetryConfig, init_telemetry},
 };
@@ -168,7 +174,44 @@ async fn main() -> anyhow::Result<()> {
     let degraded_adapter = DegradedInferenceAdapter::new(Arc::new(hailo_adapter), degraded_config);
     info!("🛡️ Degraded mode adapter initialized");
 
-    let inference: Arc<dyn application::ports::InferencePort> = Arc::new(degraded_adapter);
+    let inference: Arc<dyn InferencePort> = Arc::new(degraded_adapter);
+
+    // Initialize optional weather adapter
+    let weather_port: Option<Arc<dyn WeatherPort>> = initial_config.weather.as_ref().and_then(|_| {
+        match WeatherAdapter::new() {
+            Ok(adapter) => {
+                info!("🌤️ Weather adapter initialized");
+                Some(Arc::new(adapter.with_circuit_breaker()) as Arc<dyn WeatherPort>)
+            },
+            Err(e) => {
+                warn!(error = %e, "⚠️ Failed to initialize weather adapter");
+                None
+            },
+        }
+    });
+
+    // Initialize optional CalDAV calendar adapter
+    let calendar_port: Option<Arc<dyn CalendarPort>> =
+        initial_config.caldav.as_ref().and_then(|config| {
+            match CalDavCalendarAdapter::new(config.to_caldav_config()) {
+                Ok(adapter) => {
+                    info!("📅 CalDAV calendar adapter initialized");
+                    Some(Arc::new(adapter.with_circuit_breaker()) as Arc<dyn CalendarPort>)
+                },
+                Err(e) => {
+                    warn!(error = %e, "⚠️ Failed to initialize CalDAV adapter");
+                    None
+                },
+            }
+        });
+
+    // Initialize optional Proton email adapter
+    let email_port: Option<Arc<dyn EmailPort>> =
+        initial_config.proton.as_ref().map(|config| {
+            let adapter = ProtonEmailAdapter::new(config.to_proton_config()).with_circuit_breaker();
+            info!("📧 Proton email adapter initialized");
+            Arc::new(adapter) as Arc<dyn EmailPort>
+        });
 
     // Initialize database connection pool
     let (approval_service, conversation_store) = match create_pool(&initial_config.database) {
@@ -205,14 +248,25 @@ async fn main() -> anyhow::Result<()> {
     // Initialize metrics collector
     let metrics = Arc::new(MetricsCollector::new());
 
+    // Build HealthService with all available ports
+    let mut health_service = HealthService::new(Arc::clone(&inference));
+    if let Some(ref email) = email_port {
+        health_service = health_service.with_email(Arc::clone(email));
+    }
+    if let Some(ref calendar) = calendar_port {
+        health_service = health_service.with_calendar(Arc::clone(calendar));
+    }
+    if let Some(ref weather) = weather_port {
+        health_service = health_service.with_weather(Arc::clone(weather));
+    }
+    info!("❤️ HealthService initialized with all available ports");
+
     // Create app state with reloadable config
-    // Note: HealthService is optional and can be configured when external service
-    // ports are available. For now, we rely on the fallback in health handlers.
     let state = AppState {
         chat_service: Arc::new(chat_service),
         agent_service: Arc::new(agent_service),
         approval_service,
-        health_service: None, // TODO: Wire up HealthService when all ports are available
+        health_service: Some(Arc::new(health_service)),
         config: reloadable_config,
         metrics,
     };

@@ -78,6 +78,14 @@ pub struct AppConfig {
     #[serde(default)]
     pub weather: Option<WeatherConfig>,
 
+    /// CalDAV calendar configuration (optional)
+    #[serde(default)]
+    pub caldav: Option<CalDavAppConfig>,
+
+    /// Proton Mail configuration (optional)
+    #[serde(default)]
+    pub proton: Option<ProtonAppConfig>,
+
     /// Retry configuration for external service calls
     #[serde(default)]
     pub retry: Option<RetryAppConfig>,
@@ -829,6 +837,134 @@ impl Default for WeatherConfig {
             forecast_days: default_forecast_days(),
             cache_ttl_minutes: default_cache_ttl_minutes(),
             default_location: None,
+        }
+    }
+}
+
+/// CalDAV calendar server configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalDavAppConfig {
+    /// CalDAV server URL (e.g., <https://cal.example.com>)
+    pub server_url: String,
+
+    /// Username for authentication
+    pub username: String,
+
+    /// Password for authentication
+    #[serde(skip_serializing)]
+    pub password: String,
+
+    /// Default calendar path (optional)
+    #[serde(default)]
+    pub calendar_path: Option<String>,
+
+    /// Verify TLS certificates (default: true)
+    #[serde(default = "default_true")]
+    pub verify_certs: bool,
+
+    /// Connection timeout in seconds (default: 30)
+    #[serde(default = "default_caldav_timeout")]
+    pub timeout_secs: u64,
+}
+
+const fn default_caldav_timeout() -> u64 {
+    30
+}
+
+impl CalDavAppConfig {
+    /// Convert to integration_caldav's CalDavConfig
+    #[must_use]
+    pub fn to_caldav_config(&self) -> integration_caldav::CalDavConfig {
+        integration_caldav::CalDavConfig {
+            server_url: self.server_url.clone(),
+            username: self.username.clone(),
+            password: self.password.clone(),
+            calendar_path: self.calendar_path.clone(),
+            verify_certs: self.verify_certs,
+            timeout_secs: self.timeout_secs,
+        }
+    }
+}
+
+/// Proton Mail configuration (via Proton Bridge)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProtonAppConfig {
+    /// IMAP server host (default: 127.0.0.1)
+    #[serde(default = "default_proton_host")]
+    pub imap_host: String,
+
+    /// IMAP server port (default: 1143 for STARTTLS)
+    #[serde(default = "default_imap_port")]
+    pub imap_port: u16,
+
+    /// SMTP server host (default: 127.0.0.1)
+    #[serde(default = "default_proton_host")]
+    pub smtp_host: String,
+
+    /// SMTP server port (default: 1025 for STARTTLS)
+    #[serde(default = "default_smtp_port")]
+    pub smtp_port: u16,
+
+    /// Email address (Bridge account email)
+    pub email: String,
+
+    /// Bridge password (from Bridge UI, NOT Proton account password)
+    #[serde(skip_serializing)]
+    pub password: String,
+
+    /// TLS configuration
+    #[serde(default)]
+    pub tls: ProtonTlsAppConfig,
+}
+
+fn default_proton_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+const fn default_imap_port() -> u16 {
+    1143
+}
+
+const fn default_smtp_port() -> u16 {
+    1025
+}
+
+/// TLS configuration for Proton Bridge connections
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProtonTlsAppConfig {
+    /// Verify TLS certificates (default: true)
+    #[serde(default = "default_true")]
+    pub verify_certificates: bool,
+
+    /// Minimum TLS version ("1.2" or "1.3")
+    #[serde(default = "default_min_tls")]
+    pub min_tls_version: String,
+
+    /// Path to custom CA certificate (optional)
+    #[serde(default)]
+    pub ca_cert_path: Option<String>,
+}
+
+fn default_min_tls() -> String {
+    "1.2".to_string()
+}
+
+impl ProtonAppConfig {
+    /// Convert to integration_proton's ProtonConfig
+    #[must_use]
+    pub fn to_proton_config(&self) -> integration_proton::ProtonConfig {
+        integration_proton::ProtonConfig {
+            imap_host: self.imap_host.clone(),
+            imap_port: self.imap_port,
+            smtp_host: self.smtp_host.clone(),
+            smtp_port: self.smtp_port,
+            email: self.email.clone(),
+            password: self.password.clone(),
+            tls: integration_proton::TlsConfig {
+                verify_certificates: Some(self.tls.verify_certificates),
+                min_tls_version: self.tls.min_tls_version.clone(),
+                ca_cert_path: self.tls.ca_cert_path.as_ref().map(std::path::PathBuf::from),
+            },
         }
     }
 }

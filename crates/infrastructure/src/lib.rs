@@ -19,8 +19,9 @@ pub mod validation;
 pub use adapters::*;
 pub use cache::{MokaCache, MultiLayerCache, RedbCache, generate_cache_key, llm_cache_key};
 pub use config::{
-    AppConfig, DatabaseConfig, DegradedModeAppConfig, Environment, RetryAppConfig, SecurityConfig,
-    ServerConfig, TelemetryAppConfig, WhatsAppConfig,
+    AppConfig, CalDavAppConfig, DatabaseConfig, DegradedModeAppConfig, Environment,
+    ProtonAppConfig, RetryAppConfig, SecurityConfig, ServerConfig, TelemetryAppConfig,
+    WeatherConfig, WhatsAppConfig,
 };
 pub use http::{CorrelatedClientConfig, CorrelatedHttpClient, RequestIdProvider, X_REQUEST_ID};
 pub use persistence::{ConnectionPool, SqliteConversationStore, SqliteDraftStore, create_pool};
