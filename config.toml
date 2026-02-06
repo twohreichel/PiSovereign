@@ -191,7 +191,7 @@ success_threshold = 2
 # password = "bridge-password"
 # TLS configuration
 # [proton.tls]
-# verify_certificates = false  # Set to false for self-signed Bridge certs
+# verify_certificates = false  # Omit to verify (secure default), set false for self-signed Bridge certs
 # min_tls_version = "1.2"
 # ca_cert_path = "/path/to/ca.pem"  # Optional custom CA certificate
 

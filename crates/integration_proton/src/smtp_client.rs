@@ -36,7 +36,7 @@ impl ProtonSmtpClient {
         let mut builder = native_tls::TlsConnector::builder();
 
         // Configure certificate verification
-        if !tls_config.verify_certificates {
+        if !tls_config.should_verify() {
             warn!(
                 "⚠️ TLS certificate verification disabled - only recommended for local Proton Bridge"
             );
