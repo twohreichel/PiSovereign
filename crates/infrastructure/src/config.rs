@@ -65,6 +65,10 @@ pub struct ServerConfig {
     /// Graceful shutdown timeout in seconds
     #[serde(default)]
     pub shutdown_timeout_secs: Option<u64>,
+
+    /// Log format: "json" for structured JSON logs, "text" for human-readable
+    #[serde(default = "default_log_format")]
+    pub log_format: String,
 }
 
 fn default_host() -> String {
@@ -79,6 +83,10 @@ const fn default_true() -> bool {
     true
 }
 
+fn default_log_format() -> String {
+    "text".to_string()
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -87,6 +95,7 @@ impl Default for ServerConfig {
             cors_enabled: true,
             allowed_origins: Vec::new(),
             shutdown_timeout_secs: Some(30),
+            log_format: default_log_format(),
         }
     }
 }

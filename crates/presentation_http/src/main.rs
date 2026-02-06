@@ -12,7 +12,7 @@ use infrastructure::{
     telemetry::{TelemetryConfig, init_telemetry},
 };
 use presentation_http::{
-    ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig,
+    ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig, RequestIdLayer,
     handlers::metrics::MetricsCollector, routes, spawn_cleanup_task, spawn_config_reload_handler,
     state::AppState,
 };
@@ -29,24 +29,50 @@ const SYSTEM_PROMPT: &str = "You are PiSovereign, a helpful AI assistant running
     Raspberry Pi 5 with Hailo-10H. You are friendly, precise, and help with everyday \
     tasks like email, calendar, and information lookup.";
 
+/// Initialize the tracing subscriber based on configuration
+fn init_tracing(log_format: &str) {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "pisovereign_server=debug,tower_http=debug".into());
+
+    if log_format == "json" {
+        // JSON format for production/structured logging
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_target(true)
+                    .with_file(true)
+                    .with_line_number(true)
+                    .with_thread_ids(true)
+                    .with_span_list(true),
+            )
+            .init();
+    } else {
+        // Human-readable text format for development
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing (basic console output)
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "pisovereign_server=debug,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
-    info!("🤖 PiSovereign v{} starting...", env!("CARGO_PKG_VERSION"));
-
-    // Load configuration
+    // Load configuration first to determine log format
     let initial_config = AppConfig::load().unwrap_or_else(|e| {
-        tracing::warn!("Failed to load config, using defaults: {}", e);
+        // Can't log yet, print to stderr (allowed before tracing init)
+        #[allow(clippy::print_stderr)]
+        {
+            eprintln!("Warning: Failed to load config, using defaults: {e}");
+        }
         AppConfig::default()
     });
+
+    // Initialize tracing with configured format
+    init_tracing(&initial_config.server.log_format);
+
+    info!("🤖 PiSovereign v{} starting...", env!("CARGO_PKG_VERSION"));
 
     info!(
         host = %initial_config.server.host,
@@ -196,7 +222,9 @@ async fn main() -> anyhow::Result<()> {
     let auth_layer = ApiKeyAuthLayer::new(initial_config.security.api_key.clone());
 
     // Add middleware (order matters: first added = outermost)
+    // Request ID layer is outermost to ensure all logs have the correlation ID
     let app = app
+        .layer(RequestIdLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer)
         .layer(rate_limiter)

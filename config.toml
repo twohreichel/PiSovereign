@@ -13,6 +13,8 @@ cors_enabled = true
 allowed_origins = []
 # Graceful shutdown timeout in seconds
 shutdown_timeout_secs = 30
+# Log format: "json" for structured JSON logs, "text" for human-readable (default)
+log_format = "text"
 
 # ================================
 # AI Inference Engine Settings
