@@ -5,6 +5,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use domain::value_objects::{Priority, UserId};
+#[cfg(test)]
+use mockall::automock;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApplicationError;
@@ -104,6 +106,7 @@ pub struct TaskQuery {
 }
 
 /// Port for task/todo operations
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait TaskPort: Send + Sync {
     /// List tasks for a user

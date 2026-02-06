@@ -2,13 +2,14 @@
 
 use std::{fmt, fmt::Write as _, sync::Arc, time::Instant};
 
-use domain::{AgentCommand, PersistedEmailDraft, SystemCommand, UserId};
+use chrono::Utc;
+use domain::{AgentCommand, PersistedEmailDraft, SystemCommand, TaskItem, UserId};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{
     command_parser::CommandParser,
     error::ApplicationError,
-    ports::{DraftStorePort, InferencePort, UserProfileStore},
+    ports::{DraftStorePort, InferencePort, Task, TaskPort, UserProfileStore},
 };
 
 /// Result of executing an agent command
@@ -51,6 +52,8 @@ pub struct AgentService {
     draft_store: Option<Arc<dyn DraftStorePort>>,
     /// Optional user profile store for personalization
     user_profile_store: Option<Arc<dyn UserProfileStore>>,
+    /// Optional task service for todo/task integration
+    task_service: Option<Arc<dyn TaskPort>>,
 }
 
 impl fmt::Debug for AgentService {
@@ -61,6 +64,7 @@ impl fmt::Debug for AgentService {
             .field("has_email", &self.email_service.is_some())
             .field("has_draft_store", &self.draft_store.is_some())
             .field("has_user_profile", &self.user_profile_store.is_some())
+            .field("has_task", &self.task_service.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -75,6 +79,7 @@ impl AgentService {
             email_service: None,
             draft_store: None,
             user_profile_store: None,
+            task_service: None,
         }
     }
 
@@ -103,6 +108,13 @@ impl AgentService {
     #[must_use]
     pub fn with_user_profile_store(mut self, store: Arc<dyn UserProfileStore>) -> Self {
         self.user_profile_store = Some(store);
+        self
+    }
+
+    /// Add task service for todo/task integration
+    #[must_use]
+    pub fn with_task_service(mut self, service: Arc<dyn TaskPort>) -> Self {
+        self.task_service = Some(service);
         self
     }
 
@@ -415,13 +427,22 @@ impl AgentService {
             EmailBrief::default()
         };
 
+        // Collect task data if service available
+        let task_brief = if let Some(ref task_svc) = self.task_service {
+            // TODO: Get user_id from RequestContext once HTTP middleware is updated
+            let user_id = UserId::default();
+            self.fetch_task_brief(task_svc.as_ref(), &user_id).await
+        } else {
+            TaskBrief::default()
+        };
+
         // Generate briefing using BriefingService with user's timezone
         let briefing_service = BriefingService::new(user_timezone);
         let briefing = briefing_service.generate_briefing(
             calendar_brief,
             email_brief,
-            TaskBrief::default(), // TODO: Implement task integration
-            None,                 // TODO: Implement weather integration
+            task_brief,
+            None, // TODO: Implement weather integration
         );
 
         // Format briefing response
@@ -548,6 +569,89 @@ impl AgentService {
             // No profile store configured, use default
             domain::value_objects::Timezone::berlin()
         }
+    }
+
+    /// Fetch task brief for the briefing
+    ///
+    /// Retrieves tasks due today, overdue tasks, and high priority tasks,
+    /// converting them to the domain TaskBrief structure.
+    async fn fetch_task_brief(
+        &self,
+        task_svc: &dyn TaskPort,
+        user_id: &UserId,
+    ) -> super::briefing_service::TaskBrief {
+        let today = Utc::now().date_naive();
+
+        // Fetch tasks due today
+        let today_tasks = match task_svc.get_tasks_due_today(user_id).await {
+            Ok(tasks) => tasks,
+            Err(e) => {
+                warn!(error = %e, "Failed to get tasks due today");
+                return super::briefing_service::TaskBrief::default();
+            },
+        };
+
+        // Fetch high priority tasks
+        let high_priority_tasks = match task_svc.get_high_priority_tasks(user_id).await {
+            Ok(tasks) => tasks,
+            Err(e) => {
+                warn!(error = %e, "Failed to get high priority tasks");
+                vec![]
+            },
+        };
+
+        // Convert tasks to TaskItems and separate overdue
+        let mut domain_today: Vec<TaskItem> = Vec::new();
+        let mut domain_overdue: Vec<TaskItem> = Vec::new();
+        let mut domain_high_priority: Vec<TaskItem> = Vec::new();
+
+        for task in &today_tasks {
+            let item = Self::task_to_item(task, today);
+            if item.is_overdue {
+                domain_overdue.push(item);
+            } else {
+                domain_today.push(item);
+            }
+        }
+
+        for task in &high_priority_tasks {
+            // Avoid duplicates if task is already in today or overdue
+            if !today_tasks.iter().any(|t| t.id == task.id) {
+                domain_high_priority.push(Self::task_to_item(task, today));
+            }
+        }
+
+        // Build the TaskBrief using the application-layer type
+        super::briefing_service::TaskBrief {
+            due_today: u32::try_from(domain_today.len()).unwrap_or(0),
+            overdue: u32::try_from(domain_overdue.len()).unwrap_or(0),
+            high_priority: domain_high_priority
+                .iter()
+                .map(|i| i.title.clone())
+                .collect(),
+        }
+    }
+
+    /// Convert a Task port type to a domain TaskItem
+    fn task_to_item(task: &Task, today: chrono::NaiveDate) -> TaskItem {
+        let is_overdue = task.due_date.is_some_and(|due| due < today);
+
+        let mut item = TaskItem::new(&task.id, &task.summary);
+
+        // Set priority (convert from domain Priority to TaskItem's expected type)
+        item = item.with_priority(task.priority);
+
+        // Set due date if present
+        if let Some(due) = task.due_date {
+            item = item.with_due(due);
+        }
+
+        // Mark as overdue if applicable
+        if is_overdue {
+            item = item.overdue();
+        }
+
+        item
     }
 
     /// Handle draft email command - create and store the draft
@@ -1354,5 +1458,163 @@ mod async_tests {
 
         let debug = format!("{service:?}");
         assert!(debug.contains("has_draft_store"));
+    }
+
+    #[tokio::test]
+    async fn agent_service_with_task_service() {
+        use crate::ports::MockTaskPort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mock_task = MockTaskPort::new();
+
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_task_service(Arc::new(mock_task));
+
+        let debug = format!("{service:?}");
+        assert!(debug.contains("has_task: true"));
+    }
+
+    #[tokio::test]
+    async fn fetch_task_brief_returns_default_on_error() {
+        use crate::ports::MockTaskPort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_task = MockTaskPort::new();
+
+        mock_task.expect_get_tasks_due_today().returning(|_| {
+            Err(ApplicationError::ExternalService(
+                "Task service down".into(),
+            ))
+        });
+
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_task_service(Arc::new(mock_task));
+
+        let user_id = UserId::default();
+        let brief = service
+            .fetch_task_brief(service.task_service.as_ref().unwrap().as_ref(), &user_id)
+            .await;
+
+        assert_eq!(brief.due_today, 0);
+        assert_eq!(brief.overdue, 0);
+        assert!(brief.high_priority.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fetch_task_brief_with_tasks() {
+        use chrono::Utc;
+
+        use crate::ports::{MockTaskPort, Task, TaskStatus};
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_task = MockTaskPort::new();
+
+        let today = Utc::now().date_naive();
+        let yesterday = today - chrono::Duration::days(1);
+
+        // Task due today
+        let task_today = Task {
+            id: "task-1".into(),
+            summary: "Fix bug".into(),
+            description: None,
+            priority: domain::Priority::High,
+            status: TaskStatus::NeedsAction,
+            due_date: Some(today),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            calendar: None,
+        };
+
+        // Overdue task
+        let task_overdue = Task {
+            id: "task-2".into(),
+            summary: "Review PR".into(),
+            description: None,
+            priority: domain::Priority::Medium,
+            status: TaskStatus::NeedsAction,
+            due_date: Some(yesterday),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            calendar: None,
+        };
+
+        mock_task
+            .expect_get_tasks_due_today()
+            .returning(move |_| Ok(vec![task_today.clone(), task_overdue.clone()]));
+
+        mock_task
+            .expect_get_high_priority_tasks()
+            .returning(|_| Ok(vec![]));
+
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_task_service(Arc::new(mock_task));
+
+        let user_id = UserId::default();
+        let brief = service
+            .fetch_task_brief(service.task_service.as_ref().unwrap().as_ref(), &user_id)
+            .await;
+
+        // One due today, one overdue
+        assert_eq!(brief.due_today, 1);
+        assert_eq!(brief.overdue, 1);
+    }
+
+    #[tokio::test]
+    async fn task_to_item_converts_correctly() {
+        use chrono::Utc;
+
+        use crate::ports::{Task, TaskStatus};
+
+        let today = Utc::now().date_naive();
+        let yesterday = today - chrono::Duration::days(1);
+
+        let task = Task {
+            id: "task-123".into(),
+            summary: "Important task".into(),
+            description: Some("Description".into()),
+            priority: domain::Priority::High,
+            status: TaskStatus::NeedsAction,
+            due_date: Some(yesterday),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            calendar: None,
+        };
+
+        let item = AgentService::task_to_item(&task, today);
+
+        assert_eq!(item.id, "task-123");
+        assert_eq!(item.title, "Important task");
+        assert_eq!(item.priority, domain::Priority::High);
+        assert_eq!(item.due, Some(yesterday));
+        assert!(item.is_overdue);
+    }
+
+    #[tokio::test]
+    async fn task_to_item_not_overdue_when_due_today() {
+        use chrono::Utc;
+
+        use crate::ports::{Task, TaskStatus};
+
+        let today = Utc::now().date_naive();
+
+        let task = Task {
+            id: "task-456".into(),
+            summary: "Due today".into(),
+            description: None,
+            priority: domain::Priority::Medium,
+            status: TaskStatus::NeedsAction,
+            due_date: Some(today),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            calendar: None,
+        };
+
+        let item = AgentService::task_to_item(&task, today);
+
+        assert!(!item.is_overdue);
     }
 }
