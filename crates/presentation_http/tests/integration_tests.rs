@@ -1322,4 +1322,186 @@ mod workflow_tests {
             );
         }
     }
+
+    // ============ End-to-End Pipeline Tests ============
+
+    /// Tests the complete chat pipeline with conversation context persistence
+    #[tokio::test]
+    async fn e2e_contextual_chat_maintains_conversation_history() {
+        let inference: Arc<dyn InferencePort> = Arc::new(MockInference::new());
+        let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
+        let draft_store: Arc<dyn DraftStorePort> = Arc::new(MockDraftStore::new());
+
+        let chat_service = Arc::new(ChatService::with_conversation_store(
+            inference.clone(),
+            conversation_store.clone(),
+        ));
+
+        let agent_service = Arc::new(
+            AgentService::new(inference)
+                .with_draft_store(draft_store as Arc<dyn DraftStorePort>),
+        );
+
+        let state = AppState {
+            chat_service,
+            agent_service,
+            approval_service: None,
+            config: presentation_http::ReloadableConfig::new(AppConfig::default()),
+            metrics: Arc::new(MetricsCollector::new()),
+        };
+
+        let router = create_router(state);
+        let server = TestServer::new(router).expect("Failed to create test server");
+
+        // First message - creates new conversation
+        let response = server
+            .post("/v1/chat")
+            .json(&json!({
+                "message": "Hello, who are you?"
+            }))
+            .await;
+
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        let conversation_id = body["conversation_id"].as_str().expect("Should have conversation_id");
+        assert!(!body["message"].as_str().unwrap().is_empty());
+
+        // Second message - continues conversation
+        let response = server
+            .post("/v1/chat")
+            .json(&json!({
+                "message": "Tell me more about yourself",
+                "conversation_id": conversation_id
+            }))
+            .await;
+
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["conversation_id"].as_str().unwrap(), conversation_id);
+
+        // Third message - verifies conversation is maintained
+        let response = server
+            .post("/v1/chat")
+            .json(&json!({
+                "message": "What did I ask you first?",
+                "conversation_id": conversation_id
+            }))
+            .await;
+
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["conversation_id"].as_str().unwrap(), conversation_id);
+    }
+
+    /// Tests chat with system prompt customization
+    #[tokio::test]
+    async fn e2e_chat_with_custom_system_prompt() {
+        let inference: Arc<dyn InferencePort> = Arc::new(MockInference::new());
+        let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
+
+        let chat_service = Arc::new(ChatService::with_all(
+            inference.clone(),
+            conversation_store,
+            "You are a helpful assistant specialized in Rust programming.",
+        ));
+
+        let agent_service = Arc::new(AgentService::new(inference));
+
+        let state = AppState {
+            chat_service,
+            agent_service,
+            approval_service: None,
+            config: presentation_http::ReloadableConfig::new(AppConfig::default()),
+            metrics: Arc::new(MetricsCollector::new()),
+        };
+
+        let router = create_router(state);
+        let server = TestServer::new(router).expect("Failed to create test server");
+
+        let response = server
+            .post("/v1/chat")
+            .json(&json!({
+                "message": "How do I use async/await in Rust?"
+            }))
+            .await;
+
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        assert!(body["message"].as_str().is_some());
+    }
+
+    /// Tests the full pipeline from command input through inference to response
+    #[tokio::test]
+    async fn e2e_command_pipeline_with_inference() {
+        let inference: Arc<dyn InferencePort> = Arc::new(MockInference::new());
+        let conversation_store: Arc<dyn ConversationStore> = Arc::new(MockConversationStore::new());
+        let draft_store: Arc<dyn DraftStorePort> = Arc::new(MockDraftStore::new());
+
+        let chat_service = Arc::new(ChatService::with_conversation_store(
+            inference.clone(),
+            conversation_store,
+        ));
+
+        let agent_service = Arc::new(
+            AgentService::new(inference)
+                .with_draft_store(draft_store),
+        );
+
+        let state = AppState {
+            chat_service,
+            agent_service,
+            approval_service: None,
+            config: presentation_http::ReloadableConfig::new(AppConfig::default()),
+            metrics: Arc::new(MetricsCollector::new()),
+        };
+
+        let router = create_router(state);
+        let server = TestServer::new(router).expect("Failed to create test server");
+
+        // Test echo command
+        let response = server
+            .post("/v1/commands")
+            .json(&json!({ "input": "echo Hello, World!" }))
+            .await;
+
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["success"], true);
+        assert!(body["response"].as_str().unwrap().contains("Hello, World!"));
+
+        // Test briefing command (uses inference)
+        let response = server
+            .post("/v1/commands")
+            .json(&json!({ "input": "briefing" }))
+            .await;
+
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["success"], true);
+        assert_eq!(body["command_type"], "morning_briefing");
+    }
+
+    /// Tests health and readiness endpoints reflect actual service state
+    #[tokio::test]
+    async fn e2e_health_endpoints_reflect_service_state() {
+        // Test with healthy inference
+        let healthy_server = create_test_server();
+
+        let response = healthy_server.get("/health").await;
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["status"], "ok");
+
+        let response = healthy_server.get("/ready").await;
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["ready"], true);
+        assert_eq!(body["inference"]["healthy"], true);
+
+        // Test with unhealthy inference
+        let unhealthy_server = create_unhealthy_test_server();
+
+        let response = unhealthy_server.get("/ready").await;
+        response.assert_status(axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    }
 }
