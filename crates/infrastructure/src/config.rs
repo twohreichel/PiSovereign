@@ -33,7 +33,9 @@ impl std::str::FromStr for Environment {
         match s.to_lowercase().as_str() {
             "development" | "dev" => Ok(Self::Development),
             "production" | "prod" => Ok(Self::Production),
-            _ => Err(format!("Invalid environment: {s}. Use 'development' or 'production'")),
+            _ => Err(format!(
+                "Invalid environment: {s}. Use 'development' or 'production'"
+            )),
         }
     }
 }
@@ -79,6 +81,10 @@ pub struct AppConfig {
     /// Retry configuration for external service calls
     #[serde(default)]
     pub retry: Option<RetryAppConfig>,
+
+    /// Health check configuration (optional)
+    #[serde(default)]
+    pub health: Option<HealthAppConfig>,
 
     /// Telemetry configuration (optional)
     #[serde(default)]
@@ -461,8 +467,14 @@ mod tests {
             "production".parse::<Environment>().unwrap(),
             Environment::Production
         );
-        assert_eq!("dev".parse::<Environment>().unwrap(), Environment::Development);
-        assert_eq!("prod".parse::<Environment>().unwrap(), Environment::Production);
+        assert_eq!(
+            "dev".parse::<Environment>().unwrap(),
+            Environment::Development
+        );
+        assert_eq!(
+            "prod".parse::<Environment>().unwrap(),
+            Environment::Production
+        );
     }
 
     #[test]
@@ -962,6 +974,70 @@ impl Default for DegradedModeAppConfig {
             retry_cooldown_secs: default_retry_cooldown(),
             failure_threshold: default_failure_threshold(),
             success_threshold: default_success_threshold(),
+        }
+    }
+}
+
+/// Health check configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthAppConfig {
+    /// Global timeout for all health checks in seconds
+    #[serde(default = "default_health_global_timeout")]
+    pub global_timeout_secs: u64,
+
+    /// Inference engine health check timeout in seconds (overrides global)
+    pub inference_timeout_secs: Option<u64>,
+
+    /// Email service health check timeout in seconds (overrides global)
+    pub email_timeout_secs: Option<u64>,
+
+    /// Calendar service health check timeout in seconds (overrides global)
+    pub calendar_timeout_secs: Option<u64>,
+
+    /// Weather service health check timeout in seconds (overrides global)
+    pub weather_timeout_secs: Option<u64>,
+}
+
+const fn default_health_global_timeout() -> u64 {
+    5
+}
+
+impl Default for HealthAppConfig {
+    fn default() -> Self {
+        Self {
+            global_timeout_secs: default_health_global_timeout(),
+            inference_timeout_secs: None,
+            email_timeout_secs: None,
+            calendar_timeout_secs: None,
+            weather_timeout_secs: None,
+        }
+    }
+}
+
+impl HealthAppConfig {
+    /// Convert to application::HealthConfig
+    #[must_use]
+    pub fn to_health_config(&self) -> application::HealthConfig {
+        use std::collections::HashMap;
+
+        let mut service_timeouts = HashMap::new();
+
+        if let Some(t) = self.inference_timeout_secs {
+            service_timeouts.insert("inference".to_string(), t);
+        }
+        if let Some(t) = self.email_timeout_secs {
+            service_timeouts.insert("email".to_string(), t);
+        }
+        if let Some(t) = self.calendar_timeout_secs {
+            service_timeouts.insert("calendar".to_string(), t);
+        }
+        if let Some(t) = self.weather_timeout_secs {
+            service_timeouts.insert("weather".to_string(), t);
+        }
+
+        application::HealthConfig {
+            global_timeout_secs: self.global_timeout_secs,
+            service_timeouts,
         }
     }
 }

@@ -211,6 +211,28 @@ impl WhatsAppClient {
     pub fn verify_token(&self) -> &str {
         &self.config.verify_token
     }
+
+    /// Check if the WhatsApp API is reachable
+    ///
+    /// Performs a lightweight check to verify the configuration is valid
+    /// and the API is accessible.
+    #[instrument(skip(self))]
+    pub async fn is_available(&self) -> bool {
+        // Try to get business profile as a health check
+        // This is a read-only operation that doesn't send messages
+        let response = self
+            .client
+            .get(format!("{}/whatsapp_business_profile", self.base_url))
+            .bearer_auth(&self.config.access_token)
+            .query(&[("fields", "about,address,description,vertical")])
+            .send()
+            .await;
+
+        match response {
+            Ok(res) => res.status().is_success(),
+            Err(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]

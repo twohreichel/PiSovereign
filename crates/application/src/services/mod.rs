@@ -7,6 +7,7 @@ mod calendar_service;
 mod chat_service;
 mod conversation_context;
 mod email_service;
+mod health_service;
 
 pub use agent_service::{AgentService, ApprovalStatus, CommandResult, ExecutionResult};
 pub use approval_service::ApprovalService;
@@ -20,3 +21,4 @@ pub use conversation_context::{
     ConversationCacheStats, ConversationContextConfig, ConversationContextService,
 };
 pub use email_service::{EmailService, InboxSummary};
+pub use health_service::{HealthConfig, HealthReport, HealthService, ServiceHealth};

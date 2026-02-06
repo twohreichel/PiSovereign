@@ -164,6 +164,18 @@ multiplier = 2.0
 max_retries = 3
 
 # ==============================
+# Health Check Configuration
+# ==============================
+[health]
+# Global timeout for all health checks in seconds
+global_timeout_secs = 5
+# Service-specific timeout overrides (uncomment to customize):
+# inference_timeout_secs = 10
+# email_timeout_secs = 5
+# calendar_timeout_secs = 5
+# weather_timeout_secs = 5
+
+# ==============================
 # Weather Integration (Open-Meteo)
 # ==============================
 # [weather]

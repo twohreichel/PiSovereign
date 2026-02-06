@@ -209,6 +209,25 @@ impl WeatherPort for WeatherAdapter {
 
         result.map(|f| f.daily.iter().map(Self::map_daily).collect())
     }
+
+    #[instrument(skip(self))]
+    async fn is_available(&self) -> bool {
+        // Check circuit breaker first
+        if let Some(ref cb) = self.circuit_breaker {
+            if cb.is_open() {
+                return false;
+            }
+            // Use circuit breaker to wrap the health check
+            let result = cb
+                .call(|| async { self.client.get_current(52.52, 13.405).await })
+                .await;
+            return result.is_ok();
+        }
+
+        // No circuit breaker, just check directly
+        // Try a lightweight health check - use Berlin coordinates as a reference point
+        self.client.get_current(52.52, 13.405).await.is_ok()
+    }
 }
 
 #[cfg(test)]

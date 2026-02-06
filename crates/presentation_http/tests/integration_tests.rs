@@ -205,6 +205,7 @@ fn create_test_state() -> AppState {
         )),
         agent_service: Arc::new(AgentService::new(inference)),
         approval_service: None,
+        health_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }
@@ -220,6 +221,7 @@ fn create_unhealthy_test_state() -> AppState {
         )),
         agent_service: Arc::new(AgentService::new(inference)),
         approval_service: None,
+        health_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }
@@ -728,6 +730,7 @@ mod degraded_mode_tests {
             )),
             agent_service: Arc::new(AgentService::new(inference)),
             approval_service: None,
+            health_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         }
@@ -1023,6 +1026,7 @@ mod workflow_tests {
             )),
             agent_service: Arc::new(agent_service),
             approval_service: None,
+            health_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
@@ -1045,6 +1049,7 @@ mod workflow_tests {
             )),
             agent_service: Arc::new(agent_service),
             approval_service: None,
+            health_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
@@ -1349,6 +1354,7 @@ mod workflow_tests {
             chat_service,
             agent_service,
             approval_service: None,
+            health_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
@@ -1416,6 +1422,7 @@ mod workflow_tests {
             chat_service,
             agent_service,
             approval_service: None,
+            health_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
@@ -1453,6 +1460,7 @@ mod workflow_tests {
             chat_service,
             agent_service,
             approval_service: None,
+            health_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };

@@ -166,7 +166,7 @@ impl SecurityValidator {
                         recommendation = %warning.recommendation,
                         "Security configuration issue"
                     );
-                }
+                },
                 WarningSeverity::Warning => {
                     tracing::warn!(
                         code = %warning.code,
@@ -174,7 +174,7 @@ impl SecurityValidator {
                         recommendation = %warning.recommendation,
                         "Security configuration warning"
                     );
-                }
+                },
                 WarningSeverity::Info => {
                     tracing::info!(
                         code = %warning.code,
@@ -182,7 +182,7 @@ impl SecurityValidator {
                         recommendation = %warning.recommendation,
                         "Security configuration notice"
                     );
-                }
+                },
             }
         }
     }
@@ -340,9 +340,10 @@ mod tests {
     }
 
     fn create_production_config() -> AppConfig {
-        let mut config = AppConfig::default();
-        config.environment = Some(Environment::Production);
-        config
+        AppConfig {
+            environment: Some(Environment::Production),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -468,11 +469,7 @@ mod tests {
     #[test]
     fn should_block_startup_in_production_with_critical() {
         let config = create_production_config();
-        let warnings = vec![SecurityWarning::critical(
-            "TEST",
-            "Test critical",
-            "Fix it",
-        )];
+        let warnings = vec![SecurityWarning::critical("TEST", "Test critical", "Fix it")];
 
         assert!(SecurityValidator::should_block_startup(&config, &warnings));
     }
@@ -480,11 +477,7 @@ mod tests {
     #[test]
     fn should_not_block_startup_in_development() {
         let config = create_test_config();
-        let warnings = vec![SecurityWarning::critical(
-            "TEST",
-            "Test critical",
-            "Fix it",
-        )];
+        let warnings = vec![SecurityWarning::critical("TEST", "Test critical", "Fix it")];
 
         assert!(!SecurityValidator::should_block_startup(&config, &warnings));
     }

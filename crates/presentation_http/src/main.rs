@@ -192,10 +192,13 @@ async fn main() -> anyhow::Result<()> {
     let metrics = Arc::new(MetricsCollector::new());
 
     // Create app state with reloadable config
+    // Note: HealthService is optional and can be configured when external service
+    // ports are available. For now, we rely on the fallback in health handlers.
     let state = AppState {
         chat_service: Arc::new(chat_service),
         agent_service: Arc::new(agent_service),
         approval_service,
+        health_service: None, // TODO: Wire up HealthService when all ports are available
         config: reloadable_config,
         metrics,
     };

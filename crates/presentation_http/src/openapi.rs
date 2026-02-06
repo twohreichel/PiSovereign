@@ -41,6 +41,11 @@ use crate::{handlers, state::AppState};
         // Health endpoints
         handlers::health::health_check,
         handlers::health::readiness_check,
+        handlers::health::extended_readiness_check,
+        handlers::health::inference_health_check,
+        handlers::health::email_health_check,
+        handlers::health::calendar_health_check,
+        handlers::health::weather_health_check,
         // Chat endpoints
         handlers::chat::chat,
         handlers::chat::chat_stream,
@@ -66,6 +71,8 @@ use crate::{handlers, state::AppState};
             handlers::health::HealthResponse,
             handlers::health::ReadinessResponse,
             handlers::health::ServiceStatus,
+            handlers::health::ExtendedReadinessResponse,
+            handlers::health::ExtendedServiceStatus,
             // Chat schemas
             handlers::chat::ChatRequest,
             handlers::chat::ChatResponse,

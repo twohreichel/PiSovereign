@@ -144,6 +144,9 @@ pub trait WeatherPort: Send + Sync {
         days: u8,
     ) -> Result<Vec<DailyForecast>, ApplicationError>;
 
+    /// Check if the weather service is available
+    async fn is_available(&self) -> bool;
+
     /// Get both current weather and forecast in a single call
     async fn get_weather_summary(
         &self,

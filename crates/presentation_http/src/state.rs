@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use application::{AgentService, ApprovalService, ChatService};
+use application::{AgentService, ApprovalService, ChatService, HealthService};
 
 use crate::{config_reload::ReloadableConfig, handlers::metrics::MetricsCollector};
 
@@ -15,6 +15,8 @@ pub struct AppState {
     pub agent_service: Arc<AgentService>,
     /// Approval service for managing approval workflows
     pub approval_service: Option<Arc<ApprovalService>>,
+    /// Health aggregation service
+    pub health_service: Option<Arc<HealthService>>,
     /// Reloadable application configuration
     pub config: ReloadableConfig,
     /// Metrics collector
@@ -27,6 +29,7 @@ impl std::fmt::Debug for AppState {
             .field("chat_service", &self.chat_service)
             .field("agent_service", &self.agent_service)
             .field("approval_service", &self.approval_service.is_some())
+            .field("health_service", &self.health_service.is_some())
             .field("config", &self.config)
             .field("metrics", &"<MetricsCollector>")
             .finish()

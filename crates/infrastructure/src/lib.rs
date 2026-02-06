@@ -18,6 +18,6 @@ pub use config::{
     ServerConfig, TelemetryAppConfig, WhatsAppConfig,
 };
 pub use persistence::{ConnectionPool, SqliteConversationStore, SqliteDraftStore, create_pool};
-pub use retry::{Retryable, RetryConfig, RetryResult, retry, with_retry};
+pub use retry::{RetryConfig, RetryResult, Retryable, retry, with_retry};
 pub use telemetry::{TelemetryConfig, TelemetryGuard, init_telemetry};
 pub use validation::{SecurityValidator, SecurityWarning, WarningSeverity};
