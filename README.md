@@ -1,5 +1,9 @@
 # PiSovereign
 
+[![CI](https://github.com/twohreichel/PiSovereign/actions/workflows/ci.yml/badge.svg)](https://github.com/twohreichel/PiSovereign/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/twohreichel/PiSovereign/graph/badge.svg)](https://codecov.io/gh/twohreichel/PiSovereign)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 🤖 Local, secure AI assistant platform for Raspberry Pi 5 + Hailo-10H AI HAT+ 2.
 
 ## Features

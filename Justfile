@@ -118,3 +118,25 @@ run:
 # Run the CLI
 cli *ARGS:
     cargo run --bin pisovereign-cli -- {{ARGS}}
+
+# === COVERAGE ===
+
+# Generate code coverage report (requires cargo-llvm-cov)
+# Install with: cargo install cargo-llvm-cov
+coverage:
+    @echo "📊 Generating coverage report..."
+    cargo llvm-cov --all-features --workspace --html
+    @echo "📊 Report generated at target/llvm-cov/html/index.html"
+
+# Generate coverage report and open in browser
+coverage-open:
+    cargo llvm-cov --all-features --workspace --html --open
+
+# Generate LCOV format for CI/Codecov
+coverage-lcov:
+    cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+    @echo "📊 LCOV report generated at lcov.info"
+
+# Show coverage summary in terminal
+coverage-summary:
+    cargo llvm-cov --all-features --workspace
