@@ -8,9 +8,11 @@ mod backup;
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use infrastructure::ApiKeyHasher;
+use presentation_http::ApiDoc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa::OpenApi;
 
 /// PiSovereign CLI
 #[derive(Parser)]
@@ -23,6 +25,16 @@ struct Cli {
 
     #[command(subcommand)]
     command: Commands,
+}
+
+/// Output format for the OpenAPI specification
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
+enum OpenApiFormat {
+    /// JSON format
+    #[default]
+    Json,
+    /// YAML format
+    Yaml,
 }
 
 #[derive(Subcommand)]
@@ -72,6 +84,23 @@ enum Commands {
         /// Verify the hash by re-hashing and comparing (for debugging)
         #[arg(long)]
         verify: bool,
+    },
+
+    /// Export the OpenAPI specification
+    ///
+    /// Exports the full OpenAPI 3.0 specification for the PiSovereign API.
+    /// Useful for generating client SDKs, documentation, or API testing.
+    ///
+    /// Example: pisovereign-cli openapi > openapi.json
+    /// Example: pisovereign-cli openapi --format yaml --output docs/openapi.yaml
+    Openapi {
+        /// Output format (json or yaml)
+        #[arg(short, long, value_enum, default_value_t = OpenApiFormat::Json)]
+        format: OpenApiFormat,
+
+        /// Output file (prints to stdout if not specified)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 
     /// Create a backup of the SQLite database
@@ -247,6 +276,31 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => {
                     println!("❌ Failed to hash API key: {e}");
                     std::process::exit(1);
+                },
+            }
+        },
+
+        Commands::Openapi { format, output } => {
+            let spec = match format {
+                OpenApiFormat::Json => ApiDoc::openapi()
+                    .to_pretty_json()
+                    .expect("Failed to serialize OpenAPI spec to JSON"),
+                OpenApiFormat::Yaml => ApiDoc::openapi()
+                    .to_yaml()
+                    .expect("Failed to serialize OpenAPI spec to YAML"),
+            };
+
+            match output {
+                Some(path) => {
+                    std::fs::write(&path, &spec)?;
+                    let format_name = match format {
+                        OpenApiFormat::Json => "JSON",
+                        OpenApiFormat::Yaml => "YAML",
+                    };
+                    eprintln!("📄 OpenAPI specification ({format_name}) written to: {}", path.display());
+                },
+                None => {
+                    println!("{spec}");
                 },
             }
         },

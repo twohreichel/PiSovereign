@@ -1,0 +1,64 @@
+# =============================================================================
+# PiSovereign Documentation - mdBook Configuration
+# =============================================================================
+
+[book]
+title = "PiSovereign Documentation"
+description = "Comprehensive documentation for PiSovereign - Local AI Assistant for Raspberry Pi 5"
+authors = ["Andreas Reichel"]
+language = "en"
+multilingual = false
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[preprocessor.links]
+
+[preprocessor.index]
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+smart-punctuation = true
+mathjax-support = false
+copy-fonts = true
+no-section-label = false
+git-repository-url = "https://github.com/twohreichel/PiSovereign"
+git-repository-icon = "fa-github"
+edit-url-template = "https://github.com/twohreichel/PiSovereign/edit/main/docs/{path}"
+site-url = "/PiSovereign/"
+cname = ""
+input-404 = "404.md"
+
+[output.html.print]
+enable = true
+page-break = true
+
+[output.html.fold]
+enable = false
+level = 0
+
+[output.html.playground]
+editable = false
+copyable = true
+copy-js = true
+runnable = false
+
+[output.html.code]
+hidelines = { rust = "#" }
+
+[output.html.search]
+enable = true
+limit-results = 30
+teaser-word-count = 30
+use-hierarchical-search = true
+copy-search-results = true
+
+# Link checker for internal links
+# Note: External link checking requires mdbook-linkcheck plugin
+# Install with: cargo install mdbook-linkcheck
+# [output.linkcheck]
+# follow-web-links = false
+# traverse-parent-directories = false

@@ -179,6 +179,7 @@ application = { path = "crates/application" }
 infrastructure = { path = "crates/infrastructure" }
 ai_core = { path = "crates/ai_core" }
 ai_speech = { path = "crates/ai_speech" }
+presentation_http = { path = "crates/presentation_http" }
 integration_proton = { path = "crates/integration_proton" }
 integration_caldav = { path = "crates/integration_caldav" }
 integration_whatsapp = { path = "crates/integration_whatsapp" }
