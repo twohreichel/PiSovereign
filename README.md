@@ -10,6 +10,7 @@
 
 - **Local LLM Inference** on Hailo-10H (Qwen2.5-1.5B, Llama3.2-1B)
 - **WhatsApp Control** – Send commands via message
+- **Voice Messages** – STT/TTS for voice-based interaction
 - **Calendar Integration** (CalDAV: Baïkal, Radicale)
 - **Email Integration** (Proton Mail Bridge)
 - **EU/GDPR Compliant** – Everything local, European services
@@ -77,6 +78,7 @@ crates/
 ├── application/         # Use cases, services, ports
 ├── infrastructure/      # Adapters (Hailo, DB, etc.)
 ├── ai_core/            # Inference engine, Hailo client
+├── ai_speech/          # Speech-to-Text/Text-to-Speech (OpenAI Whisper/TTS)
 ├── presentation_http/   # HTTP-API (Axum)
 ├── presentation_cli/    # CLI tool
 ├── integration_whatsapp/# WhatsApp Business API
@@ -211,6 +213,92 @@ scheduler.add_task("morning-briefing", "0 0 7 * * *", || async {
 - `EVERY_15_MINUTES` – Calendar sync
 - `DAILY_7AM` – Morning briefing
 - `DAILY_MIDNIGHT` – Database backup
+
+## Voice Messages (STT/TTS)
+
+PiSovereign supports bidirectional voice communication via WhatsApp:
+
+### Speech-to-Text (STT)
+
+Receive voice messages from WhatsApp users, transcribe them using OpenAI Whisper, and process the text through your AI assistant:
+
+```
+User sends 🎤 voice message → Whisper transcription → AI response → Text reply
+```
+
+### Text-to-Speech (TTS)
+
+Optionally respond with audio messages using OpenAI TTS:
+
+```
+AI text response → TTS synthesis → 🔊 Audio message to user
+```
+
+### Configuration
+
+Add to `config.toml`:
+
+```toml
+[speech]
+api_key = "sk-your-openai-key"         # Required: OpenAI API key
+base_url = "https://api.openai.com/v1" # Optional: API endpoint
+stt_model = "whisper-1"                # Optional: STT model
+tts_model = "tts-1"                    # Optional: TTS model (tts-1, tts-1-hd)
+default_voice = "nova"                 # Optional: nova, alloy, echo, fable, onyx, shimmer
+response_format = "text"               # Optional: text or audio
+timeout_ms = 30000                     # Optional: API timeout
+max_audio_duration_ms = 120000         # Optional: Max voice message length (2 min)
+```
+
+Or via environment variables:
+
+```bash
+export PISOVEREIGN_SPEECH_API_KEY="sk-your-openai-key"
+export PISOVEREIGN_SPEECH_DEFAULT_VOICE="nova"
+export PISOVEREIGN_SPEECH_RESPONSE_FORMAT="audio"  # Enable TTS responses
+```
+
+### Supported Audio Formats
+
+- **Input (WhatsApp → Whisper)**: OGG/Opus, MP3, WAV, FLAC, M4A
+- **Output (TTS → WhatsApp)**: MP3 (auto-converted to OGG/Opus for WhatsApp)
+
+### Requirements
+
+- **FFmpeg**: Required for audio format conversion
+  ```bash
+  # On macOS
+  brew install ffmpeg
+
+  # On Debian/Ubuntu/Raspberry Pi OS
+  sudo apt install ffmpeg
+  ```
+
+- **OpenAI API Key**: Required for Whisper and TTS APIs
+
+### Architecture
+
+The voice message pipeline follows Clean Architecture:
+
+```
+WhatsApp Webhook
+    ↓
+[integration_whatsapp] Media Download
+    ↓
+[ai_speech] Audio Converter (FFmpeg)
+    ↓
+[ai_speech] OpenAI Whisper (STT)
+    ↓
+[application] VoiceMessageService
+    ↓
+[ai_core] LLM Processing
+    ↓
+[ai_speech] OpenAI TTS (optional)
+    ↓
+[integration_whatsapp] Media Upload
+    ↓
+WhatsApp Response (text or audio)
+```
 
 ## Performance Features
 
