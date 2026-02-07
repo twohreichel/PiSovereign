@@ -226,6 +226,33 @@ global_timeout_secs = 5
 # default_location = { latitude = 52.52, longitude = 13.405 }  # Berlin
 
 # ==============================
+# Web Search Integration (Brave/DuckDuckGo)
+# ==============================
+# Web search allows the LLM to search the internet for real-time information.
+# Brave Search is the primary provider (requires API key), with DuckDuckGo as fallback.
+# Get your Brave API key at: https://brave.com/search/api/
+#
+# [websearch]
+# Brave Search API key (required for Brave, optional if using DuckDuckGo only)
+# api_key = "BSA..."
+# Maximum number of search results to return (1-10)
+# max_results = 5
+# Connection timeout in seconds
+# timeout_secs = 30
+# Enable DuckDuckGo fallback when Brave fails or returns no results
+# fallback_enabled = true
+# Safe search level: "off", "moderate", or "strict"
+# safe_search = "moderate"
+# Country code for search results (e.g., "DE", "US", "GB")
+# country = "DE"
+# Language code for search results (e.g., "de", "en", "fr")
+# language = "de"
+# Rate limit: maximum requests per minute (0 = unlimited)
+# rate_limit_rpm = 60
+# Cache TTL in minutes for search results
+# cache_ttl_minutes = 30
+
+# ==============================
 # CalDAV Calendar Integration
 # ==============================
 # [caldav]

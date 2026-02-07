@@ -79,6 +79,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub weather: Option<WeatherConfig>,
 
+    /// Web search configuration (optional)
+    #[serde(default)]
+    pub websearch: Option<WebSearchAppConfig>,
+
     /// CalDAV calendar configuration (optional)
     #[serde(default)]
     pub caldav: Option<CalDavAppConfig>,
@@ -771,6 +775,65 @@ mod tests {
         // Key does not exist
         assert_eq!(config.api_key_users.get("unknown-key"), None);
     }
+
+    #[test]
+    fn websearch_config_default() {
+        let config = WebSearchAppConfig::default();
+        assert!(config.api_key.is_none());
+        assert_eq!(config.max_results, 5);
+        assert_eq!(config.timeout_secs, 30);
+        assert!(config.fallback_enabled);
+        assert_eq!(config.safe_search, "moderate");
+        assert!(config.country.is_none());
+        assert!(config.language.is_none());
+        assert!(config.rate_limit_rpm.is_none());
+        assert_eq!(config.cache_ttl_minutes, 30);
+    }
+
+    #[test]
+    fn websearch_config_deserialize() {
+        let json = r#"{"api_key":"BSA-123456","max_results":10,"language":"de","country":"DE"}"#;
+        let config: WebSearchAppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.api_key, Some("BSA-123456".to_string()));
+        assert_eq!(config.max_results, 10);
+        assert_eq!(config.language, Some("de".to_string()));
+        assert_eq!(config.country, Some("DE".to_string()));
+    }
+
+    #[test]
+    fn websearch_config_to_integration_config() {
+        let config = WebSearchAppConfig {
+            api_key: Some("test-key".to_string()),
+            max_results: 8,
+            timeout_secs: 60,
+            fallback_enabled: false,
+            safe_search: "strict".to_string(),
+            country: Some("US".to_string()),
+            language: Some("en".to_string()),
+            rate_limit_rpm: Some(30),
+            cache_ttl_minutes: 15,
+        };
+
+        let integration_config = config.to_websearch_config();
+        assert_eq!(integration_config.brave_api_key, Some("test-key".to_string()));
+        assert_eq!(integration_config.max_results, 8);
+        assert_eq!(integration_config.timeout_secs, 60);
+        assert!(!integration_config.fallback_enabled);
+        assert_eq!(integration_config.safe_search, "strict");
+        assert_eq!(integration_config.result_country, "US");
+        assert_eq!(integration_config.result_language, "en");
+        assert_eq!(integration_config.cache_ttl_minutes, 15);
+    }
+
+    #[test]
+    fn app_config_with_websearch() {
+        let json = r#"{"websearch":{"api_key":"BSA-test","max_results":3}}"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert!(config.websearch.is_some());
+        let ws = config.websearch.unwrap();
+        assert_eq!(ws.api_key, Some("BSA-test".to_string()));
+        assert_eq!(ws.max_results, 3);
+    }
 }
 
 /// Weather service configuration
@@ -843,6 +906,108 @@ impl Default for WeatherConfig {
             cache_ttl_minutes: default_cache_ttl_minutes(),
             default_location: None,
         }
+    }
+}
+
+/// Web search service configuration
+///
+/// Configures web search integration using Brave Search (primary) and DuckDuckGo (fallback).
+/// Get your Brave API key at: <https://brave.com/search/api/>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchAppConfig {
+    /// Brave Search API key (required for Brave, optional if using DuckDuckGo only)
+    ///
+    /// Obtain from <https://brave.com/search/api/>
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// Maximum number of search results to return (1-10)
+    #[serde(default = "default_websearch_max_results")]
+    pub max_results: u32,
+
+    /// Connection timeout in seconds
+    #[serde(default = "default_websearch_timeout")]
+    pub timeout_secs: u64,
+
+    /// Enable DuckDuckGo fallback when Brave fails or returns no results
+    #[serde(default = "default_true")]
+    pub fallback_enabled: bool,
+
+    /// Safe search level: "off", "moderate", or "strict"
+    #[serde(default = "default_safe_search")]
+    pub safe_search: String,
+
+    /// Country code for search results (e.g., "DE", "US", "GB")
+    #[serde(default)]
+    pub country: Option<String>,
+
+    /// Language code for search results (e.g., "de", "en", "fr")
+    #[serde(default)]
+    pub language: Option<String>,
+
+    /// Rate limit: maximum requests per minute (0 = unlimited)
+    #[serde(default)]
+    pub rate_limit_rpm: Option<u32>,
+
+    /// Cache TTL in minutes for search results
+    #[serde(default = "default_websearch_cache_ttl")]
+    pub cache_ttl_minutes: u32,
+}
+
+const fn default_websearch_max_results() -> u32 {
+    5
+}
+
+const fn default_websearch_timeout() -> u64 {
+    30
+}
+
+fn default_safe_search() -> String {
+    "moderate".to_string()
+}
+
+const fn default_websearch_cache_ttl() -> u32 {
+    30
+}
+
+impl Default for WebSearchAppConfig {
+    fn default() -> Self {
+        Self {
+            api_key: None,
+            max_results: default_websearch_max_results(),
+            timeout_secs: default_websearch_timeout(),
+            fallback_enabled: true,
+            safe_search: default_safe_search(),
+            country: None,
+            language: None,
+            rate_limit_rpm: None,
+            cache_ttl_minutes: default_websearch_cache_ttl(),
+        }
+    }
+}
+
+impl WebSearchAppConfig {
+    /// Convert to integration_websearch config
+    #[must_use]
+    pub fn to_websearch_config(&self) -> integration_websearch::WebSearchConfig {
+        let mut config = integration_websearch::WebSearchConfig::default();
+        config.brave_api_key.clone_from(&self.api_key);
+        config.max_results = self.max_results as usize;
+        config.timeout_secs = self.timeout_secs;
+        config.fallback_enabled = self.fallback_enabled;
+        config.safe_search.clone_from(&self.safe_search);
+        config.cache_ttl_minutes = self.cache_ttl_minutes;
+        if let Some(ref country) = self.country {
+            config.result_country.clone_from(country);
+        }
+        if let Some(ref language) = self.language {
+            config.result_language.clone_from(language);
+        }
+        if let Some(rpm) = self.rate_limit_rpm {
+            // Convert RPM to daily rate (approximate)
+            config.rate_limit_daily = rpm * 60 * 24;
+        }
+        config
     }
 }
 
