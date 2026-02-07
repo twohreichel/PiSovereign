@@ -12,6 +12,7 @@ pub mod http;
 pub mod persistence;
 pub mod retry;
 pub mod telemetry;
+pub mod templates;
 #[cfg(test)]
 pub mod testing;
 pub mod validation;
@@ -29,4 +30,8 @@ pub use persistence::{
 };
 pub use retry::{RetryConfig, RetryResult, Retryable, retry, with_retry};
 pub use telemetry::{TelemetryConfig, TelemetryGuard, init_telemetry};
+pub use templates::{
+    AssistantResponseData, CalendarEventData, EmailDraftData, ForecastDay, TemplateConfig,
+    TemplateContext, TemplateEngine, TemplateError, WeatherReportData,
+};
 pub use validation::{SecurityValidator, SecurityWarning, WarningSeverity};

@@ -55,6 +55,9 @@ argon2 = "0.5"
 # Random number generation for jitter
 rand = "0.8"
 
+# Template engine
+tera.workspace = true
+
 [dev-dependencies]
 tokio-test.workspace = true
 mockall.workspace = true
