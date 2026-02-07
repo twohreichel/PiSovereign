@@ -343,10 +343,11 @@ async fn main() -> anyhow::Result<()> {
             .allow_headers(Any)
     };
 
-    // Configure rate limiter
+    // Configure rate limiter with trusted proxy support
     let rate_limiter = RateLimiterLayer::new(&RateLimiterConfig {
         enabled: initial_config.security.rate_limit_enabled,
         requests_per_minute: initial_config.security.rate_limit_rpm,
+        trusted_proxies: initial_config.security.trusted_proxies.clone(),
     });
 
     // Spawn rate limiter cleanup task

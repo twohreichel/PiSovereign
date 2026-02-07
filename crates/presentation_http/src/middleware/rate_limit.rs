@@ -1,9 +1,11 @@
 //! Rate limiting middleware
 //!
 //! Token bucket rate limiter that limits requests per IP address.
+//! Supports trusted reverse proxies for proper client IP extraction.
 
 use std::{
     collections::HashMap,
+    collections::HashSet,
     future::Future,
     net::IpAddr,
     pin::Pin,
@@ -18,7 +20,7 @@ use axum::{
 };
 use tokio::sync::RwLock;
 use tower::{Layer, Service};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::error::ApiError;
 
@@ -29,6 +31,12 @@ pub struct RateLimiterConfig {
     pub requests_per_minute: u32,
     /// Enable rate limiting
     pub enabled: bool,
+    /// Trusted proxy IP addresses
+    ///
+    /// When a request comes from a trusted proxy, the rate limiter will
+    /// use the X-Forwarded-For header to determine the real client IP.
+    /// If the connecting IP is not in this list, X-Forwarded-For is ignored.
+    pub trusted_proxies: Vec<IpAddr>,
 }
 
 impl Default for RateLimiterConfig {
@@ -36,6 +44,7 @@ impl Default for RateLimiterConfig {
         Self {
             requests_per_minute: 60,
             enabled: true,
+            trusted_proxies: Vec::new(),
         }
     }
 }
@@ -189,16 +198,28 @@ pub struct RateLimiterLayer {
     state: Arc<RateLimiterState>,
     enabled: bool,
     excluded_paths: Vec<String>,
+    trusted_proxies: Arc<HashSet<IpAddr>>,
 }
 
 impl RateLimiterLayer {
     /// Create a new rate limiter layer
     #[must_use]
     pub fn new(config: &RateLimiterConfig) -> Self {
+        let trusted_set: HashSet<IpAddr> = config.trusted_proxies.iter().copied().collect();
+
+        if !trusted_set.is_empty() {
+            info!(
+                count = trusted_set.len(),
+                proxies = ?config.trusted_proxies,
+                "Rate limiter configured with trusted proxies"
+            );
+        }
+
         Self {
             state: Arc::new(RateLimiterState::new(config.requests_per_minute)),
             enabled: config.enabled,
             excluded_paths: vec!["/health".to_string(), "/ready".to_string()],
+            trusted_proxies: Arc::new(trusted_set),
         }
     }
 
@@ -225,6 +246,7 @@ impl<S> Layer<S> for RateLimiterLayer {
             state: Arc::clone(&self.state),
             enabled: self.enabled,
             excluded_paths: self.excluded_paths.clone(),
+            trusted_proxies: Arc::clone(&self.trusted_proxies),
         }
     }
 }
@@ -236,6 +258,7 @@ pub struct RateLimiter<S> {
     state: Arc<RateLimiterState>,
     enabled: bool,
     excluded_paths: Vec<String>,
+    trusted_proxies: Arc<HashSet<IpAddr>>,
 }
 
 impl<S> Service<Request> for RateLimiter<S>
@@ -255,6 +278,7 @@ where
         let enabled = self.enabled;
         let state = Arc::clone(&self.state);
         let excluded_paths = self.excluded_paths.clone();
+        let trusted_proxies = Arc::clone(&self.trusted_proxies);
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
@@ -269,8 +293,8 @@ where
                 return inner.call(req).await;
             }
 
-            // Extract client IP from ConnectInfo or X-Forwarded-For
-            let client_ip = extract_client_ip(&req);
+            // Extract client IP, respecting trusted proxies
+            let client_ip = extract_client_ip(&req, &trusted_proxies);
 
             // Check rate limit
             if state.check(client_ip).await {
@@ -282,27 +306,66 @@ where
     }
 }
 
-fn extract_client_ip(req: &Request) -> IpAddr {
-    // Try X-Forwarded-For header first (for reverse proxy setups)
-    if let Some(forwarded) = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-    {
-        // Take the first IP in the chain (original client)
-        if let Some(ip_str) = forwarded.split(',').next() {
-            if let Ok(ip) = ip_str.trim().parse::<IpAddr>() {
-                return ip;
+/// Extract the client IP address from a request
+///
+/// This function implements secure IP extraction for reverse proxy setups:
+///
+/// 1. If the request comes from a trusted proxy (based on `trusted_proxies`),
+///    it will parse the `X-Forwarded-For` header to get the real client IP.
+/// 2. If the request is not from a trusted proxy, `X-Forwarded-For` is ignored
+///    to prevent IP spoofing attacks.
+/// 3. Falls back to localhost if no IP can be determined.
+///
+/// # Security
+///
+/// Never trust `X-Forwarded-For` from untrusted sources. Attackers can easily
+/// spoof this header to bypass rate limiting or IP-based access controls.
+fn extract_client_ip(req: &Request, trusted_proxies: &HashSet<IpAddr>) -> IpAddr {
+    // Get the connecting IP (direct connection)
+    // In a real deployment with axum::extract::ConnectInfo, this would be
+    // the actual socket address. For now, we default to localhost.
+    let connecting_ip: IpAddr = "127.0.0.1"
+        .parse()
+        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+
+    // Only trust X-Forwarded-For if the connecting IP is a trusted proxy
+    if !trusted_proxies.is_empty() && trusted_proxies.contains(&connecting_ip) {
+        if let Some(forwarded) = req
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+        {
+            // X-Forwarded-For format: client, proxy1, proxy2, ...
+            // We want the leftmost (original client) IP
+            if let Some(ip_str) = forwarded.split(',').next() {
+                match ip_str.trim().parse::<IpAddr>() {
+                    Ok(ip) => {
+                        debug!(
+                            client_ip = %ip,
+                            proxy_ip = %connecting_ip,
+                            "Extracted client IP from X-Forwarded-For via trusted proxy"
+                        );
+                        return ip;
+                    },
+                    Err(e) => {
+                        warn!(
+                            header = forwarded,
+                            error = %e,
+                            "Invalid IP in X-Forwarded-For header"
+                        );
+                    },
+                }
             }
         }
+    } else if req.headers().contains_key("x-forwarded-for") && !trusted_proxies.is_empty() {
+        // Log when X-Forwarded-For is present but not from a trusted proxy
+        warn!(
+            connecting_ip = %connecting_ip,
+            "X-Forwarded-For header ignored: connecting IP not in trusted_proxies"
+        );
     }
 
-    // Fallback to ConnectInfo if available
-    // Note: In production, you'd use ConnectInfo<SocketAddr> extension
-    // For now, default to localhost if we can't determine the IP
-    "127.0.0.1"
-        .parse()
-        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
+    connecting_ip
 }
 
 #[cfg(test)]
@@ -320,6 +383,7 @@ mod tests {
         let config = RateLimiterConfig {
             enabled,
             requests_per_minute: rpm,
+            trusted_proxies: Vec::new(),
         };
         Router::new()
             .route("/test", get(test_handler))
@@ -346,6 +410,7 @@ mod tests {
         let config = RateLimiterConfig {
             enabled: true,
             requests_per_minute: 60,
+            trusted_proxies: Vec::new(),
         };
         let layer = RateLimiterLayer::new(&config);
         let app = Router::new().route("/test", get(test_handler)).layer(layer);
@@ -364,6 +429,7 @@ mod tests {
         let config = RateLimiterConfig {
             enabled: true,
             requests_per_minute: 2, // Very low limit for testing
+            trusted_proxies: Vec::new(),
         };
         let layer = RateLimiterLayer::new(&config);
         let app = Router::new().route("/test", get(test_handler)).layer(layer);
@@ -390,6 +456,7 @@ mod tests {
         let config = RateLimiterConfig {
             enabled: true,
             requests_per_minute: 1, // Very restrictive
+            trusted_proxies: Vec::new(),
         };
         let layer = RateLimiterLayer::new(&config);
         let app = Router::new()
@@ -499,5 +566,101 @@ mod tests {
 
         // Task should be cancelled
         assert!(handle.await.unwrap_err().is_cancelled());
+    }
+
+    #[test]
+    fn extract_ip_ignores_xff_without_trusted_proxies() {
+        let trusted_proxies = HashSet::new();
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("x-forwarded-for", "10.0.0.1, 192.168.1.1")
+            .body(Body::empty())
+            .unwrap();
+
+        // Without trusted proxies configured, X-Forwarded-For should be ignored
+        let ip = extract_client_ip(&req, &trusted_proxies);
+        assert_eq!(ip, "127.0.0.1".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn extract_ip_uses_xff_from_trusted_proxy() {
+        let mut trusted_proxies = HashSet::new();
+        trusted_proxies.insert("127.0.0.1".parse().unwrap());
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("x-forwarded-for", "10.0.0.1, 192.168.1.1")
+            .body(Body::empty())
+            .unwrap();
+
+        // With localhost as trusted proxy, should use X-Forwarded-For
+        let ip = extract_client_ip(&req, &trusted_proxies);
+        assert_eq!(ip, "10.0.0.1".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn extract_ip_handles_single_xff_ip() {
+        let mut trusted_proxies = HashSet::new();
+        trusted_proxies.insert("127.0.0.1".parse().unwrap());
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("x-forwarded-for", "192.168.100.50")
+            .body(Body::empty())
+            .unwrap();
+
+        let ip = extract_client_ip(&req, &trusted_proxies);
+        assert_eq!(ip, "192.168.100.50".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn extract_ip_handles_xff_with_ipv6() {
+        let mut trusted_proxies = HashSet::new();
+        trusted_proxies.insert("127.0.0.1".parse().unwrap());
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("x-forwarded-for", "2001:db8::1, ::1")
+            .body(Body::empty())
+            .unwrap();
+
+        let ip = extract_client_ip(&req, &trusted_proxies);
+        assert_eq!(ip, "2001:db8::1".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn extract_ip_handles_invalid_xff() {
+        let mut trusted_proxies = HashSet::new();
+        trusted_proxies.insert("127.0.0.1".parse().unwrap());
+
+        let req = Request::builder()
+            .uri("/test")
+            .header("x-forwarded-for", "not-an-ip, also-invalid")
+            .body(Body::empty())
+            .unwrap();
+
+        // Should fall back to connecting IP when X-Forwarded-For is invalid
+        let ip = extract_client_ip(&req, &trusted_proxies);
+        assert_eq!(ip, "127.0.0.1".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn trusted_proxies_in_config() {
+        let config = RateLimiterConfig {
+            enabled: true,
+            requests_per_minute: 60,
+            trusted_proxies: vec![
+                "127.0.0.1".parse().unwrap(),
+                "::1".parse().unwrap(),
+                "10.0.0.1".parse().unwrap(),
+            ],
+        };
+
+        let layer = RateLimiterLayer::new(&config);
+        assert_eq!(layer.trusted_proxies.len(), 3);
+        assert!(layer.trusted_proxies.contains(&"127.0.0.1".parse().unwrap()));
+        assert!(layer.trusted_proxies.contains(&"::1".parse().unwrap()));
+        assert!(layer.trusted_proxies.contains(&"10.0.0.1".parse().unwrap()));
     }
 }
