@@ -122,6 +122,17 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Configure error response detail exposure based on environment
+    // In production, we hide implementation details to prevent information leakage
+    let is_production = matches!(
+        initial_config.environment,
+        Some(infrastructure::config::Environment::Production)
+    );
+    presentation_http::error::set_expose_internal_errors(!is_production);
+    if is_production {
+        info!("🔒 Production mode: error details will be sanitized");
+    }
+
     info!(
         host = %initial_config.server.host,
         port = %initial_config.server.port,
