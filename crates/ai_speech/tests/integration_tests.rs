@@ -44,7 +44,7 @@ fn mock_opus_audio() -> Vec<u8> {
         0x00, 0x00, 0x00, 0x00, // Stream serial
         0x00, 0x00, 0x00, 0x00, // Page sequence
         0x00, 0x00, 0x00, 0x00, // Checksum (placeholder)
-        0x01, 0x13,             // Page segments
+        0x01, 0x13, // Page segments
     ]
 }
 
@@ -447,7 +447,10 @@ async fn handles_empty_transcription_response() {
 
     assert!(result.is_ok());
     let transcription = result.unwrap();
-    assert!(transcription.text.is_empty(), "Transcription text should be empty");
+    assert!(
+        transcription.text.is_empty(),
+        "Transcription text should be empty"
+    );
     assert!(transcription.is_empty(), "is_empty() should return true");
 }
 
