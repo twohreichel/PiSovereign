@@ -26,5 +26,7 @@ pub use connection::{ConnectionPool, DatabaseError, create_pool};
 pub use conversation_store::SqliteConversationStore;
 pub use database_health::SqliteDatabaseHealth;
 pub use draft_store::SqliteDraftStore;
-pub use retry_queue::{DeadLetterItem, QueueStats, RetryItem, RetryQueueError, RetryQueueStore, RetryStatus};
+pub use retry_queue::{
+    DeadLetterItem, QueueStats, RetryItem, RetryQueueError, RetryQueueStore, RetryStatus,
+};
 pub use user_profile_store::SqliteUserProfileStore;

@@ -316,21 +316,19 @@ async fn main() -> anyhow::Result<()> {
             }
         },
 
-        Commands::Health { url } => {
-            match client.get(endpoint_url(&url, "/ready")).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    println!("✅ Healthy");
-                    std::process::exit(0);
-                },
-                Ok(resp) => {
-                    println!("❌ Unhealthy: HTTP {}", resp.status());
-                    std::process::exit(1);
-                },
-                Err(e) => {
-                    println!("❌ Unhealthy: {e}");
-                    std::process::exit(1);
-                },
-            }
+        Commands::Health { url } => match client.get(endpoint_url(&url, "/ready")).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                println!("✅ Healthy");
+                std::process::exit(0);
+            },
+            Ok(resp) => {
+                println!("❌ Unhealthy: HTTP {}", resp.status());
+                std::process::exit(1);
+            },
+            Err(e) => {
+                println!("❌ Unhealthy: {e}");
+                std::process::exit(1);
+            },
         },
     }
 

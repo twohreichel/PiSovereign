@@ -225,7 +225,7 @@ pub fn init_telemetry(config: &TelemetryConfig) -> Result<TelemetryGuard, Teleme
             Ok(TelemetryGuard {
                 provider: Some(provider),
             })
-        }
+        },
         Err(e) => {
             if config.graceful_fallback {
                 // Fall back to console-only logging
@@ -247,7 +247,7 @@ pub fn init_telemetry(config: &TelemetryConfig) -> Result<TelemetryGuard, Teleme
                 // Fail if collector is required
                 Err(TelemetryError::Exporter(e.to_string()))
             }
-        }
+        },
     }
 }
 

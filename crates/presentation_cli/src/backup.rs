@@ -95,10 +95,7 @@ pub async fn backup_database(
         .context("Failed to get backup file metadata")?;
     let size_bytes = metadata.len();
 
-    info!(
-        size_bytes = size_bytes,
-        "Backup completed locally"
-    );
+    info!(size_bytes = size_bytes, "Backup completed locally");
 
     // Upload to S3 if configured
     let s3_url = if let Some(config) = s3_config {
@@ -131,7 +128,7 @@ async fn perform_sqlite_backup(source_path: &Path, dest_path: &Path) -> Result<(
     let dest_path = dest_path.to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        use rusqlite::{backup, Connection};
+        use rusqlite::{Connection, backup};
 
         // Open source database in read-only mode
         let source_conn = Connection::open_with_flags(
@@ -151,9 +148,7 @@ async fn perform_sqlite_backup(source_path: &Path, dest_path: &Path) -> Result<(
             // Copy all pages (-1 = copy all at once)
             // For very large databases, you might want to use a smaller page count
             // and call step() in a loop with progress reporting
-            backup
-                .step(-1)
-                .context("Backup step failed")?;
+            backup.step(-1).context("Backup step failed")?;
 
             debug!("Backup completed successfully");
             // backup is dropped here, releasing the borrow
@@ -204,10 +199,7 @@ async fn upload_to_s3(local_path: &Path, config: &S3Config) -> Result<String> {
             endpoint: endpoint.clone(),
         }
     } else {
-        config
-            .region
-            .parse()
-            .context("Invalid S3 region")?
+        config.region.parse().context("Invalid S3 region")?
     };
 
     // Create bucket handle
@@ -220,10 +212,10 @@ async fn upload_to_s3(local_path: &Path, config: &S3Config) -> Result<String> {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("backup.db");
-    let s3_key = config
-        .prefix
-        .as_ref()
-        .map_or_else(|| filename.to_string(), |prefix| format!("{prefix}/{filename}"));
+    let s3_key = config.prefix.as_ref().map_or_else(
+        || filename.to_string(),
+        |prefix| format!("{prefix}/{filename}"),
+    );
 
     // Read file
     let content = tokio::fs::read(local_path)
@@ -304,11 +296,8 @@ mod tests {
         // Create a test database
         {
             let conn = rusqlite::Connection::open(&source_path).unwrap();
-            conn.execute(
-                "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)",
-                [],
-            )
-            .unwrap();
+            conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)", [])
+                .unwrap();
             conn.execute("INSERT INTO test (value) VALUES ('hello')", [])
                 .unwrap();
         }
@@ -347,13 +336,15 @@ mod tests {
 
         std::env::set_current_dir(original_dir).unwrap();
 
-        assert!(result
-            .local_path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("pisovereign_backup_"));
+        assert!(
+            result
+                .local_path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("pisovereign_backup_")
+        );
     }
 
     #[tokio::test]

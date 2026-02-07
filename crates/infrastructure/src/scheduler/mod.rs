@@ -11,15 +11,15 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex as AsyncMutex};
+use tokio::sync::{Mutex as AsyncMutex, mpsc};
 use tokio_cron_scheduler::{Job, JobScheduler, JobSchedulerError};
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
@@ -181,7 +181,8 @@ impl TaskMetadata {
     fn record_success(&self, duration_ms: u64) {
         let now = Utc::now();
         self.success_count.fetch_add(1, Ordering::Relaxed);
-        self.total_duration_ms.fetch_add(duration_ms, Ordering::Relaxed);
+        self.total_duration_ms
+            .fetch_add(duration_ms, Ordering::Relaxed);
         *self.last_run.write() = Some(now);
         *self.last_success.write() = Some(now);
     }
@@ -189,7 +190,8 @@ impl TaskMetadata {
     fn record_failure(&self, error: String, duration_ms: u64) {
         let now = Utc::now();
         self.failure_count.fetch_add(1, Ordering::Relaxed);
-        self.total_duration_ms.fetch_add(duration_ms, Ordering::Relaxed);
+        self.total_duration_ms
+            .fetch_add(duration_ms, Ordering::Relaxed);
         *self.last_run.write() = Some(now);
         *self.last_failure.write() = Some(now);
         *self.last_error.write() = Some(error);
@@ -404,14 +406,14 @@ impl TaskScheduler {
                         }
                         info!(task = %name, duration_ms, "Task completed successfully");
                         (true, None)
-                    }
+                    },
                     Err(e) => {
                         if let Some(metadata) = tasks.read().get(&name) {
                             metadata.record_failure(e.clone(), duration_ms);
                         }
                         error!(task = %name, error = %e, duration_ms, "Task failed");
                         (false, Some(e))
-                    }
+                    },
                 };
 
                 // Send event notification
@@ -598,7 +600,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_scheduler_start_stop() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
         assert!(scheduler.is_running());
 
         scheduler.stop().await.unwrap();
@@ -610,7 +614,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_task() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         scheduler
             .add_task("test-task", schedules::HOURLY, || async { Ok(()) })
@@ -625,20 +631,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_cron_expression() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         let result = scheduler
             .add_task("bad-task", "invalid cron", || async { Ok(()) })
             .await;
 
-        assert!(matches!(result, Err(SchedulerError::InvalidCronExpression(_))));
+        assert!(matches!(
+            result,
+            Err(SchedulerError::InvalidCronExpression(_))
+        ));
 
         scheduler.stop().await.unwrap();
     }
 
     #[tokio::test]
     async fn test_remove_task() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         scheduler
             .add_task("removable", schedules::HOURLY, || async { Ok(()) })
@@ -655,7 +668,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_nonexistent_task() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         let result = scheduler.remove_task("nonexistent").await;
         assert!(matches!(result, Err(SchedulerError::TaskNotFound(_))));
@@ -665,7 +680,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_pause_resume_task() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         scheduler
             .add_task("pausable", schedules::HOURLY, || async { Ok(()) })
@@ -688,7 +705,9 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = Arc::clone(&counter);
 
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         // Schedule a task that runs every second
         scheduler
@@ -706,14 +725,19 @@ mod tests {
         sleep(Duration::from_secs(2)).await;
 
         let count = counter.load(Ordering::Relaxed);
-        assert!(count >= 1, "Task should have executed at least once, got {count}");
+        assert!(
+            count >= 1,
+            "Task should have executed at least once, got {count}"
+        );
 
         scheduler.stop().await.unwrap();
     }
 
     #[tokio::test]
     async fn test_task_stats_tracking() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         scheduler
             .add_task("stats-task", "* * * * * *", || async { Ok(()) })
@@ -732,7 +756,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_failure_tracking() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         scheduler
             .add_task("failing-task", "* * * * * *", || async {
@@ -753,7 +779,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_all_stats() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         scheduler
             .add_task("task-1", schedules::HOURLY, || async { Ok(()) })
@@ -773,7 +801,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_receiver() {
-        let scheduler = TaskScheduler::new(SchedulerConfig::default()).await.unwrap();
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
 
         let mut receiver = scheduler.take_event_receiver().unwrap();
 
@@ -809,8 +839,16 @@ mod tests {
         // Validate all predefined cron expressions
         assert!(schedules::EVERY_MINUTE.parse::<cron::Schedule>().is_ok());
         assert!(schedules::EVERY_5_MINUTES.parse::<cron::Schedule>().is_ok());
-        assert!(schedules::EVERY_15_MINUTES.parse::<cron::Schedule>().is_ok());
-        assert!(schedules::EVERY_30_MINUTES.parse::<cron::Schedule>().is_ok());
+        assert!(
+            schedules::EVERY_15_MINUTES
+                .parse::<cron::Schedule>()
+                .is_ok()
+        );
+        assert!(
+            schedules::EVERY_30_MINUTES
+                .parse::<cron::Schedule>()
+                .is_ok()
+        );
         assert!(schedules::HOURLY.parse::<cron::Schedule>().is_ok());
         assert!(schedules::DAILY_MIDNIGHT.parse::<cron::Schedule>().is_ok());
         assert!(schedules::DAILY_6AM.parse::<cron::Schedule>().is_ok());

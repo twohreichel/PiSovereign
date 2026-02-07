@@ -58,7 +58,10 @@ fn init_tracing(log_format: &str, environment: Option<infrastructure::config::En
         true
     } else {
         // log_format == "text" - check if production
-        matches!(environment, Some(infrastructure::config::Environment::Production))
+        matches!(
+            environment,
+            Some(infrastructure::config::Environment::Production)
+        )
     };
 
     if use_json {
@@ -98,7 +101,10 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Initialize tracing with configured format
-    init_tracing(&initial_config.server.log_format, initial_config.environment);
+    init_tracing(
+        &initial_config.server.log_format,
+        initial_config.environment,
+    );
 
     info!("🤖 PiSovereign v{} starting...", env!("CARGO_PKG_VERSION"));
 

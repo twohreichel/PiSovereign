@@ -364,13 +364,13 @@ impl TemplateEngine {
                             }
                         }
                         info!(dir = %dir, "Loaded custom templates");
-                    }
+                    },
                     Err(e) => {
                         if !config.use_embedded_fallback {
                             return Err(TemplateError::Compile(e.to_string()));
                         }
                         debug!(error = %e, "Custom templates failed to load, using embedded");
-                    }
+                    },
                 }
             }
         }
@@ -386,14 +386,22 @@ impl TemplateEngine {
     }
 
     /// Render a template with the given context
-    pub fn render(&self, template_name: &str, context: &TemplateContext) -> Result<String, TemplateError> {
+    pub fn render(
+        &self,
+        template_name: &str,
+        context: &TemplateContext,
+    ) -> Result<String, TemplateError> {
         self.tera
             .render(template_name, &context.inner)
             .map_err(TemplateError::from)
     }
 
     /// Render an email draft
-    pub fn render_email_draft(&self, data: &EmailDraftData, html: bool) -> Result<String, TemplateError> {
+    pub fn render_email_draft(
+        &self,
+        data: &EmailDraftData,
+        html: bool,
+    ) -> Result<String, TemplateError> {
         let mut ctx = TemplateContext::new();
         ctx.insert("recipient", &data.recipient);
         ctx.insert("recipient_email", &data.recipient_email);
@@ -441,7 +449,10 @@ impl TemplateEngine {
     }
 
     /// Render an assistant response
-    pub fn render_assistant_response(&self, data: &AssistantResponseData) -> Result<String, TemplateError> {
+    pub fn render_assistant_response(
+        &self,
+        data: &AssistantResponseData,
+    ) -> Result<String, TemplateError> {
         let mut ctx = TemplateContext::new();
         ctx.insert("content", &data.content);
         ctx.insert("suggestions", &data.suggestions);
@@ -496,10 +507,7 @@ fn truncate_words_filter(value: &Value, args: &HashMap<String, Value>) -> tera::
         .as_str()
         .ok_or_else(|| tera::Error::msg("truncate_words requires a string"))?;
 
-    let count = args
-        .get("count")
-        .and_then(Value::as_i64)
-        .unwrap_or(20) as usize;
+    let count = args.get("count").and_then(Value::as_i64).unwrap_or(20) as usize;
 
     let words: Vec<&str> = s.split_whitespace().collect();
     if words.len() <= count {

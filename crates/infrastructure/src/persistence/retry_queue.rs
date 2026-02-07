@@ -45,7 +45,7 @@
 use chrono::{DateTime, Utc};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, info, instrument, warn};
@@ -156,7 +156,11 @@ pub struct RetryItem {
 impl RetryItem {
     /// Create a new retry item with default settings
     #[must_use]
-    pub fn new(operation_type: impl Into<String>, payload: impl Into<String>, target: impl Into<String>) -> Self {
+    pub fn new(
+        operation_type: impl Into<String>,
+        payload: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
@@ -576,7 +580,10 @@ impl RetryQueueStore {
 
     /// Get items from the dead letter queue
     #[allow(clippy::cast_possible_wrap)]
-    pub fn get_dead_letter_items(&self, limit: usize) -> Result<Vec<DeadLetterItem>, RetryQueueError> {
+    pub fn get_dead_letter_items(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<DeadLetterItem>, RetryQueueError> {
         let conn = self.conn()?;
 
         let mut stmt = conn.prepare(
@@ -720,7 +727,7 @@ mod tests {
     use super::*;
     use r2d2_sqlite::SqliteConnectionManager;
 
-    const RETRY_QUEUE_SCHEMA: &str = r#"
+    const RETRY_QUEUE_SCHEMA: &str = r"
         CREATE TABLE IF NOT EXISTS retry_queue (
             id TEXT PRIMARY KEY,
             operation_type TEXT NOT NULL,
@@ -752,7 +759,7 @@ mod tests {
             user_id TEXT,
             tenant_id TEXT
         );
-    "#;
+    ";
 
     fn setup_test_db() -> Pool<SqliteConnectionManager> {
         let manager = SqliteConnectionManager::memory();
@@ -904,8 +911,14 @@ mod tests {
 
     #[test]
     fn test_retry_status_parse() {
-        assert_eq!("pending".parse::<RetryStatus>().unwrap(), RetryStatus::Pending);
-        assert_eq!("in_progress".parse::<RetryStatus>().unwrap(), RetryStatus::InProgress);
+        assert_eq!(
+            "pending".parse::<RetryStatus>().unwrap(),
+            RetryStatus::Pending
+        );
+        assert_eq!(
+            "in_progress".parse::<RetryStatus>().unwrap(),
+            RetryStatus::InProgress
+        );
         assert!("invalid".parse::<RetryStatus>().is_err());
     }
 }
