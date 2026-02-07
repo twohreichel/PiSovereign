@@ -1,140 +1,47 @@
 # PiSovereign
 
-🤖 Local, secure AI assistant platform for Raspberry Pi 5 + Hailo-10H AI HAT+ 2.
+[![CI](https://img.shields.io/github/actions/workflow/status/twohreichel/PiSovereign/ci.yml?branch=main&label=CI&logo=github)](https://github.com/twohreichel/PiSovereign/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/twohreichel/PiSovereign/graph/badge.svg)](https://codecov.io/gh/twohreichel/PiSovereign)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://img.shields.io/badge/docs-online-blue)](https://twohreichel.github.io/PiSovereign/)
+[![Rust](https://img.shields.io/badge/Rust-1.75+-orange?logo=rust)](https://www.rust-lang.org/)
+[![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-5-C51A4A?logo=raspberrypi)](https://www.raspberrypi.com/)
+[![AI](https://img.shields.io/badge/AI-Hailo--10H-blueviolet?logo=ai)](https://hailo.ai/)
 
-## Features
+🤖 **Local, private AI assistant for Raspberry Pi 5 + Hailo-10H AI HAT+ 2**
 
-- **Local LLM Inference** on Hailo-10H (Qwen2.5-1.5B, Llama3.2-1B)
+Run your own AI assistant with 100% local inference—no cloud required. Control via WhatsApp, voice messages, calendar, and email integration.
+
+## ✨ Features
+
+- **Local LLM Inference** on Hailo-10H NPU (26 TOPS)
 - **WhatsApp Control** – Send commands via message
-- **Calendar Integration** (CalDAV: Baïkal, Radicale)
-- **Email Integration** (Proton Mail Bridge)
-- **EU/GDPR Compliant** – Everything local, European services
+- **Voice Messages** – Local STT/TTS with cloud fallback
+- **Calendar & Email** – CalDAV + Proton Mail integration
+- **EU/GDPR Compliant** – All processing on your hardware
 
-## Quick Start
+## 🚀 Quick Start
 
-### Prerequisites
-
-- Raspberry Pi 5 (8 GB RAM)
-- Hailo AI HAT+ 2 (Hailo-10H)
-- Raspberry Pi OS Trixie (64-bit)
-- Rust 1.85+ (Edition 2024)
-
-### Installation
-
-```bash
-# 1. Clone repository
-git clone https://github.com/andreasreichel/PiSovereign.git
-cd PiSovereign
-
-# 2. Install Hailo packages (on Pi)
-sudo apt install hailo-h10-all
-
-# 3. Start Hailo-Ollama
-hailo-ollama &
-
-# 4. Build PiSovereign
+\`\`\`bash
+git clone https://github.com/twohreichel/PiSovereign.git && cd PiSovereign
 cargo build --release
-
-# 5. Start server
 ./target/release/pisovereign-server
-```
+\`\`\`
 
-### CLI Usage
+## 📚 Documentation
 
-```bash
-# Query status
-pisovereign-cli status
+| Guide | Description |
+|-------|-------------|
+| [**Getting Started**](https://twohreichel.github.io/PiSovereign/user/getting-started.html) | 30-minute setup guide |
+| [**Raspberry Pi Setup**](https://twohreichel.github.io/PiSovereign/user/raspberry-pi-setup.html) | Complete hardware setup with Hailo |
+| [**Configuration**](https://twohreichel.github.io/PiSovereign/user/configuration.html) | All config.toml options |
+| [**API Reference**](https://twohreichel.github.io/PiSovereign/api/) | Rustdoc API documentation |
+| [**Architecture**](https://twohreichel.github.io/PiSovereign/developer/architecture.html) | Clean Architecture overview |
 
-# Send chat message
-pisovereign-cli chat "What's the weather tomorrow?"
+## 💖 Support
 
-# Execute command
-pisovereign-cli command "briefing"
-```
+If you find PiSovereign useful, consider [sponsoring the project](https://github.com/sponsors/twohreichel).
 
-## API Endpoints
+## 📄 License
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Liveness check |
-| `/ready` | GET | Readiness check with Hailo status |
-| `/v1/chat` | POST | Send chat message |
-| `/v1/chat/stream` | POST | Streaming chat (SSE) |
-| `/v1/commands` | POST | Execute command |
-| `/v1/commands/parse` | POST | Parse command without execution |
-| `/v1/system/status` | GET | System status |
-| `/v1/system/models` | GET | Available models |
-
-## Project Structure
-
-```
-crates/
-├── domain/              # Core entities, value objects, commands
-├── application/         # Use cases, services, ports
-├── infrastructure/      # Adapters (Hailo, DB, etc.)
-├── ai_core/            # Inference engine, Hailo client
-├── presentation_http/   # HTTP-API (Axum)
-├── presentation_cli/    # CLI tool
-├── integration_whatsapp/# WhatsApp Business API
-├── integration_caldav/  # CalDAV client
-└── integration_proton/  # Proton Mail Bridge
-```
-
-## Configuration
-
-Environment variables or `config.toml`:
-
-```bash
-export PISOVEREIGN_SERVER_PORT=3000
-export PISOVEREIGN_INFERENCE_BASE_URL=http://localhost:11434
-export PISOVEREIGN_INFERENCE_DEFAULT_MODEL=qwen2.5-1.5b-instruct
-```
-
-## Performance Features
-
-### Multi-Layer Caching
-
-PiSovereign uses a two-tier caching system optimized for Raspberry Pi 5:
-
-- **L1 Cache (Moka)**: In-memory, sub-millisecond access
-- **L2 Cache (Sled)**: Persistent embedded store, survives restarts
-
-LLM responses are cached with content-aware TTL:
-- Dynamic content (briefings, email summaries): 1 hour
-- Stable content (system prompts, help text): 24 hours
-
-### Async Database
-
-SQLite database operations use `sqlx` for non-blocking async I/O:
-- Connection pooling for concurrent requests
-- WAL mode for better read/write performance
-- Prepared statements for query optimization
-
-### Monitoring
-
-Prometheus metrics at `/metrics/prometheus`:
-- HTTP request rates and latencies
-- Inference success/failure rates
-- Token generation throughput
-
-Grafana dashboard available in `grafana/dashboards/pisovereign.json`.
-
-## Development
-
-```bash
-# Run tests
-cargo test --workspace
-
-# Format code
-cargo fmt --all
-
-# Lint
-cargo clippy --workspace --all-targets
-
-# Build documentation
-cargo doc --workspace --no-deps
-```
-
-## License
-
-MIT
+MIT © [Andreas Reichel](https://github.com/twohreichel)

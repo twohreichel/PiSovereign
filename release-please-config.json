@@ -12,18 +12,7 @@
       "include-component-in-tag": false,
       "include-v-in-tag": true,
       "pull-request-title-pattern": "chore(release): release ${version}",
-      "pull-request-header": ":robot: Release PiSovereign",
-      "extra-files": [
-        "crates/domain/Cargo.toml",
-        "crates/application/Cargo.toml",
-        "crates/infrastructure/Cargo.toml",
-        "crates/ai_core/Cargo.toml",
-        "crates/presentation_http/Cargo.toml",
-        "crates/presentation_cli/Cargo.toml",
-        "crates/integration_whatsapp/Cargo.toml",
-        "crates/integration_caldav/Cargo.toml",
-        "crates/integration_proton/Cargo.toml"
-      ]
+      "pull-request-header": ":robot: Release PiSovereign"
     }
   },
   "changelog-sections": [

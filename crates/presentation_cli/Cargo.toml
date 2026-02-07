@@ -17,6 +17,7 @@ domain.workspace = true
 application.workspace = true
 infrastructure.workspace = true
 ai_core.workspace = true
+presentation_http.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -25,4 +26,11 @@ serde_json.workspace = true
 thiserror.workspace = true
 reqwest.workspace = true
 anyhow.workspace = true
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+rust-s3.workspace = true
+chrono.workspace = true
+rusqlite.workspace = true
+utoipa = { version = "5", features = ["yaml"] }
+
+[dev-dependencies]
+tempfile = "3.15"

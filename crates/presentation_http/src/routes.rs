@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
 };
 
-use crate::{handlers, state::AppState};
+use crate::{handlers, openapi::create_openapi_routes, state::AppState};
 
 /// Create the main router with all routes
 pub fn create_router(state: AppState) -> Router {
@@ -13,6 +13,12 @@ pub fn create_router(state: AppState) -> Router {
         // Health and status endpoints
         .route("/health", get(handlers::health::health_check))
         .route("/ready", get(handlers::health::readiness_check))
+        .route("/ready/all", get(handlers::health::extended_readiness_check))
+        // Individual service health endpoints
+        .route("/health/inference", get(handlers::health::inference_health_check))
+        .route("/health/email", get(handlers::health::email_health_check))
+        .route("/health/calendar", get(handlers::health::calendar_health_check))
+        .route("/health/weather", get(handlers::health::weather_health_check))
         // Metrics endpoints
         .route("/metrics", get(handlers::metrics::get_metrics))
         .route("/metrics/prometheus", get(handlers::metrics::get_metrics_prometheus))
@@ -45,6 +51,8 @@ pub fn create_router(state: AppState) -> Router {
             "/webhook/whatsapp",
             get(handlers::whatsapp::verify_webhook).post(handlers::whatsapp::handle_webhook),
         )
+        // OpenAPI documentation
+        .merge(create_openapi_routes())
         // Attach state
         .with_state(state)
 }

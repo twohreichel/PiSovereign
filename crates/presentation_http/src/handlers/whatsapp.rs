@@ -1,6 +1,7 @@
 //! WhatsApp webhook handlers
 //!
 //! Handles WhatsApp Business API webhook verification and message processing.
+//! Supports both text and audio (voice) messages.
 
 use axum::{
     Json,
@@ -9,8 +10,11 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use domain::entities::AudioFormat;
+use domain::value_objects::ConversationId;
 use integration_whatsapp::{
-    WebhookPayload, WhatsAppClient, WhatsAppClientConfig, extract_messages, verify_signature,
+    IncomingMessage, WebhookPayload, WhatsAppClient, WhatsAppClientConfig, extract_all_messages,
+    verify_signature,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
@@ -43,6 +47,9 @@ pub struct MessageResponse {
     /// Optional response text
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response: Option<String>,
+    /// Response type (text or audio)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_type: Option<String>,
 }
 
 /// WhatsApp webhook verification (GET)
@@ -161,8 +168,8 @@ pub async fn handle_webhook(
         },
     };
 
-    // Extract messages
-    let messages = extract_messages(&payload);
+    // Extract all messages (text and audio)
+    let messages = extract_all_messages(&payload);
 
     if messages.is_empty() {
         // No messages - this might be a status update or other event
@@ -174,64 +181,33 @@ pub async fn handle_webhook(
 
     let mut responses = Vec::new();
 
-    for (from, message_id, text) in messages {
-        debug!(
-            from = %from,
-            message_id = %message_id,
-            text_len = text.len(),
-            "Processing WhatsApp message"
-        );
-
-        // Process message through agent service
-        let result = state.agent_service.handle_input(&text).await;
-
-        match result {
-            Ok(agent_result) => {
-                let response_text = agent_result.response.clone();
-
-                responses.push(MessageResponse {
-                    message_id: message_id.clone(),
-                    from: from.clone(),
-                    status: if agent_result.success {
-                        "processed".to_string()
-                    } else {
-                        "failed".to_string()
-                    },
-                    response: Some(response_text.clone()),
-                });
-
-                // Send response back via WhatsApp API
-                if let Err(e) =
-                    send_whatsapp_response(&config.whatsapp, &from, &response_text).await
-                {
-                    error!(
-                        error = %e,
-                        message_id = %message_id,
-                        from = %from,
-                        "Failed to send WhatsApp response"
-                    );
-                } else {
-                    info!(
-                        message_id = %message_id,
-                        from = %from,
-                        success = agent_result.success,
-                        "WhatsApp message processed and response sent"
-                    );
-                }
+    for message in messages {
+        match message {
+            IncomingMessage::Text {
+                from,
+                message_id,
+                body,
+            } => {
+                let response = handle_text_message(&state, &from, &message_id, &body).await;
+                responses.push(response);
             },
-            Err(e) => {
-                error!(
-                    error = %e,
-                    message_id = %message_id,
-                    from = %from,
-                    "Failed to process WhatsApp message"
-                );
-                responses.push(MessageResponse {
-                    message_id: message_id.clone(),
-                    from: from.clone(),
-                    status: "error".to_string(),
-                    response: Some(format!("Processing failed: {e}")),
-                });
+            IncomingMessage::Audio {
+                from,
+                message_id,
+                media_id,
+                mime_type,
+                is_voice,
+            } => {
+                let response = handle_audio_message(
+                    &state,
+                    &from,
+                    &message_id,
+                    &media_id,
+                    &mime_type,
+                    is_voice,
+                )
+                .await;
+                responses.push(response);
             },
         }
     }
@@ -245,6 +221,355 @@ pub async fn handle_webhook(
         })),
     )
         .into_response()
+}
+
+/// Handle a text message
+async fn handle_text_message(
+    state: &AppState,
+    from: &str,
+    message_id: &str,
+    text: &str,
+) -> MessageResponse {
+    debug!(
+        from = %from,
+        message_id = %message_id,
+        text_len = text.len(),
+        "Processing WhatsApp text message"
+    );
+
+    // Process message through agent service
+    let result = state.agent_service.handle_input(text).await;
+    let config = state.config.load();
+
+    match result {
+        Ok(agent_result) => {
+            let response_text = agent_result.response.clone();
+
+            // Send response back via WhatsApp API
+            if let Err(e) = send_whatsapp_response(&config.whatsapp, from, &response_text).await {
+                error!(
+                    error = %e,
+                    message_id = %message_id,
+                    from = %from,
+                    "Failed to send WhatsApp response"
+                );
+            } else {
+                info!(
+                    message_id = %message_id,
+                    from = %from,
+                    success = agent_result.success,
+                    "WhatsApp text message processed and response sent"
+                );
+            }
+
+            MessageResponse {
+                message_id: message_id.to_string(),
+                from: from.to_string(),
+                status: if agent_result.success {
+                    "processed".to_string()
+                } else {
+                    "failed".to_string()
+                },
+                response: Some(response_text),
+                response_type: Some("text".to_string()),
+            }
+        },
+        Err(e) => {
+            error!(
+                error = %e,
+                message_id = %message_id,
+                from = %from,
+                "Failed to process WhatsApp text message"
+            );
+            MessageResponse {
+                message_id: message_id.to_string(),
+                from: from.to_string(),
+                status: "error".to_string(),
+                response: Some(format!("Processing failed: {e}")),
+                response_type: Some("text".to_string()),
+            }
+        },
+    }
+}
+
+/// Handle an audio/voice message
+async fn handle_audio_message(
+    state: &AppState,
+    from: &str,
+    message_id: &str,
+    media_id: &str,
+    mime_type: &str,
+    is_voice: bool,
+) -> MessageResponse {
+    debug!(
+        from = %from,
+        message_id = %message_id,
+        media_id = %media_id,
+        mime_type = %mime_type,
+        is_voice = is_voice,
+        "Processing WhatsApp audio message"
+    );
+
+    let config = state.config.load();
+
+    // Check if voice message service is available
+    let Some(voice_service) = &state.voice_message_service else {
+        warn!("Voice message service not configured, falling back to text response");
+        return MessageResponse {
+            message_id: message_id.to_string(),
+            from: from.to_string(),
+            status: "unsupported".to_string(),
+            response: Some(
+                "Voice messages are not supported yet. Please send a text message.".to_string(),
+            ),
+            response_type: Some("text".to_string()),
+        };
+    };
+
+    // Create WhatsApp client for media operations
+    let client = match create_whatsapp_client(&config.whatsapp) {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "Failed to create WhatsApp client");
+            return MessageResponse {
+                message_id: message_id.to_string(),
+                from: from.to_string(),
+                status: "error".to_string(),
+                response: Some(format!("Configuration error: {e}")),
+                response_type: None,
+            };
+        },
+    };
+
+    // Download audio from WhatsApp
+    let downloaded = match client.download_media(media_id).await {
+        Ok(data) => data,
+        Err(e) => {
+            error!(error = %e, media_id = %media_id, "Failed to download audio");
+            return MessageResponse {
+                message_id: message_id.to_string(),
+                from: from.to_string(),
+                status: "error".to_string(),
+                response: Some(format!("Failed to download audio: {e}")),
+                response_type: None,
+            };
+        },
+    };
+
+    info!(
+        audio_size = downloaded.data.len(),
+        media_id = %media_id,
+        mime_type = %downloaded.mime_type,
+        "Downloaded audio from WhatsApp"
+    );
+
+    // Parse audio format from MIME type (prefer downloaded MIME type)
+    let format = parse_audio_format(&downloaded.mime_type);
+
+    // Create a deterministic conversation ID from phone number
+    // This allows continuing conversations
+    let conversation_id = conversation_id_from_phone(from);
+
+    // Process through voice message service
+    let result = voice_service
+        .process_voice_message(
+            downloaded.data,
+            format,
+            conversation_id,
+            Some(message_id.to_string()),
+        )
+        .await;
+
+    match result {
+        Ok(voice_result) => {
+            info!(
+                message_id = %message_id,
+                transcription_len = voice_result.transcription.len(),
+                response_len = voice_result.response_text.len(),
+                has_audio = voice_result.response_audio.is_some(),
+                processing_time_ms = voice_result.processing_time_ms,
+                "Voice message processed successfully"
+            );
+
+            // Send response (audio if available, otherwise text)
+            let response_type = if let Some(ref audio_response) = voice_result.response_audio {
+                // Upload audio and send as audio message
+                match upload_and_send_audio(
+                    &client,
+                    from,
+                    &audio_response.audio_data,
+                    &audio_response.format,
+                )
+                .await
+                {
+                    Ok(()) => "audio".to_string(),
+                    Err(e) => {
+                        warn!(error = %e, "Failed to send audio response, falling back to text");
+                        // Fallback to text
+                        if let Err(e) = send_whatsapp_response(
+                            &config.whatsapp,
+                            from,
+                            &voice_result.response_text,
+                        )
+                        .await
+                        {
+                            error!(error = %e, "Failed to send text fallback");
+                        }
+                        "text".to_string()
+                    },
+                }
+            } else {
+                // Send text response
+                if let Err(e) =
+                    send_whatsapp_response(&config.whatsapp, from, &voice_result.response_text)
+                        .await
+                {
+                    error!(error = %e, "Failed to send text response");
+                }
+                "text".to_string()
+            };
+
+            MessageResponse {
+                message_id: message_id.to_string(),
+                from: from.to_string(),
+                status: "processed".to_string(),
+                response: Some(voice_result.response_text),
+                response_type: Some(response_type),
+            }
+        },
+        Err(e) => {
+            error!(
+                error = %e,
+                message_id = %message_id,
+                from = %from,
+                "Failed to process voice message"
+            );
+
+            // Send error message to user
+            let error_msg = "Sorry, I couldn't process your voice message. Please try again or send a text message.";
+            let _ = send_whatsapp_response(&config.whatsapp, from, error_msg).await;
+
+            MessageResponse {
+                message_id: message_id.to_string(),
+                from: from.to_string(),
+                status: "error".to_string(),
+                response: Some(format!("Voice processing failed: {e}")),
+                response_type: None,
+            }
+        },
+    }
+}
+
+/// Create a deterministic conversation ID from a phone number
+fn conversation_id_from_phone(phone: &str) -> ConversationId {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    // Create a deterministic UUID from phone number hash
+    let mut hasher = DefaultHasher::new();
+    "whatsapp".hash(&mut hasher);
+    phone.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    // Create UUID bytes from hash
+    let bytes: [u8; 16] = {
+        let mut b = [0u8; 16];
+        b[0..8].copy_from_slice(&hash.to_be_bytes());
+        b[8..16].copy_from_slice(&hash.wrapping_mul(31).to_be_bytes());
+        // Set version 4 (random) and variant bits
+        b[6] = (b[6] & 0x0f) | 0x40;
+        b[8] = (b[8] & 0x3f) | 0x80;
+        b
+    };
+
+    ConversationId::from_uuid(uuid::Uuid::from_bytes(bytes))
+}
+
+/// Upload audio to WhatsApp and send it as an audio message
+async fn upload_and_send_audio(
+    client: &WhatsAppClient,
+    to: &str,
+    audio_data: &[u8],
+    format: &AudioFormat,
+) -> Result<(), String> {
+    let mime_type = format_to_mime(*format);
+    let filename = format!("response.{}", format_extension(*format));
+
+    // Upload the audio
+    let upload_result = client
+        .upload_media(audio_data.to_vec(), &mime_type, &filename)
+        .await
+        .map_err(|e| format!("Failed to upload audio: {e}"))?;
+
+    // Send the audio message
+    client
+        .send_audio_message(to, &upload_result.id)
+        .await
+        .map_err(|e| format!("Failed to send audio message: {e}"))?;
+
+    Ok(())
+}
+
+/// Get file extension for audio format
+const fn format_extension(format: AudioFormat) -> &'static str {
+    match format {
+        AudioFormat::Opus => "opus",
+        AudioFormat::Ogg => "ogg",
+        AudioFormat::Mp3 => "mp3",
+        AudioFormat::Wav => "wav",
+    }
+}
+
+/// Parse audio format from MIME type
+fn parse_audio_format(mime_type: &str) -> AudioFormat {
+    let mime_lower = mime_type.to_lowercase();
+
+    if mime_lower.contains("opus") {
+        AudioFormat::Opus
+    } else if mime_lower.contains("ogg") {
+        AudioFormat::Ogg
+    } else if mime_lower.contains("mp3") || mime_lower.contains("mpeg") {
+        AudioFormat::Mp3
+    } else if mime_lower.contains("wav") {
+        AudioFormat::Wav
+    } else {
+        // Default to Ogg for WhatsApp voice messages
+        AudioFormat::Ogg
+    }
+}
+
+/// Convert audio format to MIME type
+fn format_to_mime(format: AudioFormat) -> String {
+    match format {
+        AudioFormat::Opus => "audio/ogg; codecs=opus".to_string(),
+        AudioFormat::Ogg => "audio/ogg".to_string(),
+        AudioFormat::Mp3 => "audio/mpeg".to_string(),
+        AudioFormat::Wav => "audio/wav".to_string(),
+    }
+}
+
+/// Create a WhatsApp client from configuration
+fn create_whatsapp_client(
+    config: &infrastructure::WhatsAppConfig,
+) -> Result<WhatsAppClient, String> {
+    let access_token = config
+        .access_token
+        .as_ref()
+        .ok_or("WhatsApp access_token not configured")?;
+    let phone_number_id = config
+        .phone_number_id
+        .as_ref()
+        .ok_or("WhatsApp phone_number_id not configured")?;
+
+    let client_config = WhatsAppClientConfig {
+        access_token: access_token.clone(),
+        phone_number_id: phone_number_id.clone(),
+        app_secret: config.app_secret.clone().unwrap_or_default(),
+        verify_token: config.verify_token.clone().unwrap_or_default(),
+        signature_required: config.signature_required,
+        api_version: config.api_version.clone(),
+    };
+
+    WhatsAppClient::new(client_config).map_err(|e| e.to_string())
 }
 
 /// Send a response message via WhatsApp Cloud API
@@ -323,12 +648,14 @@ mod tests {
             from: "+491234567890".to_string(),
             status: "processed".to_string(),
             response: Some("Hello!".to_string()),
+            response_type: Some("text".to_string()),
         };
 
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("msg123"));
         assert!(json.contains("+491234567890"));
         assert!(json.contains("processed"));
+        assert!(json.contains("text"));
     }
 
     #[test]
@@ -338,10 +665,92 @@ mod tests {
             from: "+49123".to_string(),
             status: "ok".to_string(),
             response: None,
+            response_type: None,
         };
 
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("response"));
+        assert!(!json.contains("response_type"));
+    }
+
+    #[test]
+    fn message_response_with_audio_type() {
+        let response = MessageResponse {
+            message_id: "msg123".to_string(),
+            from: "+49123".to_string(),
+            status: "processed".to_string(),
+            response: Some("Transcribed text".to_string()),
+            response_type: Some("audio".to_string()),
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("audio"));
+        assert!(json.contains("Transcribed text"));
+    }
+
+    #[test]
+    fn parse_audio_format_opus() {
+        assert!(matches!(
+            parse_audio_format("audio/ogg; codecs=opus"),
+            AudioFormat::Opus
+        ));
+        assert!(matches!(
+            parse_audio_format("audio/opus"),
+            AudioFormat::Opus
+        ));
+    }
+
+    #[test]
+    fn parse_audio_format_ogg() {
+        assert!(matches!(parse_audio_format("audio/ogg"), AudioFormat::Ogg));
+    }
+
+    #[test]
+    fn parse_audio_format_mp3() {
+        assert!(matches!(parse_audio_format("audio/mp3"), AudioFormat::Mp3));
+        assert!(matches!(parse_audio_format("audio/mpeg"), AudioFormat::Mp3));
+    }
+
+    #[test]
+    fn parse_audio_format_wav() {
+        assert!(matches!(parse_audio_format("audio/wav"), AudioFormat::Wav));
+    }
+
+    #[test]
+    fn parse_audio_format_unknown_defaults_to_ogg() {
+        assert!(matches!(
+            parse_audio_format("audio/unknown"),
+            AudioFormat::Ogg
+        ));
+        assert!(matches!(parse_audio_format("video/mp4"), AudioFormat::Ogg));
+    }
+
+    #[test]
+    fn format_to_mime_conversions() {
+        assert_eq!(format_to_mime(AudioFormat::Opus), "audio/ogg; codecs=opus");
+        assert_eq!(format_to_mime(AudioFormat::Ogg), "audio/ogg");
+        assert_eq!(format_to_mime(AudioFormat::Mp3), "audio/mpeg");
+        assert_eq!(format_to_mime(AudioFormat::Wav), "audio/wav");
+    }
+
+    #[test]
+    fn create_whatsapp_client_fails_without_access_token() {
+        let config = infrastructure::WhatsAppConfig::default();
+        let result = create_whatsapp_client(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("access_token"));
+    }
+
+    #[test]
+    fn create_whatsapp_client_fails_without_phone_number_id() {
+        let config = infrastructure::WhatsAppConfig {
+            access_token: Some("test_token".to_string()),
+            phone_number_id: None,
+            ..Default::default()
+        };
+        let result = create_whatsapp_client(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("phone_number_id"));
     }
 
     #[tokio::test]

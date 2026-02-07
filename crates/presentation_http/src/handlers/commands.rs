@@ -1,22 +1,31 @@
 //! Command handlers
 
-use application::ApprovalStatus;
-use axum::{Json, extract::State};
+use application::{ApprovalStatus, RequestContext};
+use axum::{Extension, Json, extract::State};
 use domain::AgentCommand;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
+use utoipa::ToSchema;
 
 use crate::{error::ApiError, state::AppState};
 
 /// Command execution request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
+#[schema(example = json!({"input": "What's on my calendar today?"}))]
 pub struct ExecuteCommandRequest {
     /// Natural language input or explicit command
     pub input: String,
 }
 
 /// Command execution response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(example = json!({
+    "success": true,
+    "response": "You have 3 meetings today...",
+    "command_type": "morning_briefing",
+    "execution_time_ms": 245,
+    "requires_approval": false
+}))]
 pub struct ExecuteCommandResponse {
     /// Whether the command was successful
     pub success: bool,
@@ -32,16 +41,36 @@ pub struct ExecuteCommandResponse {
 }
 
 /// Execute a command from natural language input
-#[instrument(skip(state, request), fields(input_len = request.input.len()))]
+#[utoipa::path(
+    post,
+    path = "/v1/commands",
+    tag = "commands",
+    request_body = ExecuteCommandRequest,
+    responses(
+        (status = 200, description = "Command executed", body = ExecuteCommandResponse),
+        (status = 400, description = "Invalid request", body = crate::error::ErrorResponse),
+        (status = 429, description = "Rate limited", body = crate::error::ErrorResponse),
+        (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
+    ),
+    security(("api_key" = []))
+)]
+#[instrument(skip(state, ctx, request), fields(input_len = request.input.len()))]
 pub async fn execute_command(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     Json(request): Json<ExecuteCommandRequest>,
 ) -> Result<Json<ExecuteCommandResponse>, ApiError> {
     if request.input.trim().is_empty() {
         return Err(ApiError::BadRequest("Input cannot be empty".to_string()));
     }
 
-    let result = state.agent_service.handle_input(&request.input).await?;
+    // Extract user ID from request context for user-specific operations
+    let user_id = ctx.map(|Extension(c)| c.user_id());
+
+    let result = state
+        .agent_service
+        .handle_input_with_user(&request.input, user_id)
+        .await?;
 
     Ok(Json(ExecuteCommandResponse {
         success: result.success,
@@ -55,16 +84,18 @@ pub async fn execute_command(
 }
 
 /// Parse command request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
+#[schema(example = json!({"input": "Schedule a meeting tomorrow at 2pm"}))]
 pub struct ParseCommandRequest {
     /// Natural language input to parse
     pub input: String,
 }
 
 /// Parse command response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ParseCommandResponse {
     /// Parsed command
+    #[schema(value_type = crate::openapi::AgentCommandSchema)]
     pub command: AgentCommand,
     /// Whether this command requires approval
     pub requires_approval: bool,
@@ -73,6 +104,17 @@ pub struct ParseCommandResponse {
 }
 
 /// Parse input into a command without executing
+#[utoipa::path(
+    post,
+    path = "/v1/commands/parse",
+    tag = "commands",
+    request_body = ParseCommandRequest,
+    responses(
+        (status = 200, description = "Command parsed", body = ParseCommandResponse),
+        (status = 400, description = "Invalid request", body = crate::error::ErrorResponse)
+    ),
+    security(("api_key" = []))
+)]
 #[instrument(skip(_state, request), fields(input_len = request.input.len()))]
 pub async fn parse_command(
     State(_state): State<AppState>,
@@ -112,6 +154,7 @@ fn command_type_name(cmd: &AgentCommand) -> String {
         AgentCommand::System(_) => "system",
         AgentCommand::Echo { .. } => "echo",
         AgentCommand::Help { .. } => "help",
+        AgentCommand::WebSearch { .. } => "web_search",
         AgentCommand::Unknown { .. } => "unknown",
     }
     .to_string()

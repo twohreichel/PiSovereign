@@ -27,6 +27,12 @@ pub struct ChatMessage {
     pub content: String,
     /// When the message was created
     pub created_at: DateTime<Utc>,
+    /// Sequence number within the conversation (1-based).
+    ///
+    /// This provides reliable ordering independent of timestamps and enables
+    /// incremental persistence by tracking which messages have been persisted.
+    #[serde(default)]
+    pub sequence_number: u32,
     /// Optional metadata (model used, tokens, etc.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<MessageMetadata>,
@@ -54,6 +60,7 @@ impl ChatMessage {
             role: MessageRole::User,
             content: content.into(),
             created_at: Utc::now(),
+            sequence_number: 0,
             metadata: None,
         }
     }
@@ -65,6 +72,7 @@ impl ChatMessage {
             role: MessageRole::Assistant,
             content: content.into(),
             created_at: Utc::now(),
+            sequence_number: 0,
             metadata: None,
         }
     }
@@ -76,8 +84,16 @@ impl ChatMessage {
             role: MessageRole::System,
             content: content.into(),
             created_at: Utc::now(),
+            sequence_number: 0,
             metadata: None,
         }
+    }
+
+    /// Set the sequence number for this message
+    #[must_use]
+    pub const fn with_sequence_number(mut self, seq: u32) -> Self {
+        self.sequence_number = seq;
+        self
     }
 
     /// Add metadata to the message

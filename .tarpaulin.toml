@@ -1,0 +1,60 @@
+# =============================================================================
+# Tarpaulin Coverage Configuration
+# =============================================================================
+#
+# Generate coverage: cargo tarpaulin
+# Open HTML report: just coverage-open
+# CI uses LCOV for Codecov upload
+#
+# Documentation: https://github.com/xd009642/tarpaulin
+
+[tarpaulin]
+# Run with all features enabled for complete coverage
+all-features = true
+
+# Test all workspace crates
+workspace = true
+
+# Timeout for long-running integration tests
+timeout = "300s"
+
+# Engine selection:
+# - ptrace: Default on Linux, not available on macOS
+# - llvm: Cross-platform, required for aarch64/macOS
+engine = "llvm"
+
+# Fail the build if coverage drops below 90%
+fail-under = 90
+
+# Output formats:
+# - Html: Local development reports
+# - Lcov: CI/Codecov integration
+out = ["Html", "Lcov"]
+
+# Output directory for reports
+output-dir = "target/coverage"
+
+# Skip cleaning before build (faster for CI caching)
+skip-clean = true
+
+# Exclude files that don't contain testable business logic
+exclude-files = [
+    # Binary entry points - just orchestration, no business logic
+    "*/main.rs",
+    # Benchmark code
+    "*/benches/*",
+]
+
+# Exclude entire crates
+exclude = [
+    # CLI is bin-only without lib.rs - minimal coverage value
+    "presentation_cli",
+]
+
+# Verbose output for debugging coverage issues
+# Uncomment for troubleshooting:
+# verbose = true
+
+# Follow test execution with line-by-line output
+# Uncomment for troubleshooting:
+# follow-exec = true

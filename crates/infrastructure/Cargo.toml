@@ -12,12 +12,16 @@ workspace = true
 domain.workspace = true
 application.workspace = true
 ai_core.workspace = true
+ai_speech.workspace = true
 integration_proton.workspace = true
 integration_caldav.workspace = true
+integration_weather.workspace = true
+integration_websearch.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
@@ -32,6 +36,12 @@ vaultrs.workspace = true
 parking_lot.workspace = true
 futures = "0.3"
 
+# OpenTelemetry
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+tracing-opentelemetry.workspace = true
+
 # Caching
 moka.workspace = true
 redb = "2.6"
@@ -41,6 +51,22 @@ bincode = { version = "2.0", features = ["derive"] }
 # Metrics
 metrics.workspace = true
 
+# Password hashing for API keys
+argon2 = "0.5"
+
+# Random number generation for jitter
+rand = "0.8"
+
+# Template engine
+tera.workspace = true
+
+# Cron scheduling
+tokio-cron-scheduler.workspace = true
+cron.workspace = true
+
 [dev-dependencies]
 tokio-test.workspace = true
 mockall.workspace = true
+testcontainers.workspace = true
+testcontainers-modules.workspace = true
+wiremock.workspace = true

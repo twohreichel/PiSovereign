@@ -149,10 +149,10 @@ impl InferenceEngine for HailoInferenceEngine {
         &self,
         request: InferenceRequest,
     ) -> Result<InferenceResponse, InferenceError> {
-        let model = self.resolve_model(&request).clone();
+        let model = self.resolve_model(&request);
 
         let ollama_request = OllamaChatRequest {
-            model: model.clone(),
+            model,
             messages: request
                 .messages
                 .iter()

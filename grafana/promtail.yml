@@ -1,0 +1,106 @@
+# Promtail Configuration for PiSovereign
+# ========================================
+#
+# Promtail is Grafana Loki's log collector agent.
+# This configuration scrapes JSON logs from PiSovereign containers.
+#
+# Installation:
+#   1. Add promtail service to docker-compose.yml
+#   2. Copy this file to grafana/promtail.yml
+#   3. Update docker-compose to mount this config
+#
+# For more information: https://grafana.com/docs/loki/latest/clients/promtail/
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    # Retry configuration for reliability
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+
+scrape_configs:
+  # Scrape Docker container logs
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: label
+            values: ["com.docker.compose.project=pisovereign"]
+    
+    relabel_configs:
+      # Keep only pisovereign containers
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: 'project'
+
+    pipeline_stages:
+      # Parse JSON logs from PiSovereign
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            target: target
+            message: fields.message
+            span_name: span.name
+            file: file
+            line: line
+      
+      # Extract structured fields
+      - labels:
+          level:
+          target:
+          span_name:
+      
+      # Parse timestamp
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      
+      # Set log output
+      - output:
+          source: message
+
+  # Scrape Traefik access logs
+  - job_name: traefik
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: traefik
+          __path__: /var/log/traefik/*.log
+    
+    pipeline_stages:
+      # Parse Traefik JSON access logs
+      - json:
+          expressions:
+            timestamp: time
+            status: DownstreamStatus
+            method: RequestMethod
+            path: RequestPath
+            duration: Duration
+            client_addr: ClientAddr
+            router: RouterName
+      
+      - labels:
+          status:
+          method:
+          router:
+      
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano

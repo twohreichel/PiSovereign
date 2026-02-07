@@ -4,8 +4,15 @@
 
 #![allow(clippy::print_stdout)]
 
-use clap::{Parser, Subcommand};
+mod backup;
+
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand, ValueEnum};
+use infrastructure::ApiKeyHasher;
+use presentation_http::ApiDoc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa::OpenApi;
 
 /// PiSovereign CLI
 #[derive(Parser)]
@@ -18,6 +25,16 @@ struct Cli {
 
     #[command(subcommand)]
     command: Commands,
+}
+
+/// Output format for the OpenAPI specification
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
+enum OpenApiFormat {
+    /// JSON format
+    #[default]
+    Json,
+    /// YAML format
+    Yaml,
 }
 
 #[derive(Subcommand)]
@@ -55,6 +72,88 @@ enum Commands {
         #[arg(short, long, default_value = "http://localhost:3000")]
         url: String,
     },
+
+    /// Hash an API key using Argon2 for secure storage in configuration
+    ///
+    /// The output can be used in config.toml for secure API key storage.
+    /// Example: pisovereign-cli hash-api-key sk-my-secret-key
+    HashApiKey {
+        /// The plaintext API key to hash
+        api_key: String,
+
+        /// Verify the hash by re-hashing and comparing (for debugging)
+        #[arg(long)]
+        verify: bool,
+    },
+
+    /// Export the OpenAPI specification
+    ///
+    /// Exports the full OpenAPI 3.0 specification for the PiSovereign API.
+    /// Useful for generating client SDKs, documentation, or API testing.
+    ///
+    /// Example: pisovereign-cli openapi > openapi.json
+    /// Example: pisovereign-cli openapi --format yaml --output docs/openapi.yaml
+    Openapi {
+        /// Output format (json or yaml)
+        #[arg(short, long, value_enum, default_value_t = OpenApiFormat::Json)]
+        format: OpenApiFormat,
+
+        /// Output file (prints to stdout if not specified)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Create a backup of the SQLite database
+    ///
+    /// Performs an online backup using SQLite's backup API.
+    /// The backup is atomic and does not block normal operations.
+    ///
+    /// Example: pisovereign-cli backup --output ./backups/
+    /// Example: pisovereign-cli backup --s3-bucket my-backups --s3-region eu-central-1
+    Backup {
+        /// Path to the source database (default: pisovereign.db)
+        #[arg(short, long, default_value = "pisovereign.db")]
+        database: PathBuf,
+
+        /// Output path for the backup file (auto-generated if not specified)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// S3 bucket name for remote upload
+        #[arg(long)]
+        s3_bucket: Option<String>,
+
+        /// S3 region (e.g., "us-east-1", "eu-central-1")
+        #[arg(long, default_value = "us-east-1")]
+        s3_region: String,
+
+        /// Custom S3 endpoint URL (for MinIO, Backblaze B2, etc.)
+        #[arg(long)]
+        s3_endpoint: Option<String>,
+
+        /// S3 access key (uses AWS_ACCESS_KEY_ID env var if not provided)
+        #[arg(long, env = "AWS_ACCESS_KEY_ID")]
+        s3_access_key: Option<String>,
+
+        /// S3 secret key (uses AWS_SECRET_ACCESS_KEY env var if not provided)
+        #[arg(long, env = "AWS_SECRET_ACCESS_KEY")]
+        s3_secret_key: Option<String>,
+
+        /// S3 prefix/folder path within the bucket
+        #[arg(long)]
+        s3_prefix: Option<String>,
+
+        /// Number of local backups to keep (0 = keep all)
+        #[arg(long, default_value = "7")]
+        keep_local: usize,
+    },
+
+    /// Check system health (used by Docker healthcheck)
+    Health {
+        /// Server URL
+        #[arg(short, long, default_value = "http://localhost:3000")]
+        url: String,
+    },
 }
 
 /// Determine log filter level from verbosity count
@@ -73,6 +172,7 @@ fn endpoint_url(base_url: &str, path: &str) -> String {
 }
 
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -145,6 +245,149 @@ async fn main() -> anyhow::Result<()> {
 
             println!("📦 Available Models:");
             println!("{}", serde_json::to_string_pretty(&resp)?);
+        },
+
+        Commands::HashApiKey { api_key, verify } => {
+            let hasher = ApiKeyHasher::new();
+
+            match hasher.hash(&api_key) {
+                Ok(hash) => {
+                    println!("🔐 API Key Hash (Argon2id):");
+                    println!();
+                    println!("{hash}");
+                    println!();
+                    println!("📋 Add to config.toml:");
+                    println!("   [security]");
+                    println!("   api_keys = [");
+                    println!("     {{ hash = \"{hash}\", user_id = \"YOUR-USER-UUID\" }}");
+                    println!("   ]");
+
+                    if verify {
+                        println!();
+                        match hasher.verify(&api_key, &hash) {
+                            Ok(true) => println!("✅ Verification: Hash verified successfully"),
+                            Ok(false) => {
+                                println!("❌ Verification: Hash does NOT match (unexpected)");
+                            },
+                            Err(e) => println!("❌ Verification error: {e}"),
+                        }
+                    }
+                },
+                Err(e) => {
+                    println!("❌ Failed to hash API key: {e}");
+                    std::process::exit(1);
+                },
+            }
+        },
+
+        Commands::Openapi { format, output } => {
+            let spec = match format {
+                OpenApiFormat::Json => ApiDoc::openapi().to_pretty_json().unwrap_or_else(|e| {
+                    println!("❌ Failed to serialize OpenAPI spec to JSON: {e}");
+                    std::process::exit(1);
+                }),
+                OpenApiFormat::Yaml => ApiDoc::openapi().to_yaml().unwrap_or_else(|e| {
+                    println!("❌ Failed to serialize OpenAPI spec to YAML: {e}");
+                    std::process::exit(1);
+                }),
+            };
+
+            match output {
+                Some(path) => {
+                    std::fs::write(&path, &spec)?;
+                    let format_name = match format {
+                        OpenApiFormat::Json => "JSON",
+                        OpenApiFormat::Yaml => "YAML",
+                    };
+                    println!(
+                        "📄 OpenAPI specification ({format_name}) written to: {}",
+                        path.display()
+                    );
+                },
+                None => {
+                    println!("{spec}");
+                },
+            }
+        },
+
+        Commands::Backup {
+            database,
+            output,
+            s3_bucket,
+            s3_region,
+            s3_endpoint,
+            s3_access_key,
+            s3_secret_key,
+            s3_prefix,
+            keep_local,
+        } => {
+            // Validate database exists
+            if !database.exists() {
+                println!("❌ Database not found: {}", database.display());
+                std::process::exit(1);
+            }
+
+            // Build S3 config if bucket is specified
+            let s3_config = s3_bucket.map(|bucket| backup::S3Config {
+                bucket,
+                region: s3_region,
+                endpoint: s3_endpoint,
+                access_key: s3_access_key,
+                secret_key: s3_secret_key,
+                prefix: s3_prefix,
+            });
+
+            println!("🗄️  Starting database backup...");
+            println!("   Source: {}", database.display());
+
+            match backup::backup_database(&database, output, s3_config).await {
+                Ok(result) => {
+                    println!("✅ Backup completed successfully!");
+                    println!("   📁 Local file: {}", result.local_path.display());
+                    #[allow(clippy::cast_precision_loss)]
+                    let size_mb = result.size_bytes as f64 / 1_048_576.0;
+                    println!("   📊 Size: {size_mb:.2} MB");
+                    println!("   ⏱️  Duration: {}ms", result.duration_ms);
+
+                    if let Some(s3_url) = result.s3_url {
+                        println!("   ☁️  S3 URL: {s3_url}");
+                    }
+
+                    // Cleanup old backups if requested
+                    if keep_local > 0 {
+                        if let Some(parent) = result.local_path.parent() {
+                            match backup::cleanup_old_backups(parent, keep_local).await {
+                                Ok(deleted) if deleted > 0 => {
+                                    println!("   🧹 Cleaned up {deleted} old backup(s)");
+                                },
+                                Ok(_) => {},
+                                Err(e) => {
+                                    println!("   ⚠️  Cleanup warning: {e}");
+                                },
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    println!("❌ Backup failed: {e}");
+                    std::process::exit(1);
+                },
+            }
+        },
+
+        Commands::Health { url } => match client.get(endpoint_url(&url, "/ready")).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                println!("✅ Healthy");
+                std::process::exit(0);
+            },
+            Ok(resp) => {
+                println!("❌ Unhealthy: HTTP {}", resp.status());
+                std::process::exit(1);
+            },
+            Err(e) => {
+                println!("❌ Unhealthy: {e}");
+                std::process::exit(1);
+            },
         },
     }
 

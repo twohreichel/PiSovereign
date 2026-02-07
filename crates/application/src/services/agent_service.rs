@@ -2,10 +2,18 @@
 
 use std::{fmt, fmt::Write as _, sync::Arc, time::Instant};
 
-use domain::{AgentCommand, SystemCommand};
+use chrono::Utc;
+use domain::{AgentCommand, GeoLocation, PersistedEmailDraft, SystemCommand, TaskItem, UserId};
 use tracing::{debug, info, instrument, warn};
 
-use crate::{command_parser::CommandParser, error::ApplicationError, ports::InferencePort};
+use crate::{
+    command_parser::CommandParser,
+    error::ApplicationError,
+    ports::{
+        DraftStorePort, InferencePort, Task, TaskPort, UserProfileStore, WeatherPort, WebSearchPort,
+    },
+    services::briefing_service::WeatherSummary,
+};
 
 /// Result of executing an agent command
 #[derive(Debug, Clone)]
@@ -43,6 +51,18 @@ pub struct AgentService {
     calendar_service: Option<Arc<super::CalendarService>>,
     /// Optional email service for briefing integration
     email_service: Option<Arc<super::EmailService>>,
+    /// Optional draft store for email draft persistence
+    draft_store: Option<Arc<dyn DraftStorePort>>,
+    /// Optional user profile store for personalization
+    user_profile_store: Option<Arc<dyn UserProfileStore>>,
+    /// Optional task service for todo/task integration
+    task_service: Option<Arc<dyn TaskPort>>,
+    /// Optional weather service for weather integration
+    weather_service: Option<Arc<dyn WeatherPort>>,
+    /// Optional web search service for internet search
+    websearch_service: Option<Arc<dyn WebSearchPort>>,
+    /// Default location for weather when user profile has no location
+    default_weather_location: Option<GeoLocation>,
 }
 
 impl fmt::Debug for AgentService {
@@ -51,6 +71,11 @@ impl fmt::Debug for AgentService {
             .field("parser", &self.parser)
             .field("has_calendar", &self.calendar_service.is_some())
             .field("has_email", &self.email_service.is_some())
+            .field("has_draft_store", &self.draft_store.is_some())
+            .field("has_user_profile", &self.user_profile_store.is_some())
+            .field("has_task", &self.task_service.is_some())
+            .field("has_weather", &self.weather_service.is_some())
+            .field("has_websearch", &self.websearch_service.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -63,6 +88,12 @@ impl AgentService {
             parser: CommandParser::new(),
             calendar_service: None,
             email_service: None,
+            draft_store: None,
+            user_profile_store: None,
+            task_service: None,
+            weather_service: None,
+            websearch_service: None,
+            default_weather_location: None,
         }
     }
 
@@ -80,9 +111,64 @@ impl AgentService {
         self
     }
 
+    /// Add draft store for email draft persistence
+    #[must_use]
+    pub fn with_draft_store(mut self, store: Arc<dyn DraftStorePort>) -> Self {
+        self.draft_store = Some(store);
+        self
+    }
+
+    /// Add user profile store for personalization
+    #[must_use]
+    pub fn with_user_profile_store(mut self, store: Arc<dyn UserProfileStore>) -> Self {
+        self.user_profile_store = Some(store);
+        self
+    }
+
+    /// Add task service for todo/task integration
+    #[must_use]
+    pub fn with_task_service(mut self, service: Arc<dyn TaskPort>) -> Self {
+        self.task_service = Some(service);
+        self
+    }
+
+    /// Add weather service for weather integration
+    #[must_use]
+    pub fn with_weather_service(mut self, service: Arc<dyn WeatherPort>) -> Self {
+        self.weather_service = Some(service);
+        self
+    }
+
+    /// Add web search service for internet search capabilities
+    #[must_use]
+    pub fn with_websearch_service(mut self, service: Arc<dyn WebSearchPort>) -> Self {
+        self.websearch_service = Some(service);
+        self
+    }
+
+    /// Set default weather location (fallback when user profile has no location)
+    #[must_use]
+    pub const fn with_default_weather_location(mut self, location: GeoLocation) -> Self {
+        self.default_weather_location = Some(location);
+        self
+    }
+
     /// Parse and execute a command from natural language input
     #[instrument(skip(self, input), fields(input_len = input.len()))]
     pub async fn handle_input(&self, input: &str) -> Result<CommandResult, ApplicationError> {
+        self.handle_input_with_user(input, None).await
+    }
+
+    /// Parse and execute a command with explicit user context
+    ///
+    /// This method should be used when the caller has access to the authenticated
+    /// user's identity (e.g., from `RequestContext` in HTTP handlers).
+    #[instrument(skip(self, input, user_id), fields(input_len = input.len()))]
+    pub async fn handle_input_with_user(
+        &self,
+        input: &str,
+        user_id: Option<UserId>,
+    ) -> Result<CommandResult, ApplicationError> {
         let start = Instant::now();
 
         // First, try to parse the command using the LLM
@@ -106,8 +192,8 @@ impl AgentService {
             });
         }
 
-        // Execute the command
-        let result = self.execute_command(&command).await?;
+        // Execute the command with user context
+        let result = self.execute_command_with_user(&command, user_id).await?;
 
         #[allow(clippy::cast_possible_truncation)]
         Ok(CommandResult {
@@ -124,6 +210,20 @@ impl AgentService {
     pub async fn execute_command(
         &self,
         command: &AgentCommand,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        self.execute_command_with_user(command, None).await
+    }
+
+    /// Execute a specific command with explicit user context
+    ///
+    /// This method should be used when the caller has access to the authenticated
+    /// user's identity. Commands that need user context (like fetching tasks)
+    /// will use the provided user ID instead of the default.
+    #[instrument(skip(self, command, user_id))]
+    pub async fn execute_command_with_user(
+        &self,
+        command: &AgentCommand,
+        user_id: Option<UserId>,
     ) -> Result<ExecutionResult, ApplicationError> {
         match command {
             AgentCommand::Echo { message } => Ok(ExecutionResult {
@@ -149,7 +249,9 @@ impl AgentService {
                 })
             },
 
-            AgentCommand::MorningBriefing { date } => self.handle_morning_briefing(*date).await,
+            AgentCommand::MorningBriefing { date } => {
+                self.handle_morning_briefing(*date, user_id).await
+            },
 
             AgentCommand::SummarizeInbox {
                 count,
@@ -167,11 +269,20 @@ impl AgentService {
                 })
             },
 
+            // Draft email - create and store draft
+            AgentCommand::DraftEmail { to, subject, body } => {
+                self.handle_draft_email(to.as_str(), subject.as_deref(), body)
+                    .await
+            },
+
             // Commands that require approval - should not reach here without approval
-            AgentCommand::CreateCalendarEvent { .. }
-            | AgentCommand::DraftEmail { .. }
-            | AgentCommand::SendEmail { .. } => {
+            AgentCommand::CreateCalendarEvent { .. } | AgentCommand::SendEmail { .. } => {
                 Err(ApplicationError::ApprovalRequired(command.description()))
+            },
+
+            // Web search - requires websearch service to be configured
+            AgentCommand::WebSearch { query, max_results } => {
+                self.handle_web_search(query, *max_results).await
             },
         }
     }
@@ -214,18 +325,38 @@ impl AgentService {
             }),
 
             SystemCommand::ListModels => {
-                // TODO: Query available models from Hailo
-                Ok(ExecutionResult {
-                    success: true,
-                    response: format!(
-                        "📦 Available Models:\n\n\
-                         • qwen2.5-1.5b-instruct (active)\n\
-                         • llama3.2-1b-instruct\n\
-                         • qwen2-1.5b-function-calling\n\n\
-                         Current: {}",
-                        self.inference.current_model()
-                    ),
-                })
+                let current_model = self.inference.current_model();
+                match self.inference.list_available_models().await {
+                    Ok(models) => {
+                        let model_list: String = models
+                            .iter()
+                            .map(|m| {
+                                if m == &current_model {
+                                    format!("• {m} (active)")
+                                } else {
+                                    format!("• {m}")
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+
+                        Ok(ExecutionResult {
+                            success: true,
+                            response: format!(
+                                "📦 Available Models:\n\n{model_list}\n\nCurrent: {current_model}"
+                            ),
+                        })
+                    },
+                    Err(e) => {
+                        warn!(error = %e, "Failed to list models from inference service");
+                        Ok(ExecutionResult {
+                            success: false,
+                            response: format!(
+                                "⚠️ Could not retrieve model list: {e}\n\nCurrent: {current_model}"
+                            ),
+                        })
+                    },
+                }
             },
 
             SystemCommand::SwitchModel { model_name } => {
@@ -302,6 +433,7 @@ impl AgentService {
     async fn handle_morning_briefing(
         &self,
         date: Option<chrono::NaiveDate>,
+        user_id: Option<UserId>,
     ) -> Result<ExecutionResult, ApplicationError> {
         use chrono::Local;
 
@@ -315,6 +447,9 @@ impl AgentService {
         } else {
             briefing_date.format("%Y-%m-%d").to_string()
         };
+
+        // Get user timezone from profile if available
+        let user_timezone = self.get_user_timezone().await;
 
         // Collect calendar data if service available
         let calendar_brief = if let Some(ref calendar_svc) = self.calendar_service {
@@ -362,13 +497,30 @@ impl AgentService {
             EmailBrief::default()
         };
 
-        // Generate briefing using BriefingService
-        let briefing_service = BriefingService::new(1); // Central European timezone
+        // Collect task data if service available
+        // Use provided user_id from request context, fall back to default
+        let task_brief = if let Some(ref task_svc) = self.task_service {
+            let effective_user_id = user_id.unwrap_or_default();
+            self.fetch_task_brief(task_svc.as_ref(), &effective_user_id)
+                .await
+        } else {
+            TaskBrief::default()
+        };
+
+        // Collect weather data if service available
+        let weather_summary = if let Some(ref weather_svc) = self.weather_service {
+            self.fetch_weather_summary(weather_svc.as_ref()).await
+        } else {
+            None
+        };
+
+        // Generate briefing using BriefingService with user's timezone
+        let briefing_service = BriefingService::new(user_timezone);
         let briefing = briefing_service.generate_briefing(
             calendar_brief,
             email_brief,
-            TaskBrief::default(), // TODO: Implement task integration
-            None,                 // TODO: Implement weather integration
+            task_brief,
+            weather_summary,
         );
 
         // Format briefing response
@@ -426,6 +578,16 @@ impl AgentService {
             }
         }
 
+        // Add weather section if available
+        if let Some(ref weather) = briefing.weather {
+            response.push_str("\n🌤️ **Weather**\n");
+            let _ = writeln!(
+                response,
+                "{}, {:.0}°C (High: {:.0}°C, Low: {:.0}°C)",
+                weather.condition, weather.temperature, weather.high, weather.low
+            );
+        }
+
         Ok(ExecutionResult {
             success: true,
             response,
@@ -467,6 +629,297 @@ impl AgentService {
             response: format!(
                 "📧 Inbox summary (last {email_count} emails{filter_msg}):\n\n\
                  (Email integration not configured. Please set up Proton Bridge.)"
+            ),
+        })
+    }
+
+    /// Get the user's timezone from their profile, or default to Europe/Berlin
+    ///
+    /// For now uses a default user ID since we don't have per-request user context.
+    async fn get_user_timezone(&self) -> domain::value_objects::Timezone {
+        use domain::value_objects::Timezone;
+
+        if let Some(ref profile_store) = self.user_profile_store {
+            // Use default user ID for now - future versions will have proper user context
+            let default_user_id = UserId::default();
+            match profile_store.get(&default_user_id).await {
+                Ok(Some(profile)) => profile.timezone().clone(),
+                Ok(None) => {
+                    debug!("User profile not found, using default timezone");
+                    Timezone::berlin()
+                },
+                Err(e) => {
+                    warn!(error = %e, "Failed to get user profile, using default timezone");
+                    Timezone::berlin()
+                },
+            }
+        } else {
+            // No profile store configured, use default
+            domain::value_objects::Timezone::berlin()
+        }
+    }
+
+    /// Fetch task brief for the briefing
+    ///
+    /// Retrieves tasks due today, overdue tasks, and high priority tasks,
+    /// converting them to the domain TaskBrief structure.
+    async fn fetch_task_brief(
+        &self,
+        task_svc: &dyn TaskPort,
+        user_id: &UserId,
+    ) -> super::briefing_service::TaskBrief {
+        let today = Utc::now().date_naive();
+
+        // Fetch tasks due today
+        let today_tasks = match task_svc.get_tasks_due_today(user_id).await {
+            Ok(tasks) => tasks,
+            Err(e) => {
+                warn!(error = %e, "Failed to get tasks due today");
+                return super::briefing_service::TaskBrief::default();
+            },
+        };
+
+        // Fetch high priority tasks
+        let high_priority_tasks = match task_svc.get_high_priority_tasks(user_id).await {
+            Ok(tasks) => tasks,
+            Err(e) => {
+                warn!(error = %e, "Failed to get high priority tasks");
+                vec![]
+            },
+        };
+
+        // Convert tasks to TaskItems and separate overdue
+        let mut domain_today: Vec<TaskItem> = Vec::new();
+        let mut domain_overdue: Vec<TaskItem> = Vec::new();
+        let mut domain_high_priority: Vec<TaskItem> = Vec::new();
+
+        for task in &today_tasks {
+            let item = Self::task_to_item(task, today);
+            if item.is_overdue {
+                domain_overdue.push(item);
+            } else {
+                domain_today.push(item);
+            }
+        }
+
+        for task in &high_priority_tasks {
+            // Avoid duplicates if task is already in today or overdue
+            if !today_tasks.iter().any(|t| t.id == task.id) {
+                domain_high_priority.push(Self::task_to_item(task, today));
+            }
+        }
+
+        // Build the TaskBrief using the application-layer type
+        super::briefing_service::TaskBrief {
+            due_today: u32::try_from(domain_today.len()).unwrap_or(0),
+            overdue: u32::try_from(domain_overdue.len()).unwrap_or(0),
+            high_priority: domain_high_priority
+                .iter()
+                .map(|i| i.title.clone())
+                .collect(),
+        }
+    }
+
+    /// Convert a Task port type to a domain TaskItem
+    fn task_to_item(task: &Task, today: chrono::NaiveDate) -> TaskItem {
+        let is_overdue = task.due_date.is_some_and(|due| due < today);
+
+        let mut item = TaskItem::new(&task.id, &task.summary);
+
+        // Set priority (convert from domain Priority to TaskItem's expected type)
+        item = item.with_priority(task.priority);
+
+        // Set due date if present
+        if let Some(due) = task.due_date {
+            item = item.with_due(due);
+        }
+
+        // Mark as overdue if applicable
+        if is_overdue {
+            item = item.overdue();
+        }
+
+        item
+    }
+
+    /// Fetches weather summary for the morning briefing.
+    ///
+    /// Location resolution order:
+    /// 1. User profile location (if available)
+    /// 2. Default weather location from config (if configured)
+    /// 3. None if neither is available
+    async fn fetch_weather_summary(&self, weather_svc: &dyn WeatherPort) -> Option<WeatherSummary> {
+        // Determine location: user profile > config default
+        let location = self.get_weather_location().await;
+
+        let Some(location) = location else {
+            warn!("No location available for weather (user profile or config default)");
+            return None;
+        };
+
+        // Fetch current weather and today's forecast
+        match weather_svc.get_weather_summary(&location, 1).await {
+            Ok((current, forecast)) => {
+                // Get today's forecast for high/low temps
+                // Temperature values are well within f32 range (-273.15°C to ~1000°C),
+                // so truncation is acceptable and expected
+                #[allow(clippy::cast_possible_truncation)]
+                let (high, low) = forecast.first().map_or_else(
+                    || {
+                        (
+                            current.temperature as f32,
+                            current.apparent_temperature as f32,
+                        )
+                    },
+                    |f| (f.temperature_max as f32, f.temperature_min as f32),
+                );
+
+                #[allow(clippy::cast_possible_truncation)]
+                let temperature = current.temperature as f32;
+
+                Some(WeatherSummary {
+                    temperature,
+                    condition: current.condition.to_string(),
+                    high,
+                    low,
+                })
+            },
+            Err(e) => {
+                warn!(error = %e, "Failed to fetch weather data");
+                None
+            },
+        }
+    }
+
+    /// Gets the location for weather, preferring user profile over config default.
+    async fn get_weather_location(&self) -> Option<GeoLocation> {
+        // First try to get location from user profile
+        if let Some(ref profile_store) = self.user_profile_store {
+            // Use default user ID for now
+            let user_id = UserId::default();
+            if let Ok(Some(profile)) = profile_store.get(&user_id).await {
+                if let Some(location) = profile.location() {
+                    debug!("Using location from user profile");
+                    return Some(location);
+                }
+            }
+        }
+
+        // Fall back to config default
+        if let Some(ref default_location) = self.default_weather_location {
+            debug!("Using default weather location from config");
+            return Some(*default_location);
+        }
+
+        None
+    }
+
+    /// Handle draft email command - create and store the draft
+    ///
+    /// For now uses a default user ID. Future versions will map API keys to users.
+    async fn handle_draft_email(
+        &self,
+        to: &str,
+        subject: Option<&str>,
+        body: &str,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        // Use default user ID for now (will be replaced with API key mapping)
+        let user_id = UserId::default();
+
+        // Generate subject if not provided
+        let subject = subject.map_or_else(
+            || format!("Re: {}", to.split('@').next().unwrap_or("Contact")),
+            String::from,
+        );
+
+        // Check if draft store is configured
+        let Some(ref draft_store) = self.draft_store else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: "📧 Email draft creation failed:\n\n\
+                          Draft storage is not configured. Please set up database persistence."
+                    .to_string(),
+            });
+        };
+
+        // Create and save the draft
+        let draft =
+            PersistedEmailDraft::new(user_id, to.to_string(), subject.clone(), body.to_string());
+        let draft_id = draft.id;
+
+        draft_store.save(&draft).await?;
+
+        info!(draft_id = %draft_id, to = %to, subject = %subject, "Created email draft");
+
+        Ok(ExecutionResult {
+            success: true,
+            response: format!(
+                "📝 Email draft created:\n\n\
+                 **To:** {to}\n\
+                 **Subject:** {subject}\n\n\
+                 Draft ID: `{draft_id}`\n\n\
+                 To send this email, say 'send email {draft_id}' or 'approve send'."
+            ),
+        })
+    }
+
+    /// Handle web search command
+    ///
+    /// Performs a web search and returns results formatted with citations.
+    /// Uses the LLM to summarize the search results.
+    async fn handle_web_search(
+        &self,
+        query: &str,
+        max_results: Option<u32>,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        // Check if websearch service is configured
+        let Some(ref websearch_service) = self.websearch_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: "🔍 Web search is not available.\n\n\
+                          Web search service is not configured. \
+                          Please set up the Brave Search API key in your configuration."
+                    .to_string(),
+            });
+        };
+
+        let max_results = max_results.unwrap_or(5);
+
+        info!(query = %query, max_results = %max_results, "Performing web search");
+
+        // Perform the search
+        let search_response = websearch_service.search_for_llm(query, max_results).await?;
+
+        // If no results, return early
+        if search_response.contains("No web search results found") {
+            return Ok(ExecutionResult {
+                success: true,
+                response: format!(
+                    "🔍 No results found for: **{query}**\n\n\
+                     Try rephrasing your search query or using different keywords."
+                ),
+            });
+        }
+
+        // Use LLM to summarize the search results with proper citation
+        let summary_prompt = format!(
+            "Based on the following web search results, provide a concise and helpful answer \
+             to the query: \"{query}\"\n\n\
+             Include relevant information from the sources and cite them using [number] notation \
+             at the end of sentences that use information from that source.\n\n\
+             Search Results:\n{search_response}\n\n\
+             Provide a clear, informative summary with proper source citations."
+        );
+
+        let llm_response = self.inference.generate(&summary_prompt).await?;
+
+        Ok(ExecutionResult {
+            success: true,
+            response: format!(
+                "🔍 **Web Search Results for:** {query}\n\n{}\n\n\
+                 ---\n*Search powered by {}*",
+                llm_response.content,
+                websearch_service.provider_name()
             ),
         })
     }
@@ -900,10 +1353,17 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn execute_system_list_models() {
+    async fn execute_system_list_models_success() {
         let mut mock = MockInferenceEngine::new();
         mock.expect_current_model()
             .returning(|| "qwen2.5-1.5b".to_string());
+        mock.expect_list_available_models().returning(|| {
+            Ok(vec![
+                "qwen2.5-1.5b".to_string(),
+                "llama3.2-1b".to_string(),
+                "mistral-7b".to_string(),
+            ])
+        });
 
         let service = AgentService::new(Arc::new(mock));
 
@@ -913,7 +1373,53 @@ mod async_tests {
             .unwrap();
 
         assert!(result.success);
-        assert!(result.response.contains("Models"));
+        assert!(result.response.contains("Available Models"));
+        assert!(result.response.contains("qwen2.5-1.5b (active)"));
+        assert!(result.response.contains("• llama3.2-1b"));
+        assert!(result.response.contains("• mistral-7b"));
+        assert!(!result.response.contains("llama3.2-1b (active)"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_list_models_error_fallback() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_current_model()
+            .returning(|| "qwen2.5-1.5b".to_string());
+        mock.expect_list_available_models().returning(|| {
+            Err(ApplicationError::ExternalService(
+                "Circuit breaker open".to_string(),
+            ))
+        });
+
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::ListModels))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result.response.contains("Could not retrieve model list"));
+        assert!(result.response.contains("Current: qwen2.5-1.5b"));
+    }
+
+    #[tokio::test]
+    async fn execute_system_list_models_empty() {
+        let mut mock = MockInferenceEngine::new();
+        mock.expect_current_model()
+            .returning(|| "unknown".to_string());
+        mock.expect_list_available_models().returning(|| Ok(vec![]));
+
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::System(SystemCommand::ListModels))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Available Models"));
+        assert!(result.response.contains("Current: unknown"));
     }
 
     #[tokio::test]
@@ -1009,7 +1515,7 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn execute_draft_email_requires_approval() {
+    async fn execute_draft_email_without_store_fallback() {
         let mock = MockInferenceEngine::new();
         let service = AgentService::new(Arc::new(mock));
 
@@ -1021,7 +1527,11 @@ mod async_tests {
             })
             .await;
 
-        assert!(result.is_err());
+        // DraftEmail is now handled but returns unsuccessful when no store is configured
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert!(!result.success);
+        assert!(result.response.contains("not configured"));
     }
 
     #[tokio::test]
@@ -1091,5 +1601,560 @@ mod async_tests {
         let debug = format!("{service:?}");
         assert!(debug.contains("AgentService"));
         assert!(debug.contains("parser"));
+    }
+
+    #[tokio::test]
+    async fn draft_email_without_store_returns_error() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .handle_draft_email("test@example.com", Some("Test Subject"), "Test body")
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result.response.contains("not configured"));
+    }
+
+    #[tokio::test]
+    async fn draft_email_with_store_creates_draft() {
+        use crate::ports::MockDraftStorePort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_store = MockDraftStorePort::new();
+
+        // Expect save to be called and return the draft ID
+        mock_store.expect_save().returning(|draft| Ok(draft.id));
+
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_draft_store(Arc::new(mock_store));
+
+        let result = service
+            .handle_draft_email(
+                "recipient@example.com",
+                Some("Test Subject"),
+                "Email body content",
+            )
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("Draft ID:"));
+        assert!(result.response.contains("recipient@example.com"));
+        assert!(result.response.contains("Test Subject"));
+    }
+
+    #[tokio::test]
+    async fn draft_email_generates_subject_when_not_provided() {
+        use crate::ports::MockDraftStorePort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_store = MockDraftStorePort::new();
+
+        mock_store.expect_save().returning(|draft| Ok(draft.id));
+
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_draft_store(Arc::new(mock_store));
+
+        let result = service
+            .handle_draft_email("john@example.com", None, "Hello!")
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        // Should generate subject like "Re: john"
+        assert!(result.response.contains("Re: john"));
+    }
+
+    #[tokio::test]
+    async fn agent_service_has_draft_store_in_debug() {
+        use crate::ports::MockDraftStorePort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mock_store = MockDraftStorePort::new();
+
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_draft_store(Arc::new(mock_store));
+
+        let debug = format!("{service:?}");
+        assert!(debug.contains("has_draft_store"));
+    }
+
+    #[tokio::test]
+    async fn agent_service_with_task_service() {
+        use crate::ports::MockTaskPort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mock_task = MockTaskPort::new();
+
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_task_service(Arc::new(mock_task));
+
+        let debug = format!("{service:?}");
+        assert!(debug.contains("has_task: true"));
+    }
+
+    #[tokio::test]
+    async fn fetch_task_brief_returns_default_on_error() {
+        use crate::ports::MockTaskPort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_task = MockTaskPort::new();
+
+        mock_task.expect_get_tasks_due_today().returning(|_| {
+            Err(ApplicationError::ExternalService(
+                "Task service down".into(),
+            ))
+        });
+
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_task_service(Arc::new(mock_task));
+
+        let user_id = UserId::default();
+        let brief = service
+            .fetch_task_brief(service.task_service.as_ref().unwrap().as_ref(), &user_id)
+            .await;
+
+        assert_eq!(brief.due_today, 0);
+        assert_eq!(brief.overdue, 0);
+        assert!(brief.high_priority.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fetch_task_brief_with_tasks() {
+        use chrono::Utc;
+
+        use crate::ports::{MockTaskPort, Task, TaskStatus};
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_task = MockTaskPort::new();
+
+        let today = Utc::now().date_naive();
+        let yesterday = today - chrono::Duration::days(1);
+
+        // Task due today
+        let task_today = Task {
+            id: "task-1".into(),
+            summary: "Fix bug".into(),
+            description: None,
+            priority: domain::Priority::High,
+            status: TaskStatus::NeedsAction,
+            due_date: Some(today),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            calendar: None,
+        };
+
+        // Overdue task
+        let task_overdue = Task {
+            id: "task-2".into(),
+            summary: "Review PR".into(),
+            description: None,
+            priority: domain::Priority::Medium,
+            status: TaskStatus::NeedsAction,
+            due_date: Some(yesterday),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            calendar: None,
+        };
+
+        mock_task
+            .expect_get_tasks_due_today()
+            .returning(move |_| Ok(vec![task_today.clone(), task_overdue.clone()]));
+
+        mock_task
+            .expect_get_high_priority_tasks()
+            .returning(|_| Ok(vec![]));
+
+        let service =
+            AgentService::new(Arc::new(mock_inference)).with_task_service(Arc::new(mock_task));
+
+        let user_id = UserId::default();
+        let brief = service
+            .fetch_task_brief(service.task_service.as_ref().unwrap().as_ref(), &user_id)
+            .await;
+
+        // One due today, one overdue
+        assert_eq!(brief.due_today, 1);
+        assert_eq!(brief.overdue, 1);
+    }
+
+    #[tokio::test]
+    async fn task_to_item_converts_correctly() {
+        use chrono::Utc;
+
+        use crate::ports::{Task, TaskStatus};
+
+        let today = Utc::now().date_naive();
+        let yesterday = today - chrono::Duration::days(1);
+
+        let task = Task {
+            id: "task-123".into(),
+            summary: "Important task".into(),
+            description: Some("Description".into()),
+            priority: domain::Priority::High,
+            status: TaskStatus::NeedsAction,
+            due_date: Some(yesterday),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            calendar: None,
+        };
+
+        let item = AgentService::task_to_item(&task, today);
+
+        assert_eq!(item.id, "task-123");
+        assert_eq!(item.title, "Important task");
+        assert_eq!(item.priority, domain::Priority::High);
+        assert_eq!(item.due, Some(yesterday));
+        assert!(item.is_overdue);
+    }
+
+    #[tokio::test]
+    async fn task_to_item_not_overdue_when_due_today() {
+        use chrono::Utc;
+
+        use crate::ports::{Task, TaskStatus};
+
+        let today = Utc::now().date_naive();
+
+        let task = Task {
+            id: "task-456".into(),
+            summary: "Due today".into(),
+            description: None,
+            priority: domain::Priority::Medium,
+            status: TaskStatus::NeedsAction,
+            due_date: Some(today),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            completed_at: None,
+            calendar: None,
+        };
+
+        let item = AgentService::task_to_item(&task, today);
+
+        assert!(!item.is_overdue);
+    }
+
+    #[tokio::test]
+    async fn fetch_weather_summary_returns_weather_data() {
+        use chrono::{NaiveDate, Utc};
+
+        use crate::ports::{CurrentWeather, DailyForecast, MockWeatherPort, WeatherCondition};
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_weather = MockWeatherPort::new();
+
+        let current = CurrentWeather {
+            temperature: 20.5,
+            apparent_temperature: 19.0,
+            humidity: 65,
+            wind_speed: 10.0,
+            condition: WeatherCondition::PartlyCloudy,
+            observed_at: Utc::now(),
+        };
+
+        let forecast = vec![DailyForecast {
+            date: NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(),
+            temperature_max: 25.0,
+            temperature_min: 15.0,
+            condition: WeatherCondition::PartlyCloudy,
+            precipitation_probability: 20,
+            precipitation_sum: 0.0,
+            sunrise: None,
+            sunset: None,
+        }];
+
+        mock_weather
+            .expect_get_weather_summary()
+            .returning(move |_, _| Ok((current.clone(), forecast.clone())));
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_weather_service(Arc::new(mock_weather))
+            .with_default_weather_location(GeoLocation::berlin());
+
+        let summary = service
+            .fetch_weather_summary(service.weather_service.as_ref().unwrap().as_ref())
+            .await;
+
+        assert!(summary.is_some());
+        let summary = summary.unwrap();
+        assert!((summary.temperature - 20.5).abs() < 0.01);
+        assert!((summary.high - 25.0).abs() < 0.01);
+        assert!((summary.low - 15.0).abs() < 0.01);
+        assert_eq!(summary.condition, "Partly cloudy");
+    }
+
+    #[tokio::test]
+    async fn fetch_weather_summary_returns_none_on_error() {
+        use crate::ports::MockWeatherPort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mut mock_weather = MockWeatherPort::new();
+
+        mock_weather
+            .expect_get_weather_summary()
+            .returning(|_, _| Err(ApplicationError::ExternalService("Weather API".into())));
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_weather_service(Arc::new(mock_weather))
+            .with_default_weather_location(GeoLocation::berlin());
+
+        let summary = service
+            .fetch_weather_summary(service.weather_service.as_ref().unwrap().as_ref())
+            .await;
+
+        assert!(summary.is_none());
+    }
+
+    #[tokio::test]
+    async fn fetch_weather_summary_returns_none_without_location() {
+        use crate::ports::MockWeatherPort;
+
+        let mock_inference = MockInferenceEngine::new();
+        let mock_weather = MockWeatherPort::new();
+
+        // No default location, no user profile store
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_weather_service(Arc::new(mock_weather));
+
+        let summary = service
+            .fetch_weather_summary(service.weather_service.as_ref().unwrap().as_ref())
+            .await;
+
+        assert!(summary.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_weather_location_prefers_user_profile() {
+        use std::sync::Arc;
+
+        // Create a simple mock for UserProfileStore that returns a profile with location
+        struct TestProfileStore;
+
+        #[async_trait::async_trait]
+        impl UserProfileStore for TestProfileStore {
+            async fn save(
+                &self,
+                _profile: &domain::entities::UserProfile,
+            ) -> Result<(), ApplicationError> {
+                Ok(())
+            }
+
+            async fn get(
+                &self,
+                _user_id: &UserId,
+            ) -> Result<Option<domain::entities::UserProfile>, ApplicationError> {
+                // Return a profile with Berlin location
+                Ok(Some(domain::entities::UserProfile::with_defaults(
+                    UserId::default(),
+                    GeoLocation::berlin(),
+                    domain::value_objects::Timezone::berlin(),
+                )))
+            }
+
+            async fn delete(&self, _user_id: &UserId) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+
+            async fn update_location(
+                &self,
+                _user_id: &UserId,
+                _location: Option<&GeoLocation>,
+            ) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+
+            async fn update_timezone(
+                &self,
+                _user_id: &UserId,
+                _timezone: &domain::value_objects::Timezone,
+            ) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+        }
+
+        let mock_inference = MockInferenceEngine::new();
+
+        // Service with both user profile and default location
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_user_profile_store(Arc::new(TestProfileStore))
+            .with_default_weather_location(GeoLocation::london()); // London as fallback
+
+        let location = service.get_weather_location().await;
+
+        // Should get Berlin (user profile) not London (default)
+        assert!(location.is_some());
+        let loc = location.unwrap();
+        assert!((loc.latitude() - 52.52).abs() < 0.01);
+        assert!((loc.longitude() - 13.405).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn get_weather_location_falls_back_to_default() {
+        use std::sync::Arc;
+
+        // Profile store that returns no location
+        struct NoLocationProfileStore;
+
+        #[async_trait::async_trait]
+        impl UserProfileStore for NoLocationProfileStore {
+            async fn save(
+                &self,
+                _profile: &domain::entities::UserProfile,
+            ) -> Result<(), ApplicationError> {
+                Ok(())
+            }
+
+            async fn get(
+                &self,
+                _user_id: &UserId,
+            ) -> Result<Option<domain::entities::UserProfile>, ApplicationError> {
+                // Return a profile without location
+                Ok(Some(domain::entities::UserProfile::new(UserId::default())))
+            }
+
+            async fn delete(&self, _user_id: &UserId) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+
+            async fn update_location(
+                &self,
+                _user_id: &UserId,
+                _location: Option<&GeoLocation>,
+            ) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+
+            async fn update_timezone(
+                &self,
+                _user_id: &UserId,
+                _timezone: &domain::value_objects::Timezone,
+            ) -> Result<bool, ApplicationError> {
+                Ok(true)
+            }
+        }
+
+        let mock_inference = MockInferenceEngine::new();
+
+        // Service with user profile without location, but with default
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_user_profile_store(Arc::new(NoLocationProfileStore))
+            .with_default_weather_location(GeoLocation::london()); // London as default
+
+        let location = service.get_weather_location().await;
+
+        // Should get London (default) since user profile has no location
+        assert!(location.is_some());
+        let loc = location.unwrap();
+        assert!((loc.latitude() - 51.5074).abs() < 0.01);
+        assert!((loc.longitude() - (-0.1278)).abs() < 0.01);
+    }
+
+    // Web search tests
+
+    #[tokio::test]
+    async fn execute_websearch_without_service_returns_error_message() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::WebSearch {
+                query: "rust programming".to_string(),
+                max_results: None,
+            })
+            .await
+            .unwrap();
+
+        // Without websearch service configured, should return user-friendly error
+        assert!(!result.success);
+        assert!(result.response.contains("not available"));
+        assert!(result.response.contains("not configured"));
+    }
+
+    #[tokio::test]
+    async fn execute_websearch_with_mock_service() {
+        use crate::ports::MockWebSearchPort;
+
+        let mut mock_inference = MockInferenceEngine::new();
+        mock_inference.expect_generate().returning(|_| {
+            Ok(mock_inference_result(
+                "Here is a summary with citations [1][2].",
+            ))
+        });
+
+        let mut mock_websearch = MockWebSearchPort::new();
+        mock_websearch
+            .expect_search_for_llm()
+            .returning(|query, _| {
+                Ok(format!(
+                    "[1] Result 1 - example.com: Info about {query}\n\
+                     [2] Result 2 - test.org: More info about {query}"
+                ))
+            });
+        mock_websearch
+            .expect_provider_name()
+            .return_const("mock-provider".to_string());
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_websearch_service(Arc::new(mock_websearch));
+
+        let result = service
+            .execute_command(&AgentCommand::WebSearch {
+                query: "rust async patterns".to_string(),
+                max_results: Some(5),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("rust async patterns"));
+        assert!(result.response.contains("mock-provider"));
+    }
+
+    #[tokio::test]
+    async fn execute_websearch_no_results() {
+        use crate::ports::MockWebSearchPort;
+
+        let mock_inference = MockInferenceEngine::new();
+
+        let mut mock_websearch = MockWebSearchPort::new();
+        mock_websearch
+            .expect_search_for_llm()
+            .returning(|query, _| Ok(format!("No web search results found for: {query}")));
+        mock_websearch
+            .expect_provider_name()
+            .return_const("mock".to_string());
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_websearch_service(Arc::new(mock_websearch));
+
+        let result = service
+            .execute_command(&AgentCommand::WebSearch {
+                query: "xyznonexistent12345".to_string(),
+                max_results: None,
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success); // No results is still a successful execution
+        assert!(result.response.contains("No results found"));
+    }
+
+    #[tokio::test]
+    async fn websearch_service_builder() {
+        use crate::ports::MockWebSearchPort;
+
+        let mock = MockInferenceEngine::new();
+        let mock_websearch = MockWebSearchPort::new();
+
+        let service =
+            AgentService::new(Arc::new(mock)).with_websearch_service(Arc::new(mock_websearch));
+
+        let debug = format!("{service:?}");
+        assert!(debug.contains("has_websearch: true"));
     }
 }

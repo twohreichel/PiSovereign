@@ -3,6 +3,7 @@
 //! Aggregates calendar events and emails into a daily summary.
 
 use chrono::{DateTime, Utc};
+use domain::value_objects::Timezone;
 use serde::{Deserialize, Serialize};
 
 /// Morning briefing data
@@ -101,17 +102,51 @@ pub struct TaskBrief {
 }
 
 /// Briefing service for generating morning summaries
-#[derive(Debug, Default)]
+#[derive(Debug, Clone)]
 pub struct BriefingService {
-    /// User's timezone offset (hours from UTC)
-    pub timezone_offset: i32,
+    /// User's timezone
+    pub timezone: Timezone,
+}
+
+impl Default for BriefingService {
+    fn default() -> Self {
+        Self {
+            timezone: Timezone::utc(),
+        }
+    }
 }
 
 impl BriefingService {
-    /// Create a new briefing service
+    /// Create a new briefing service with a timezone
     #[must_use]
-    pub const fn new(timezone_offset: i32) -> Self {
-        Self { timezone_offset }
+    pub const fn new(timezone: Timezone) -> Self {
+        Self { timezone }
+    }
+
+    /// Create a new briefing service with an offset (hours from UTC)
+    ///
+    /// This is a convenience method for backwards compatibility.
+    /// Prefer using `new()` with a proper `Timezone` for accurate handling.
+    #[must_use]
+    #[deprecated(
+        since = "0.3.0",
+        note = "Use BriefingService::new() with Timezone instead"
+    )]
+    pub fn with_offset(offset_hours: i32) -> Self {
+        // Map common offsets to IANA timezones
+        let tz = match offset_hours {
+            0 => Timezone::utc(),
+            1 | 2 => Timezone::berlin(), // CET/CEST (approximate)
+            -5 => Timezone::new_york(),
+            _ => Timezone::utc(),
+        };
+        Self { timezone: tz }
+    }
+
+    /// Get the configured timezone
+    #[must_use]
+    pub const fn timezone(&self) -> &Timezone {
+        &self.timezone
     }
 
     /// Generate a morning briefing
@@ -264,19 +299,26 @@ mod tests {
 
     #[test]
     fn briefing_service_creation() {
-        let service = BriefingService::new(2);
-        assert_eq!(service.timezone_offset, 2);
+        let service = BriefingService::new(Timezone::berlin());
+        assert_eq!(service.timezone().as_str(), "Europe/Berlin");
     }
 
     #[test]
     fn briefing_service_default() {
         let service = BriefingService::default();
-        assert_eq!(service.timezone_offset, 0);
+        assert_eq!(service.timezone().as_str(), "UTC");
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn briefing_service_with_offset() {
+        let service = BriefingService::with_offset(1);
+        assert_eq!(service.timezone().as_str(), "Europe/Berlin");
     }
 
     #[test]
     fn generate_briefing_empty_data() {
-        let service = BriefingService::new(0);
+        let service = BriefingService::new(Timezone::utc());
         let briefing = service.generate_briefing(
             CalendarBrief::default(),
             EmailBrief::default(),
@@ -290,7 +332,7 @@ mod tests {
 
     #[test]
     fn generate_briefing_with_events() {
-        let service = BriefingService::new(0);
+        let service = BriefingService::new(Timezone::utc());
 
         let calendar = CalendarBrief {
             event_count: 2,
@@ -315,7 +357,7 @@ mod tests {
 
     #[test]
     fn generate_briefing_with_weather() {
-        let service = BriefingService::new(0);
+        let service = BriefingService::new(Timezone::utc());
 
         let weather = Some(WeatherSummary {
             temperature: 18.0,
@@ -337,7 +379,7 @@ mod tests {
 
     #[test]
     fn generate_briefing_with_emails() {
-        let service = BriefingService::new(0);
+        let service = BriefingService::new(Timezone::utc());
 
         let email = EmailBrief {
             unread_count: 5,
@@ -355,7 +397,7 @@ mod tests {
 
     #[test]
     fn generate_briefing_with_tasks() {
-        let service = BriefingService::new(0);
+        let service = BriefingService::new(Timezone::utc());
 
         let tasks = TaskBrief {
             due_today: 3,
@@ -372,7 +414,7 @@ mod tests {
 
     #[test]
     fn generate_briefing_with_conflicts() {
-        let service = BriefingService::new(0);
+        let service = BriefingService::new(Timezone::utc());
 
         let calendar = CalendarBrief {
             event_count: 2,
@@ -502,7 +544,7 @@ mod tests {
 
     #[test]
     fn morning_briefing_serialization() {
-        let service = BriefingService::new(0);
+        let service = BriefingService::new(Timezone::utc());
         let briefing = service.generate_briefing(
             CalendarBrief::default(),
             EmailBrief::default(),
@@ -569,14 +611,14 @@ mod tests {
 
     #[test]
     fn briefing_service_has_debug() {
-        let service = BriefingService::new(0);
+        let service = BriefingService::new(Timezone::utc());
         let debug = format!("{service:?}");
         assert!(debug.contains("BriefingService"));
     }
 
     #[test]
     fn single_event_summary() {
-        let service = BriefingService::new(0);
+        let service = BriefingService::new(Timezone::utc());
 
         let calendar = CalendarBrief {
             event_count: 1,

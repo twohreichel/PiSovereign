@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 
 use crate::{imap_client::ProtonImapClient, smtp_client::ProtonSmtpClient};
 
@@ -67,19 +67,24 @@ pub enum ProtonError {
 /// TLS configuration for Proton Bridge connections
 ///
 /// Controls certificate verification behavior for IMAP and SMTP connections.
-/// By default, certificate verification is disabled to support Proton Bridge's
-/// self-signed certificates, but this can be changed for enhanced security.
+/// By default, certificate verification is enabled for security. Set to `false`
+/// explicitly to disable verification for self-signed Proton Bridge certificates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TlsConfig {
-    /// Whether to verify TLS certificates (default: false for Proton Bridge)
+    /// Whether to verify TLS certificates
     ///
-    /// When set to `false`, self-signed certificates are accepted.
-    /// Set to `true` and provide `ca_cert_path` for strict verification.
-    pub verify_certificates: bool,
+    /// - `None` (default): Verification enabled (secure default)
+    /// - `Some(true)`: Verification explicitly enabled
+    /// - `Some(false)`: Verification disabled (for self-signed certs)
+    ///
+    /// For Proton Bridge with self-signed certificates, set to `false`.
+    /// Provide `ca_cert_path` for custom CA verification.
+    #[serde(default)]
+    pub verify_certificates: Option<bool>,
 
     /// Path to a custom CA certificate file (PEM format)
     ///
-    /// If provided and `verify_certificates` is true, this certificate
+    /// If provided and verification is enabled, this certificate
     /// will be used as the root of trust for TLS connections.
     pub ca_cert_path: Option<PathBuf>,
 
@@ -87,11 +92,22 @@ pub struct TlsConfig {
     pub min_tls_version: String,
 }
 
+impl TlsConfig {
+    /// Check if TLS certificate verification is enabled
+    ///
+    /// Returns `true` if verification should be performed.
+    /// `None` is interpreted as `true` (secure default).
+    #[must_use]
+    pub fn should_verify(&self) -> bool {
+        self.verify_certificates.unwrap_or(true)
+    }
+}
+
 impl Default for TlsConfig {
     fn default() -> Self {
         Self {
-            // Default to false for Proton Bridge compatibility
-            verify_certificates: false,
+            // None means verification enabled (secure default)
+            verify_certificates: None,
             ca_cert_path: None,
             min_tls_version: "1.2".to_string(),
         }
@@ -101,24 +117,44 @@ impl Default for TlsConfig {
 impl TlsConfig {
     /// Create a TLS config that accepts self-signed certificates
     ///
-    /// This is the default for Proton Bridge which uses self-signed certs.
+    /// Use this for Proton Bridge which uses self-signed certificates.
+    /// **Warning:** This disables certificate verification and should only
+    /// be used for local Proton Bridge connections.
+    ///
+    /// # Security Warning
+    ///
+    /// Disabling TLS certificate verification makes the connection vulnerable
+    /// to man-in-the-middle attacks. Only use this for trusted local connections.
+    #[must_use]
     pub fn insecure() -> Self {
-        Self::default()
+        warn!(
+            "⚠️ TLS certificate verification disabled - use only for local Proton Bridge. \
+             This configuration is NOT suitable for production use over untrusted networks."
+        );
+        Self {
+            verify_certificates: Some(false),
+            ca_cert_path: None,
+            min_tls_version: "1.2".to_string(),
+        }
     }
 
     /// Create a TLS config with strict certificate verification
+    ///
+    /// This is the secure default - certificates will be verified.
     pub fn strict() -> Self {
         Self {
-            verify_certificates: true,
+            verify_certificates: Some(true),
             ca_cert_path: None,
             min_tls_version: "1.2".to_string(),
         }
     }
 
     /// Create a TLS config with a custom CA certificate
+    ///
+    /// Enables verification using the specified CA certificate.
     pub fn with_ca_cert(ca_cert_path: impl Into<PathBuf>) -> Self {
         Self {
-            verify_certificates: true,
+            verify_certificates: Some(true),
             ca_cert_path: Some(ca_cert_path.into()),
             min_tls_version: "1.2".to_string(),
         }
@@ -535,6 +571,67 @@ impl ProtonClient for ProtonBridgeClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // TlsConfig tests
+
+    #[test]
+    fn tls_config_default_verifies_certs() {
+        let config = TlsConfig::default();
+        assert!(config.should_verify());
+        assert!(config.verify_certificates.is_none());
+    }
+
+    #[test]
+    fn tls_config_insecure_does_not_verify() {
+        let config = TlsConfig::insecure();
+        assert!(!config.should_verify());
+        assert_eq!(config.verify_certificates, Some(false));
+    }
+
+    #[test]
+    fn tls_config_strict_verifies() {
+        let config = TlsConfig::strict();
+        assert!(config.should_verify());
+        assert_eq!(config.verify_certificates, Some(true));
+    }
+
+    #[test]
+    fn tls_config_with_ca_cert_verifies() {
+        let config = TlsConfig::with_ca_cert("/path/to/ca.pem");
+        assert!(config.should_verify());
+        assert!(config.ca_cert_path.is_some());
+    }
+
+    #[test]
+    fn tls_config_none_defaults_to_true() {
+        // Directly test that None results in verification
+        let config = TlsConfig {
+            verify_certificates: None,
+            ca_cert_path: None,
+            min_tls_version: "1.2".to_string(),
+        };
+        assert!(config.should_verify());
+    }
+
+    #[test]
+    fn tls_config_explicit_false_disables() {
+        let config = TlsConfig {
+            verify_certificates: Some(false),
+            ca_cert_path: None,
+            min_tls_version: "1.2".to_string(),
+        };
+        assert!(!config.should_verify());
+    }
+
+    #[test]
+    fn tls_config_serialization_with_none() {
+        let config = TlsConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        // With serde(default), None should serialize as omitted or null
+        // and deserialize back correctly
+        let deserialized: TlsConfig = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.should_verify());
+    }
 
     #[test]
     fn proton_error_bridge_unavailable() {

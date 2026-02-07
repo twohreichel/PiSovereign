@@ -10,6 +10,7 @@ use axum::{
 use futures::{StreamExt, stream::Stream};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
+use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::{error::ApiError, middleware::ValidatedJson, state::AppState};
@@ -28,7 +29,8 @@ fn validate_not_empty_trimmed(value: &str) -> Result<(), validator::ValidationEr
 }
 
 /// Chat request body
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+#[schema(example = json!({"message": "What is the weather like today?", "conversation_id": null}))]
 pub struct ChatRequest {
     /// User message
     #[validate(length(
@@ -37,15 +39,25 @@ pub struct ChatRequest {
         message = "Message must be between 1 and 10000 characters"
     ))]
     #[validate(custom(function = "validate_not_empty_trimmed"))]
+    #[schema(min_length = 1, max_length = 10000)]
     pub message: String,
-    /// Optional conversation ID for context
+    /// Optional conversation ID for context.
+    /// If provided and exists, continues the conversation.
+    /// If provided but doesn't exist, creates a new conversation with that ID.
+    /// If not provided, generates a new conversation ID automatically.
     #[serde(default)]
-    #[allow(dead_code)]
     pub conversation_id: Option<String>,
 }
 
 /// Chat response body
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(example = json!({
+    "message": "Today's weather is sunny with a high of 22°C.",
+    "model": "qwen2.5-1.5b-instruct",
+    "tokens": 42,
+    "latency_ms": 156,
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000"
+}))]
 pub struct ChatResponse {
     /// Assistant response
     pub message: String,
@@ -56,15 +68,37 @@ pub struct ChatResponse {
     pub tokens: Option<u32>,
     /// Latency in milliseconds
     pub latency_ms: u64,
+    /// Conversation ID for continuing the conversation
+    pub conversation_id: String,
 }
 
 /// Handle a chat request
-#[instrument(skip(state, request), fields(message_len = request.message.len()))]
+///
+/// Supports both stateless and contextual chat:
+/// - Without `conversation_id`: Creates a new conversation and returns its ID
+/// - With `conversation_id`: Continues an existing conversation or creates one with that ID
+#[utoipa::path(
+    post,
+    path = "/v1/chat",
+    tag = "chat",
+    request_body = ChatRequest,
+    responses(
+        (status = 200, description = "Chat response", body = ChatResponse),
+        (status = 400, description = "Invalid request", body = crate::error::ErrorResponse),
+        (status = 429, description = "Rate limited", body = crate::error::ErrorResponse),
+        (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
+    ),
+    security(("api_key" = []))
+)]
+#[instrument(skip(state, request), fields(message_len = request.message.len(), conv_id = ?request.conversation_id))]
 pub async fn chat(
     State(state): State<AppState>,
     ValidatedJson(request): ValidatedJson<ChatRequest>,
 ) -> Result<Json<ChatResponse>, ApiError> {
-    let response = state.chat_service.chat(&request.message).await?;
+    let (response, conv_id) = state
+        .chat_service
+        .chat_with_context(&request.message, request.conversation_id.as_deref())
+        .await?;
 
     let metadata = response.metadata.as_ref();
 
@@ -73,18 +107,22 @@ pub async fn chat(
         model: metadata.and_then(|m| m.model.clone()).unwrap_or_default(),
         tokens: metadata.and_then(|m| m.tokens),
         latency_ms: metadata.and_then(|m| m.latency_ms).unwrap_or(0),
+        conversation_id: conv_id.to_string(),
     }))
 }
 
 /// Streaming chat request
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+#[schema(example = json!({"message": "Tell me a story about a robot"}))]
 pub struct StreamChatRequest {
+    /// User message to process
     #[validate(length(
         min = 1,
         max = 10000,
         message = "Message must be between 1 and 10000 characters"
     ))]
     #[validate(custom(function = "validate_not_empty_trimmed"))]
+    #[schema(min_length = 1, max_length = 10000)]
     pub message: String,
 }
 
@@ -92,6 +130,19 @@ pub struct StreamChatRequest {
 ///
 /// Streams chunks from the LLM directly to the client as SSE events.
 /// Each event contains a JSON payload with `content`, `done`, and optionally `model`.
+#[utoipa::path(
+    post,
+    path = "/v1/chat/stream",
+    tag = "chat",
+    request_body = StreamChatRequest,
+    responses(
+        (status = 200, description = "SSE stream of chat chunks", content_type = "text/event-stream"),
+        (status = 400, description = "Invalid request", body = crate::error::ErrorResponse),
+        (status = 429, description = "Rate limited", body = crate::error::ErrorResponse),
+        (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
+    ),
+    security(("api_key" = []))
+)]
 #[instrument(skip(state, request), fields(message_len = request.message.len()))]
 pub async fn chat_stream(
     State(state): State<AppState>,
@@ -158,11 +209,13 @@ mod tests {
             model: "qwen".to_string(),
             tokens: Some(42),
             latency_ms: 100,
+            conversation_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
         };
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("Hello there"));
         assert!(json.contains("qwen"));
         assert!(json.contains("42"));
+        assert!(json.contains("550e8400-e29b-41d4-a716-446655440000"));
     }
 
     #[test]
@@ -172,9 +225,11 @@ mod tests {
             model: "llama".to_string(),
             tokens: None,
             latency_ms: 50,
+            conversation_id: "test-conv-id".to_string(),
         };
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("tokens"));
+        assert!(json.contains("conversation_id"));
     }
 
     #[test]
@@ -184,9 +239,11 @@ mod tests {
             model: "model".to_string(),
             tokens: None,
             latency_ms: 10,
+            conversation_id: "debug-conv".to_string(),
         };
         let debug = format!("{response:?}");
         assert!(debug.contains("ChatResponse"));
+        assert!(debug.contains("conversation_id"));
     }
 
     #[test]

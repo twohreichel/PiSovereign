@@ -2,24 +2,36 @@
 //!
 //! REST API endpoints for managing approval requests.
 
+use application::RequestContext;
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
-use domain::{AgentCommand, ApprovalId, ApprovalStatus, UserId};
+use domain::{AgentCommand, ApprovalId, ApprovalStatus};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
+use utoipa::{IntoParams, ToSchema};
 
 use crate::{error::ApiError, state::AppState};
 
 /// Approval request summary for API responses
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(example = json!({
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "pending",
+    "description": "Send email to john@example.com",
+    "command_type": "send_email",
+    "created_at": "2026-02-06T10:30:00Z",
+    "expires_at": "2026-02-06T11:30:00Z",
+    "reason": null
+}))]
 pub struct ApprovalResponse {
     /// Unique identifier
     pub id: String,
     /// Current status
+    #[schema(value_type = crate::openapi::ApprovalStatusSchema)]
     pub status: ApprovalStatus,
     /// Human-readable description
     pub description: String,
@@ -35,7 +47,7 @@ pub struct ApprovalResponse {
 }
 
 /// List approvals query parameters
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct ListApprovalsQuery {
     /// Filter by status (optional)
     pub status: Option<String>,
@@ -44,7 +56,8 @@ pub struct ListApprovalsQuery {
 }
 
 /// Deny request body
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
+#[schema(example = json!({"reason": "Not authorized for this action"}))]
 pub struct DenyRequest {
     /// Optional reason for denial
     pub reason: Option<String>,
@@ -53,9 +66,21 @@ pub struct DenyRequest {
 /// List pending approvals for the current user
 ///
 /// GET /v1/approvals
-#[instrument(skip(state))]
+#[utoipa::path(
+    get,
+    path = "/v1/approvals",
+    tag = "approvals",
+    params(ListApprovalsQuery),
+    responses(
+        (status = 200, description = "List of approval requests", body = Vec<ApprovalResponse>),
+        (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
+    ),
+    security(("api_key" = []))
+)]
+#[instrument(skip(state, ctx))]
 pub async fn list_approvals(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     axum::extract::Query(query): axum::extract::Query<ListApprovalsQuery>,
 ) -> Result<Json<Vec<ApprovalResponse>>, ApiError> {
     let Some(approval_service) = &state.approval_service else {
@@ -64,8 +89,8 @@ pub async fn list_approvals(
         ));
     };
 
-    // For now, use a default user ID. In production, this would come from auth.
-    let user_id = UserId::default();
+    // Extract user ID from request context, fall back to default for backward compatibility
+    let user_id = ctx.map(|Extension(c)| c.user_id()).unwrap_or_default();
     let limit = query.limit.unwrap_or(50);
 
     // Currently only pending requests are supported via the API
@@ -100,6 +125,21 @@ pub async fn list_approvals(
 /// Get a specific approval request by ID
 ///
 /// GET /v1/approvals/:id
+#[utoipa::path(
+    get,
+    path = "/v1/approvals/{id}",
+    tag = "approvals",
+    params(
+        ("id" = String, Path, description = "Approval request ID")
+    ),
+    responses(
+        (status = 200, description = "Approval request details", body = ApprovalResponse),
+        (status = 400, description = "Invalid approval ID", body = crate::error::ErrorResponse),
+        (status = 404, description = "Approval request not found", body = crate::error::ErrorResponse),
+        (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
+    ),
+    security(("api_key" = []))
+)]
 #[instrument(skip(state))]
 pub async fn get_approval(
     State(state): State<AppState>,
@@ -133,9 +173,25 @@ pub async fn get_approval(
 /// Approve a pending request
 ///
 /// POST /v1/approvals/:id/approve
-#[instrument(skip(state))]
+#[utoipa::path(
+    post,
+    path = "/v1/approvals/{id}/approve",
+    tag = "approvals",
+    params(
+        ("id" = String, Path, description = "Approval request ID")
+    ),
+    responses(
+        (status = 200, description = "Request approved", body = ApprovalResponse),
+        (status = 400, description = "Invalid approval ID", body = crate::error::ErrorResponse),
+        (status = 404, description = "Approval request not found", body = crate::error::ErrorResponse),
+        (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
+    ),
+    security(("api_key" = []))
+)]
+#[instrument(skip(state, ctx))]
 pub async fn approve_request(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let Some(approval_service) = &state.approval_service else {
@@ -147,8 +203,8 @@ pub async fn approve_request(
     let approval_id = ApprovalId::parse(&id)
         .map_err(|e| ApiError::BadRequest(format!("Invalid approval ID: {e}")))?;
 
-    // For now, use a default user ID. In production, this would come from auth.
-    let user_id = UserId::default();
+    // Extract user ID from request context, fall back to default for backward compatibility
+    let user_id = ctx.map(|Extension(c)| c.user_id()).unwrap_or_default();
 
     let request = approval_service.approve(&approval_id, &user_id).await?;
 
@@ -171,9 +227,26 @@ pub async fn approve_request(
 /// Deny a pending request
 ///
 /// POST /v1/approvals/:id/deny
-#[instrument(skip(state, body))]
+#[utoipa::path(
+    post,
+    path = "/v1/approvals/{id}/deny",
+    tag = "approvals",
+    params(
+        ("id" = String, Path, description = "Approval request ID")
+    ),
+    request_body = DenyRequest,
+    responses(
+        (status = 200, description = "Request denied", body = ApprovalResponse),
+        (status = 400, description = "Invalid approval ID", body = crate::error::ErrorResponse),
+        (status = 404, description = "Approval request not found", body = crate::error::ErrorResponse),
+        (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
+    ),
+    security(("api_key" = []))
+)]
+#[instrument(skip(state, ctx, body))]
 pub async fn deny_request(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     Path(id): Path<String>,
     Json(body): Json<DenyRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -186,8 +259,8 @@ pub async fn deny_request(
     let approval_id = ApprovalId::parse(&id)
         .map_err(|e| ApiError::BadRequest(format!("Invalid approval ID: {e}")))?;
 
-    // For now, use a default user ID. In production, this would come from auth.
-    let user_id = UserId::default();
+    // Extract user ID from request context, fall back to default for backward compatibility
+    let user_id = ctx.map(|Extension(c)| c.user_id()).unwrap_or_default();
 
     let request = approval_service
         .deny(&approval_id, &user_id, body.reason)
@@ -212,9 +285,25 @@ pub async fn deny_request(
 /// Cancel a pending request
 ///
 /// POST /v1/approvals/:id/cancel
-#[instrument(skip(state))]
+#[utoipa::path(
+    post,
+    path = "/v1/approvals/{id}/cancel",
+    tag = "approvals",
+    params(
+        ("id" = String, Path, description = "Approval request ID")
+    ),
+    responses(
+        (status = 200, description = "Request cancelled", body = ApprovalResponse),
+        (status = 400, description = "Invalid approval ID", body = crate::error::ErrorResponse),
+        (status = 404, description = "Approval request not found", body = crate::error::ErrorResponse),
+        (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
+    ),
+    security(("api_key" = []))
+)]
+#[instrument(skip(state, ctx))]
 pub async fn cancel_request(
     State(state): State<AppState>,
+    ctx: Option<Extension<RequestContext>>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let Some(approval_service) = &state.approval_service else {
@@ -226,8 +315,8 @@ pub async fn cancel_request(
     let approval_id = ApprovalId::parse(&id)
         .map_err(|e| ApiError::BadRequest(format!("Invalid approval ID: {e}")))?;
 
-    // For now, use a default user ID. In production, this would come from auth.
-    let user_id = UserId::default();
+    // Extract user ID from request context, fall back to default for backward compatibility
+    let user_id = ctx.map(|Extension(c)| c.user_id()).unwrap_or_default();
 
     let request = approval_service.cancel(&approval_id, &user_id).await?;
 
@@ -266,6 +355,7 @@ fn command_type_name(command: &AgentCommand) -> String {
             domain::SystemCommand::SwitchModel { .. } => "switch_model",
         },
         AgentCommand::Unknown { .. } => "unknown",
+        AgentCommand::WebSearch { .. } => "web_search",
     }
     .to_string()
 }

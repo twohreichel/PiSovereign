@@ -4,6 +4,7 @@ use std::net::IpAddr;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Type of audit event
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +76,9 @@ pub struct AuditEntry {
     pub ip_address: Option<IpAddr>,
     /// Whether the action succeeded
     pub success: bool,
+    /// Request ID for distributed tracing correlation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<Uuid>,
 }
 
 impl AuditEntry {
@@ -91,6 +95,7 @@ impl AuditEntry {
             details: None,
             ip_address: None,
             success: true,
+            request_id: None,
         }
     }
 
@@ -118,6 +123,13 @@ impl AuditEntry {
     ) -> Self {
         self.resource_type = Some(resource_type.into());
         self.resource_id = Some(resource_id.into());
+        self
+    }
+
+    /// Set the request ID for distributed tracing correlation
+    #[must_use]
+    pub const fn with_request_id(mut self, request_id: Uuid) -> Self {
+        self.request_id = Some(request_id);
         self
     }
 

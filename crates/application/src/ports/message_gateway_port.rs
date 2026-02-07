@@ -65,6 +65,9 @@ pub trait MessageGatewayPort: Send + Sync {
 
     /// Mark a message as read/processed
     async fn mark_read(&self, message_id: &str) -> Result<(), ApplicationError>;
+
+    /// Check if the messaging service is available
+    async fn is_available(&self) -> bool;
 }
 
 #[cfg(test)]

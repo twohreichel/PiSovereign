@@ -1,12 +1,18 @@
 # =============================================================================
 # Documentation Workflow
-# Builds and deploys Rust documentation to GitHub Pages
+# Builds and deploys mdBook + Rustdoc documentation to GitHub Pages
 # =============================================================================
 #
-# This workflow:
-# 1. Builds rustdoc documentation with all features
-# 2. Adds custom styling and index redirect
-# 3. Deploys to GitHub Pages
+# This workflow builds:
+# 1. mdBook user/developer documentation (docs/)
+# 2. Rustdoc API documentation (cargo doc)
+#
+# Deployment structure:
+# - /            → mdBook (latest from main)
+# - /api/        → Rustdoc (latest from main)
+# - /v0.1.0/     → mdBook for release v0.1.0
+# - /v0.1.0/api/ → Rustdoc for release v0.1.0
+# - /versions.json → Version manifest for version switcher
 #
 # Triggers:
 # - On release (from release-please)
@@ -22,6 +28,7 @@ on:
     branches:
       - main
     paths:
+      - "docs/**"
       - "crates/**/*.rs"
       - "Cargo.toml"
       - "crates/**/Cargo.toml"
@@ -31,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version being documented"
+        description: "Version being documented (e.g., v0.1.0)"
         required: false
         type: string
 
@@ -48,6 +55,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUSTDOCFLAGS: --enable-index-page -Zunstable-options -D warnings
+  MDBOOK_VERSION: 0.4.40
 
 jobs:
   build:
@@ -56,18 +64,43 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for version listing
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-docs
 
+      - name: Install mdBook
+        run: |
+          curl -sSL https://github.com/rust-lang/mdBook/releases/download/v${{ env.MDBOOK_VERSION }}/mdbook-v${{ env.MDBOOK_VERSION }}-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          sudo mv mdbook /usr/local/bin/
+
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
 
-      - name: Build documentation
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          elif [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="main"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building documentation for version: $VERSION"
+
+      - name: Build mdBook
+        run: |
+          cd docs
+          mdbook build
+
+      - name: Build Rustdoc
         run: |
           cargo +nightly doc \
             --workspace \
@@ -75,15 +108,39 @@ jobs:
             --no-deps \
             --document-private-items
 
-      - name: Create index redirect
+      - name: Create output directory structure
         run: |
-          cat > target/doc/index.html << 'EOF'
+          mkdir -p output
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          if [ "$VERSION" = "main" ]; then
+            # For main branch: deploy to root
+            cp -r docs/book/* output/
+            mkdir -p output/api
+            cp -r target/doc/* output/api/
+          else
+            # For releases: deploy to versioned directory AND update latest
+            # Latest (root)
+            cp -r docs/book/* output/
+            mkdir -p output/api
+            cp -r target/doc/* output/api/
+            
+            # Versioned copy
+            mkdir -p "output/$VERSION"
+            cp -r docs/book/* "output/$VERSION/"
+            mkdir -p "output/$VERSION/api"
+            cp -r target/doc/* "output/$VERSION/api/"
+          fi
+
+      - name: Create Rustdoc index redirect
+        run: |
+          cat > output/api/index.html << 'EOF'
           <!DOCTYPE html>
           <html lang="en">
           <head>
             <meta charset="utf-8">
             <meta http-equiv="refresh" content="0; url=presentation_http/index.html">
-            <title>PiSovereign Documentation</title>
+            <title>PiSovereign API Documentation</title>
             <style>
               body {
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
@@ -95,35 +152,52 @@ jobs:
                 background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
                 color: #fff;
               }
-              .container {
-                text-align: center;
-              }
-              h1 {
-                font-size: 2.5rem;
-                margin-bottom: 1rem;
-              }
-              a {
-                color: #4fc3f7;
-                text-decoration: none;
-              }
-              a:hover {
-                text-decoration: underline;
-              }
+              .container { text-align: center; }
+              h1 { font-size: 2rem; margin-bottom: 1rem; }
+              a { color: #4fc3f7; text-decoration: none; }
+              a:hover { text-decoration: underline; }
             </style>
           </head>
           <body>
             <div class="container">
-              <h1>🚀 PiSovereign</h1>
-              <p>Redirecting to <a href="presentation_http/index.html">documentation</a>...</p>
+              <h1>🦀 PiSovereign API</h1>
+              <p>Redirecting to <a href="presentation_http/index.html">API documentation</a>...</p>
             </div>
           </body>
           </html>
           EOF
 
-      - name: Add version info
+      - name: Generate versions.json
         run: |
-          VERSION="${{ inputs.version || github.ref_name }}"
-          echo "{\"version\": \"${VERSION}\", \"built\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > target/doc/version.json
+          # Get all release tags
+          RELEASES=$(git tag -l 'v*' --sort=-version:refname | head -20)
+          
+          # Build JSON array
+          echo '{"versions": [' > output/versions.json
+          echo '  {"version": "main", "path": "/", "label": "main (latest)"}' >> output/versions.json
+          
+          for tag in $RELEASES; do
+            echo ", {\"version\": \"$tag\", \"path\": \"/$tag/\", \"label\": \"$tag\"}" >> output/versions.json
+          done
+          
+          # Add metadata
+          echo '], "current": "${{ steps.version.outputs.version }}", "generated": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'" }' >> output/versions.json
+          
+          # Pretty print (optional, for debugging)
+          cat output/versions.json
+
+      - name: Add version info to builds
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          
+          # Add to root
+          echo "{\"version\": \"$VERSION\", \"built\": \"$BUILT\"}" > output/version.json
+          
+          # Add to versioned directory if exists
+          if [ -d "output/$VERSION" ]; then
+            echo "{\"version\": \"$VERSION\", \"built\": \"$BUILT\"}" > "output/$VERSION/version.json"
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -131,7 +205,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: target/doc
+          path: output
 
   deploy:
     name: Deploy to GitHub Pages
@@ -149,4 +223,8 @@ jobs:
         run: |
           echo "## 📚 Documentation Deployed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Documentation is available at: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "| Type | URL |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| **User Guide** | ${{ steps.deployment.outputs.page_url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **API Docs** | ${{ steps.deployment.outputs.page_url }}api/ |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Versions** | ${{ steps.deployment.outputs.page_url }}versions.json |" >> $GITHUB_STEP_SUMMARY

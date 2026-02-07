@@ -1,4 +1,18 @@
 //! User identifier value object
+//!
+//! # Examples
+//!
+//! ```
+//! use domain::UserId;
+//!
+//! // Create a new random user ID
+//! let user_id = UserId::new();
+//! assert!(!user_id.to_string().is_empty());
+//!
+//! // Parse from string
+//! let parsed = UserId::parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
+//! assert_eq!(parsed.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+//! ```
 
 use std::fmt;
 
@@ -6,21 +20,60 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A unique user identifier
+///
+/// # Examples
+///
+/// ```
+/// use domain::UserId;
+///
+/// let user_id = UserId::new();
+/// println!("User ID: {}", user_id);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UserId(Uuid);
 
 impl UserId {
     /// Create a new random user ID
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::UserId;
+    ///
+    /// let id1 = UserId::new();
+    /// let id2 = UserId::new();
+    /// assert_ne!(id1, id2);
+    /// ```
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
 
     /// Create a user ID from an existing UUID
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::UserId;
+    /// use uuid::Uuid;
+    ///
+    /// let uuid = Uuid::new_v4();
+    /// let user_id = UserId::from_uuid(uuid);
+    /// assert_eq!(user_id.as_uuid(), uuid);
+    /// ```
     pub const fn from_uuid(uuid: Uuid) -> Self {
         Self(uuid)
     }
 
     /// Parse a user ID from a string
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::UserId;
+    ///
+    /// let user_id = UserId::parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
+    /// assert!(UserId::parse("invalid").is_err());
+    /// ```
     pub fn parse(s: &str) -> Result<Self, uuid::Error> {
         Ok(Self(Uuid::parse_str(s)?))
     }
@@ -29,11 +82,33 @@ impl UserId {
     pub const fn as_uuid(&self) -> Uuid {
         self.0
     }
+
+    /// The default user ID for system operations
+    ///
+    /// This is a constant UUID used as the default user when no specific user
+    /// is identified. This ensures consistent behavior across the system.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::UserId;
+    ///
+    /// let id1 = UserId::default();
+    /// let id2 = UserId::default();
+    /// assert_eq!(id1, id2); // Same default user
+    /// assert_ne!(id1, UserId::new()); // Different from random IDs
+    /// ```
+    #[must_use]
+    pub const fn default_user() -> Self {
+        // A well-known UUID for the default user
+        // Generated once and kept constant: 00000000-0000-0000-0000-000000000001
+        Self(Uuid::from_u128(1))
+    }
 }
 
 impl Default for UserId {
     fn default() -> Self {
-        Self::new()
+        Self::default_user()
     }
 }
 
@@ -82,10 +157,17 @@ mod tests {
     }
 
     #[test]
-    fn default_creates_new() {
+    fn default_returns_constant() {
         let id1 = UserId::default();
         let id2 = UserId::default();
-        assert_ne!(id1, id2);
+        assert_eq!(id1, id2); // Default is always the same
+        assert_eq!(id1, UserId::default_user());
+    }
+
+    #[test]
+    fn default_user_is_deterministic() {
+        let id = UserId::default_user();
+        assert_eq!(id.to_string(), "00000000-0000-0000-0000-000000000001");
     }
 
     #[test]

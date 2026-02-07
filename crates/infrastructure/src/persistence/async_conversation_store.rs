@@ -154,21 +154,26 @@ impl ConversationStore for AsyncConversationStore {
 
         // Convert to domain types
         let mut messages = Vec::with_capacity(message_rows.len());
-        for msg_row in message_rows {
+        for (idx, msg_row) in message_rows.into_iter().enumerate() {
             let metadata: Option<MessageMetadata> = msg_row
                 .metadata
                 .as_deref()
                 .and_then(|s| serde_json::from_str(s).ok());
 
+            // Note: Conversations never realistically exceed u32::MAX messages
+            #[allow(clippy::cast_possible_truncation)]
+            let seq = (idx as u32) + 1;
             messages.push(ChatMessage {
                 id: Self::parse_uuid(&msg_row.id)?,
                 role: Self::parse_role(&msg_row.role)?,
                 content: msg_row.content,
                 created_at: parse_datetime(&msg_row.created_at)?,
+                sequence_number: seq,
                 metadata,
             });
         }
 
+        let message_count = messages.len();
         let conversation = Conversation {
             id: Self::parse_conversation_id(&row.id)?,
             title: row.title,
@@ -176,6 +181,8 @@ impl ConversationStore for AsyncConversationStore {
             messages,
             created_at: parse_datetime(&row.created_at)?,
             updated_at: parse_datetime(&row.updated_at)?,
+            // All loaded messages are already persisted
+            persisted_message_count: message_count,
         };
 
         debug!("Conversation loaded");
@@ -239,6 +246,56 @@ impl ConversationStore for AsyncConversationStore {
         Ok(())
     }
 
+    #[instrument(skip(self, messages), fields(conv_id = %conversation_id, count = messages.len()))]
+    async fn add_messages(
+        &self,
+        conversation_id: &ConversationId,
+        messages: &[ChatMessage],
+    ) -> Result<usize, ApplicationError> {
+        if messages.is_empty() {
+            return Ok(0);
+        }
+
+        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+
+        for message in messages {
+            let metadata_json = message
+                .metadata
+                .as_ref()
+                .and_then(|m| serde_json::to_string(m).ok());
+
+            sqlx::query(
+                r"
+                INSERT INTO messages (id, conversation_id, role, content, created_at, metadata)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ",
+            )
+            .bind(message.id.to_string())
+            .bind(conversation_id.to_string())
+            .bind(Self::role_to_str(message.role))
+            .bind(&message.content)
+            .bind(message.created_at.to_rfc3339())
+            .bind(metadata_json)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+        }
+
+        // Update conversation's updated_at once at the end
+        sqlx::query("UPDATE conversations SET updated_at = $1 WHERE id = $2")
+            .bind(Utc::now().to_rfc3339())
+            .bind(conversation_id.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+
+        tx.commit().await.map_err(map_sqlx_error)?;
+
+        let count = messages.len();
+        debug!(count, "Messages added in batch");
+        Ok(count)
+    }
+
     #[instrument(skip(self))]
     async fn list_recent(&self, limit: usize) -> Result<Vec<Conversation>, ApplicationError> {
         let conv_rows: Vec<ConversationRow> = sqlx::query_as(
@@ -272,21 +329,26 @@ impl ConversationStore for AsyncConversationStore {
             .map_err(map_sqlx_error)?;
 
             let mut messages = Vec::with_capacity(message_rows.len());
-            for msg_row in message_rows {
+            for (idx, msg_row) in message_rows.into_iter().enumerate() {
                 let metadata: Option<MessageMetadata> = msg_row
                     .metadata
                     .as_deref()
                     .and_then(|s| serde_json::from_str(s).ok());
 
+                // Note: Conversations never realistically exceed u32::MAX messages
+                #[allow(clippy::cast_possible_truncation)]
+                let seq = (idx as u32) + 1;
                 messages.push(ChatMessage {
                     id: Self::parse_uuid(&msg_row.id)?,
                     role: Self::parse_role(&msg_row.role)?,
                     content: msg_row.content,
                     created_at: parse_datetime(&msg_row.created_at)?,
+                    sequence_number: seq,
                     metadata,
                 });
             }
 
+            let message_count = messages.len();
             conversations.push(Conversation {
                 id: conv_id,
                 title: row.title,
@@ -294,6 +356,7 @@ impl ConversationStore for AsyncConversationStore {
                 messages,
                 created_at: parse_datetime(&row.created_at)?,
                 updated_at: parse_datetime(&row.updated_at)?,
+                persisted_message_count: message_count,
             });
         }
 
@@ -343,21 +406,26 @@ impl ConversationStore for AsyncConversationStore {
             .map_err(map_sqlx_error)?;
 
             let mut messages = Vec::with_capacity(message_rows.len());
-            for msg_row in message_rows {
+            for (idx, msg_row) in message_rows.into_iter().enumerate() {
                 let metadata: Option<MessageMetadata> = msg_row
                     .metadata
                     .as_deref()
                     .and_then(|s| serde_json::from_str(s).ok());
 
+                // Note: Conversations never realistically exceed u32::MAX messages
+                #[allow(clippy::cast_possible_truncation)]
+                let seq = (idx as u32) + 1;
                 messages.push(ChatMessage {
                     id: Self::parse_uuid(&msg_row.id)?,
                     role: Self::parse_role(&msg_row.role)?,
                     content: msg_row.content,
                     created_at: parse_datetime(&msg_row.created_at)?,
+                    sequence_number: seq,
                     metadata,
                 });
             }
 
+            let message_count = messages.len();
             conversations.push(Conversation {
                 id: conv_id,
                 title: row.title,
@@ -365,6 +433,7 @@ impl ConversationStore for AsyncConversationStore {
                 messages,
                 created_at: parse_datetime(&row.created_at)?,
                 updated_at: parse_datetime(&row.updated_at)?,
+                persisted_message_count: message_count,
             });
         }
 
@@ -374,6 +443,22 @@ impl ConversationStore for AsyncConversationStore {
             "Search completed"
         );
         Ok(conversations)
+    }
+
+    #[instrument(skip(self))]
+    async fn cleanup_older_than(&self, cutoff: DateTime<Utc>) -> Result<usize, ApplicationError> {
+        // Messages are deleted via CASCADE when conversation is deleted
+        let result = sqlx::query("DELETE FROM conversations WHERE updated_at < $1")
+            .bind(cutoff.to_rfc3339())
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
+
+        let deleted = usize::try_from(result.rows_affected()).unwrap_or(usize::MAX);
+        if deleted > 0 {
+            debug!(deleted, cutoff = %cutoff, "Cleaned up old conversations");
+        }
+        Ok(deleted)
     }
 }
 

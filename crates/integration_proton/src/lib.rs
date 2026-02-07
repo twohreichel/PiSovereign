@@ -33,6 +33,7 @@
 
 mod client;
 mod imap_client;
+mod reconnect;
 mod smtp_client;
 
 pub use client::{
@@ -40,4 +41,5 @@ pub use client::{
     TlsConfig,
 };
 pub use imap_client::ProtonImapClient;
+pub use reconnect::{ReconnectConfig, ReconnectingProtonClient};
 pub use smtp_client::ProtonSmtpClient;

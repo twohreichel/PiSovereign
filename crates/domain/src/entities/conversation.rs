@@ -23,6 +23,12 @@ pub struct Conversation {
     /// System prompt for this conversation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<String>,
+    /// Number of messages that have been persisted to storage.
+    ///
+    /// This enables incremental persistence - only messages after this index
+    /// need to be persisted during sync operations.
+    #[serde(default)]
+    pub persisted_message_count: usize,
 }
 
 impl Conversation {
@@ -36,6 +42,7 @@ impl Conversation {
             updated_at: now,
             title: None,
             system_prompt: None,
+            persisted_message_count: 0,
         }
     }
 
@@ -46,8 +53,15 @@ impl Conversation {
         conv
     }
 
-    /// Add a message to the conversation
-    pub fn add_message(&mut self, message: ChatMessage) {
+    /// Add a message to the conversation.
+    ///
+    /// Automatically assigns the next sequence number to the message.
+    pub fn add_message(&mut self, mut message: ChatMessage) {
+        // Assign next sequence number (1-based)
+        // Note: In practice, conversations never exceed u32::MAX messages
+        #[allow(clippy::cast_possible_truncation)]
+        let next_seq = (self.messages.len() as u32).saturating_add(1);
+        message.sequence_number = next_seq;
         self.messages.push(message);
         self.updated_at = Utc::now();
     }
@@ -89,6 +103,47 @@ impl Conversation {
     pub fn set_title(&mut self, title: impl Into<String>) {
         self.title = Some(title.into());
         self.updated_at = Utc::now();
+    }
+
+    /// Get messages that have not yet been persisted.
+    ///
+    /// Returns a slice of messages starting from `persisted_message_count`.
+    pub fn unpersisted_messages(&self) -> &[ChatMessage] {
+        if self.persisted_message_count >= self.messages.len() {
+            &[]
+        } else {
+            &self.messages[self.persisted_message_count..]
+        }
+    }
+
+    /// Check if there are unpersisted messages
+    pub fn has_unpersisted_messages(&self) -> bool {
+        self.persisted_message_count < self.messages.len()
+    }
+
+    /// Get the count of unpersisted messages
+    pub fn unpersisted_message_count(&self) -> usize {
+        self.messages
+            .len()
+            .saturating_sub(self.persisted_message_count)
+    }
+
+    /// Mark all current messages as persisted.
+    ///
+    /// This should be called after successfully persisting messages to storage.
+    pub fn mark_messages_persisted(&mut self) {
+        self.persisted_message_count = self.messages.len();
+    }
+
+    /// Mark a specific number of messages as persisted.
+    ///
+    /// This is useful when persisting incrementally - you can mark
+    /// only the messages that were successfully saved.
+    pub fn mark_n_messages_persisted(&mut self, count: usize) {
+        self.persisted_message_count = self
+            .persisted_message_count
+            .saturating_add(count)
+            .min(self.messages.len());
     }
 }
 
@@ -218,5 +273,115 @@ mod tests {
         let msg = ChatMessage::user("Test");
         conv.add_message(msg);
         assert_eq!(conv.message_count(), 1);
+    }
+
+    // Tests for incremental persistence
+
+    #[test]
+    fn new_conversation_has_zero_persisted_count() {
+        let conv = Conversation::new();
+        assert_eq!(conv.persisted_message_count, 0);
+    }
+
+    #[test]
+    fn unpersisted_messages_returns_all_when_none_persisted() {
+        let mut conv = Conversation::new();
+        conv.add_user_message("Hello");
+        conv.add_assistant_message("Hi");
+
+        let unpersisted = conv.unpersisted_messages();
+        assert_eq!(unpersisted.len(), 2);
+        assert_eq!(unpersisted[0].content, "Hello");
+        assert_eq!(unpersisted[1].content, "Hi");
+    }
+
+    #[test]
+    fn unpersisted_messages_returns_new_messages_after_persist() {
+        let mut conv = Conversation::new();
+        conv.add_user_message("Message 1");
+        conv.mark_messages_persisted();
+        conv.add_user_message("Message 2");
+        conv.add_assistant_message("Response 2");
+
+        let unpersisted = conv.unpersisted_messages();
+        assert_eq!(unpersisted.len(), 2);
+        assert_eq!(unpersisted[0].content, "Message 2");
+        assert_eq!(unpersisted[1].content, "Response 2");
+    }
+
+    #[test]
+    fn unpersisted_messages_returns_empty_when_all_persisted() {
+        let mut conv = Conversation::new();
+        conv.add_user_message("Hello");
+        conv.mark_messages_persisted();
+
+        assert!(conv.unpersisted_messages().is_empty());
+    }
+
+    #[test]
+    fn has_unpersisted_messages_returns_true_when_present() {
+        let mut conv = Conversation::new();
+        conv.add_user_message("Hello");
+        assert!(conv.has_unpersisted_messages());
+    }
+
+    #[test]
+    fn has_unpersisted_messages_returns_false_when_persisted() {
+        let mut conv = Conversation::new();
+        conv.add_user_message("Hello");
+        conv.mark_messages_persisted();
+        assert!(!conv.has_unpersisted_messages());
+    }
+
+    #[test]
+    fn unpersisted_message_count_is_correct() {
+        let mut conv = Conversation::new();
+        conv.add_user_message("1");
+        conv.add_assistant_message("2");
+        conv.mark_messages_persisted();
+        conv.add_user_message("3");
+
+        assert_eq!(conv.unpersisted_message_count(), 1);
+    }
+
+    #[test]
+    fn mark_messages_persisted_updates_count() {
+        let mut conv = Conversation::new();
+        conv.add_user_message("Hello");
+        conv.add_assistant_message("Hi");
+        assert_eq!(conv.persisted_message_count, 0);
+
+        conv.mark_messages_persisted();
+        assert_eq!(conv.persisted_message_count, 2);
+    }
+
+    #[test]
+    fn mark_n_messages_persisted_increments_count() {
+        let mut conv = Conversation::new();
+        conv.add_user_message("1");
+        conv.add_assistant_message("2");
+        conv.add_user_message("3");
+
+        conv.mark_n_messages_persisted(2);
+        assert_eq!(conv.persisted_message_count, 2);
+        assert_eq!(conv.unpersisted_message_count(), 1);
+    }
+
+    #[test]
+    fn mark_n_messages_persisted_does_not_exceed_message_count() {
+        let mut conv = Conversation::new();
+        conv.add_user_message("Hello");
+
+        conv.mark_n_messages_persisted(100);
+        assert_eq!(conv.persisted_message_count, 1);
+    }
+
+    #[test]
+    fn persisted_count_survives_overflow_scenario() {
+        let mut conv = Conversation::new();
+        conv.persisted_message_count = usize::MAX - 1;
+        conv.mark_n_messages_persisted(10);
+        // Should saturate, not overflow
+        assert_eq!(conv.persisted_message_count, 0); // min(MAX, 0) = 0
     }
 }

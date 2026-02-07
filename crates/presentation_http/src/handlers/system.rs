@@ -2,19 +2,39 @@
 
 use axum::{Json, extract::State};
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
 /// System status response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(example = json!({
+    "version": "0.1.0",
+    "model": "qwen2.5-1.5b-instruct",
+    "inference_healthy": true,
+    "uptime_info": "Running on Raspberry Pi 5 + Hailo-10H"
+}))]
 pub struct StatusResponse {
+    /// Application version
     pub version: String,
+    /// Current model name
     pub model: String,
+    /// Whether the inference engine is healthy
     pub inference_healthy: bool,
+    /// Runtime information
     pub uptime_info: String,
 }
 
 /// Get system status
+#[utoipa::path(
+    get,
+    path = "/v1/system/status",
+    tag = "system",
+    responses(
+        (status = 200, description = "System status", body = StatusResponse)
+    ),
+    security(("api_key" = []))
+)]
 pub async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
     let inference_healthy = state.chat_service.is_healthy().await;
 
@@ -27,21 +47,41 @@ pub async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
 }
 
 /// Models list response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(example = json!({
+    "current": "qwen2.5-1.5b-instruct",
+    "available": [
+        {"name": "qwen2.5-1.5b-instruct", "description": "Qwen 1.5B - General purpose", "parameters": "1.5B"}
+    ]
+}))]
 pub struct ModelsResponse {
+    /// Currently active model
     pub current: String,
+    /// List of available models
     pub available: Vec<ModelInfo>,
 }
 
 /// Information about a model
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ModelInfo {
+    /// Model identifier
     pub name: String,
+    /// Human-readable description
     pub description: String,
+    /// Model parameter count
     pub parameters: String,
 }
 
 /// List available models
+#[utoipa::path(
+    get,
+    path = "/v1/system/models",
+    tag = "system",
+    responses(
+        (status = 200, description = "Available models", body = ModelsResponse)
+    ),
+    security(("api_key" = []))
+)]
 pub async fn list_models(State(state): State<AppState>) -> Json<ModelsResponse> {
     // Query actual available models from Hailo
     let model_names = state

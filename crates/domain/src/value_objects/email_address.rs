@@ -1,4 +1,23 @@
 //! Email address value object with validation
+//!
+//! Provides a validated email address type that ensures proper format.
+//!
+//! # Examples
+//!
+//! ```
+//! use domain::EmailAddress;
+//!
+//! // Create a valid email address
+//! let email = EmailAddress::new("user@example.com").unwrap();
+//! assert_eq!(email.as_str(), "user@example.com");
+//!
+//! // Email addresses are normalized to lowercase
+//! let email = EmailAddress::new("User@Example.COM").unwrap();
+//! assert_eq!(email.as_str(), "user@example.com");
+//!
+//! // Invalid emails are rejected
+//! assert!(EmailAddress::new("invalid").is_err());
+//! ```
 
 use std::fmt;
 
@@ -8,6 +27,16 @@ use validator::Validate;
 use crate::errors::DomainError;
 
 /// A validated email address
+///
+/// # Examples
+///
+/// ```
+/// use domain::EmailAddress;
+///
+/// let email = EmailAddress::new("user@example.com").unwrap();
+/// assert_eq!(email.local_part(), "user");
+/// assert_eq!(email.domain(), "example.com");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Validate)]
 pub struct EmailAddress {
     #[validate(email)]
@@ -16,6 +45,19 @@ pub struct EmailAddress {
 
 impl EmailAddress {
     /// Create a new email address, validating the format
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::EmailAddress;
+    ///
+    /// let email = EmailAddress::new("hello@world.com").unwrap();
+    /// assert_eq!(email.to_string(), "hello@world.com");
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the email format is invalid.
     pub fn new(email: impl Into<String>) -> Result<Self, DomainError> {
         let value = email.into().trim().to_lowercase();
 
@@ -33,11 +75,29 @@ impl EmailAddress {
     }
 
     /// Get the local part (before @)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::EmailAddress;
+    ///
+    /// let email = EmailAddress::new("user@example.com").unwrap();
+    /// assert_eq!(email.local_part(), "user");
+    /// ```
     pub fn local_part(&self) -> &str {
         self.value.split('@').next().unwrap_or("")
     }
 
     /// Get the domain part (after @)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::EmailAddress;
+    ///
+    /// let email = EmailAddress::new("user@example.com").unwrap();
+    /// assert_eq!(email.domain(), "example.com");
+    /// ```
     pub fn domain(&self) -> &str {
         self.value.split('@').nth(1).unwrap_or("")
     }

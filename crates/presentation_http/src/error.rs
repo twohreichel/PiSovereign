@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::Serialize;
 use thiserror::Error;
+use utoipa::ToSchema;
 
 /// API error type
 #[derive(Debug, Error)]
@@ -19,7 +20,6 @@ pub enum ApiError {
     Unauthorized(String),
 
     #[error("Not found: {0}")]
-    #[allow(dead_code)]
     NotFound(String),
 
     #[error("Rate limited")]
@@ -33,10 +33,13 @@ pub enum ApiError {
 }
 
 /// Error response body
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorResponse {
+    /// Error message
     pub error: String,
+    /// Error code
     pub code: String,
+    /// Additional error details
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
 }

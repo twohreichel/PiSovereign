@@ -5,12 +5,14 @@ members = [
     "crates/application",
     "crates/infrastructure",
     "crates/ai_core",
+    "crates/ai_speech",
     "crates/presentation_http",
     "crates/presentation_cli",
     "crates/integration_whatsapp",
     "crates/integration_caldav",
     "crates/integration_proton",
     "crates/integration_weather",
+    "crates/integration_websearch",
 ]
 
 [workspace.package]
@@ -73,7 +75,10 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
+
+# Bytes handling
+bytes = "1.9"
 
 # Error handling
 thiserror = "2.0"
@@ -83,6 +88,12 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
+# OpenTelemetry for distributed tracing
+opentelemetry = { version = "0.27", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.27", default-features = false, features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", default-features = false, features = ["trace", "grpc-tonic"] }
+tracing-opentelemetry = "0.28"
+
 # Validation
 validator = { version = "0.19", features = ["derive"] }
 
@@ -90,20 +101,21 @@ validator = { version = "0.19", features = ["derive"] }
 async-trait = "0.1"
 
 # UUID
-uuid = { version = "1.11", features = ["v4", "serde"] }
+uuid = { version = "1.11", features = ["v4", "v7", "serde"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
 # Config
 config = "0.14"
+toml = "0.8"
 
 # Testing
 tokio-test = "0.4"
 mockall = "0.13"
 
 # Database
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.25"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
@@ -123,6 +135,13 @@ fuzzydate = "0.4"
 # Property-based testing
 proptest = "1.5"
 
+# HTTP mocking for integration tests
+wiremock = "0.6"
+
+# Container-based integration tests
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres", "redis"] }
+
 # Caching
 moka = { version = "0.12", features = ["future"] }
 blake3 = "1.5"
@@ -131,8 +150,26 @@ blake3 = "1.5"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.16"
 
+# OpenAPI documentation
+utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa-redoc = { version = "6", features = ["axum"] }
+
 # Pattern matching optimization
 aho-corasick = "1.1"
+
+# Password hashing
+argon2 = "0.5"
+
+# Template engine
+tera = "1.20"
+
+# Cron scheduling
+tokio-cron-scheduler = "0.15"
+cron = "0.15"
+
+# S3 storage (for backups)
+rust-s3 = { version = "0.36", default-features = false, features = ["tokio-native-tls"] }
 
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -142,7 +179,11 @@ domain = { path = "crates/domain" }
 application = { path = "crates/application" }
 infrastructure = { path = "crates/infrastructure" }
 ai_core = { path = "crates/ai_core" }
+ai_speech = { path = "crates/ai_speech" }
+presentation_http = { path = "crates/presentation_http" }
 integration_proton = { path = "crates/integration_proton" }
 integration_caldav = { path = "crates/integration_caldav" }
 integration_whatsapp = { path = "crates/integration_whatsapp" }
 integration_weather = { path = "crates/integration_weather" }
+integration_websearch = { path = "crates/integration_websearch" }
+

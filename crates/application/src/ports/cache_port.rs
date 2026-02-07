@@ -84,6 +84,20 @@ pub trait CachePortExt: CachePort {
 impl<T: CachePort + ?Sized> CachePortExt for T {}
 
 /// Cache statistics for monitoring
+///
+/// # Examples
+///
+/// ```
+/// use application::ports::CacheStats;
+///
+/// let stats = CacheStats {
+///     hits: 75,
+///     misses: 25,
+///     entries: 100,
+///     memory_bytes: 1024 * 1024,
+/// };
+/// assert!((stats.hit_rate() - 0.75).abs() < 0.001);
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct CacheStats {
     /// Number of cache hits
@@ -98,6 +112,19 @@ pub struct CacheStats {
 
 impl CacheStats {
     /// Calculate the hit rate as a percentage (0.0 - 1.0)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use application::ports::CacheStats;
+    ///
+    /// let stats = CacheStats { hits: 80, misses: 20, ..Default::default() };
+    /// assert!((stats.hit_rate() - 0.8).abs() < 0.001);
+    ///
+    /// // Empty stats return 0.0
+    /// let empty = CacheStats::default();
+    /// assert!(empty.hit_rate().abs() < 0.001);
+    /// ```
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn hit_rate(&self) -> f64 {
@@ -112,6 +139,20 @@ impl CacheStats {
 }
 
 /// Standard TTL values for different cache categories
+///
+/// # Examples
+///
+/// ```
+/// use application::ports::ttl;
+/// use std::time::Duration;
+///
+/// // Short TTL for frequently changing data
+/// assert_eq!(ttl::SHORT, Duration::from_secs(5 * 60));
+///
+/// // TTL constants are ordered: SHORT < MEDIUM < LONG
+/// assert!(ttl::SHORT < ttl::MEDIUM);
+/// assert!(ttl::MEDIUM < ttl::LONG);
+/// ```
 pub mod ttl {
     use std::time::Duration;
 

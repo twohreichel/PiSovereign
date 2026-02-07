@@ -34,13 +34,10 @@ lint-clippy:
         -A clippy::future_not_send \
         -A clippy::option_if_let_else \
         -A clippy::return_self_not_must_use \
-        -A clippy::missing_const_for_fn \
         -A clippy::use_self \
         -A clippy::uninlined_format_args \
         -A clippy::derive_partial_eq_without_eq \
         -A clippy::unnested_or_patterns \
-        -A clippy::cast_possible_truncation \
-        -A clippy::cast_precision_loss \
         -A clippy::literal_string_with_formatting_args \
         -A clippy::significant_drop_tightening \
         -A clippy::format_push_string
@@ -121,3 +118,27 @@ run:
 # Run the CLI
 cli *ARGS:
     cargo run --bin pisovereign-cli -- {{ARGS}}
+
+# === COVERAGE ===
+# Uses .tarpaulin.toml for configuration (90% threshold, excludes, etc.)
+
+# Generate code coverage report (requires cargo-tarpaulin)
+# Install with: cargo install cargo-tarpaulin
+coverage:
+    @echo "📊 Generating coverage report..."
+    cargo tarpaulin
+    @echo "📊 Report generated at target/coverage/tarpaulin-report.html"
+
+# Generate coverage report and open in browser
+coverage-open:
+    cargo tarpaulin
+    open target/coverage/tarpaulin-report.html
+
+# Generate LCOV format only (for CI)
+coverage-lcov:
+    cargo tarpaulin --out Lcov
+    @echo "📊 LCOV report generated at target/coverage/lcov.info"
+
+# Show coverage summary in terminal (no HTML)
+coverage-summary:
+    cargo tarpaulin --out Stdout

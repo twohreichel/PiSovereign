@@ -5,7 +5,10 @@ mod approval_service;
 mod briefing_service;
 mod calendar_service;
 mod chat_service;
+mod conversation_context;
 mod email_service;
+mod health_service;
+mod voice_message_service;
 
 pub use agent_service::{AgentService, ApprovalStatus, CommandResult, ExecutionResult};
 pub use approval_service::ApprovalService;
@@ -14,5 +17,10 @@ pub use briefing_service::{
     TaskBrief, WeatherSummary,
 };
 pub use calendar_service::CalendarService;
-pub use chat_service::ChatService;
+pub use chat_service::{ChatService, MAX_CONVERSATION_MESSAGES};
+pub use conversation_context::{
+    ConversationCacheStats, ConversationContextConfig, ConversationContextService,
+};
 pub use email_service::{EmailService, InboxSummary};
+pub use health_service::{HealthConfig, HealthReport, HealthService, ServiceHealth};
+pub use voice_message_service::{VoiceMessageConfig, VoiceMessageResult, VoiceMessageService};
