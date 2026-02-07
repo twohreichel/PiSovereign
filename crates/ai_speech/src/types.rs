@@ -2,6 +2,8 @@
 //!
 //! Contains data structures for audio data, formats, transcriptions, and voice information.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 /// Supported audio formats
@@ -22,6 +24,20 @@ pub enum AudioFormat {
     Webm,
     /// M4A/AAC format
     M4a,
+}
+
+impl fmt::Display for AudioFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Opus => write!(f, "opus"),
+            Self::Ogg => write!(f, "ogg"),
+            Self::Mp3 => write!(f, "mp3"),
+            Self::Wav => write!(f, "wav"),
+            Self::Flac => write!(f, "flac"),
+            Self::Webm => write!(f, "webm"),
+            Self::M4a => write!(f, "m4a"),
+        }
+    }
 }
 
 impl AudioFormat {
