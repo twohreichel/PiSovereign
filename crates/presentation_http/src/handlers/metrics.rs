@@ -53,6 +53,12 @@ pub struct RequestMetrics {
     pub server_error_count: u64,
     /// Average response time in milliseconds
     pub avg_response_time_ms: f64,
+    /// P50 (median) response time in milliseconds
+    pub p50_response_time_ms: f64,
+    /// P90 response time in milliseconds
+    pub p90_response_time_ms: f64,
+    /// P99 response time in milliseconds
+    pub p99_response_time_ms: f64,
     /// Current active requests
     pub active_requests: u64,
 }
@@ -251,6 +257,57 @@ impl MetricsCollector {
             .collect()
     }
 
+    /// Calculate percentile from histogram buckets
+    ///
+    /// Uses linear interpolation within buckets to estimate percentiles.
+    /// Returns the bucket upper bound that contains the percentile.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn calculate_percentile(buckets: &[(f64, u64)], total: u64, percentile: f64) -> f64 {
+        if total == 0 {
+            return 0.0;
+        }
+
+        #[allow(clippy::cast_precision_loss)]
+        let target_count = (total as f64 * percentile / 100.0).ceil() as u64;
+        let mut cumulative = 0u64;
+
+        for (bucket, count) in buckets {
+            cumulative += count;
+            if cumulative >= target_count {
+                return *bucket;
+            }
+        }
+
+        // If we get here, return the last bucket (or infinity)
+        buckets.last().map_or(f64::INFINITY, |(b, _)| *b)
+    }
+
+    /// Get response time percentiles (P50, P90, P99)
+    #[must_use]
+    pub fn response_time_percentiles(&self) -> (f64, f64, f64) {
+        let histogram = self.response_time_histogram();
+        let total = self.total_requests.load(Ordering::Relaxed);
+
+        let p50 = Self::calculate_percentile(&histogram, total, 50.0);
+        let p90 = Self::calculate_percentile(&histogram, total, 90.0);
+        let p99 = Self::calculate_percentile(&histogram, total, 99.0);
+
+        (p50, p90, p99)
+    }
+
+    /// Get inference time percentiles (P50, P90, P99)
+    #[must_use]
+    pub fn inference_time_percentiles(&self) -> (f64, f64, f64) {
+        let histogram = self.inference_time_histogram();
+        let total = self.total_inferences.load(Ordering::Relaxed);
+
+        let p50 = Self::calculate_percentile(&histogram, total, 50.0);
+        let p90 = Self::calculate_percentile(&histogram, total, 90.0);
+        let p99 = Self::calculate_percentile(&histogram, total, 99.0);
+
+        (p50, p90, p99)
+    }
+
     /// Get uptime in seconds
     #[must_use]
     pub fn uptime_seconds(&self) -> u64 {
@@ -262,6 +319,7 @@ impl MetricsCollector {
     pub fn request_metrics(&self) -> RequestMetrics {
         let total = self.total_requests.load(Ordering::Relaxed);
         let total_time = self.total_response_time_us.load(Ordering::Relaxed);
+        let (p50, p90, p99) = self.response_time_percentiles();
 
         RequestMetrics {
             total_requests: total,
@@ -274,6 +332,9 @@ impl MetricsCollector {
             } else {
                 0.0
             },
+            p50_response_time_ms: p50,
+            p90_response_time_ms: p90,
+            p99_response_time_ms: p99,
             active_requests: self.active_requests.load(Ordering::Relaxed),
         }
     }
@@ -341,6 +402,7 @@ pub async fn get_metrics(State(state): State<AppState>) -> Json<MetricsResponse>
         (status = 200, description = "Prometheus metrics", content_type = "text/plain")
     )
 )]
+#[allow(clippy::too_many_lines)]
 pub async fn get_metrics_prometheus(State(state): State<AppState>) -> String {
     let metrics = state.metrics.as_ref();
     let request_metrics = metrics.request_metrics();
@@ -400,6 +462,28 @@ pub async fn get_metrics_prometheus(State(state): State<AppState>) -> String {
          # TYPE http_response_time_avg_ms gauge\n\
          http_response_time_avg_ms {:.2}\n\n",
         request_metrics.avg_response_time_ms
+    ));
+
+    // Response time percentiles
+    output.push_str(&format!(
+        "# HELP http_response_time_p50_ms P50 (median) response time in milliseconds\n\
+         # TYPE http_response_time_p50_ms gauge\n\
+         http_response_time_p50_ms {:.2}\n\n",
+        request_metrics.p50_response_time_ms
+    ));
+
+    output.push_str(&format!(
+        "# HELP http_response_time_p90_ms P90 response time in milliseconds\n\
+         # TYPE http_response_time_p90_ms gauge\n\
+         http_response_time_p90_ms {:.2}\n\n",
+        request_metrics.p90_response_time_ms
+    ));
+
+    output.push_str(&format!(
+        "# HELP http_response_time_p99_ms P99 response time in milliseconds\n\
+         # TYPE http_response_time_p99_ms gauge\n\
+         http_response_time_p99_ms {:.2}\n\n",
+        request_metrics.p99_response_time_ms
     ));
 
     // Response time histogram
@@ -679,6 +763,9 @@ mod tests {
                 client_error_count: 40,
                 server_error_count: 10,
                 avg_response_time_ms: 15.5,
+                p50_response_time_ms: 10.0,
+                p90_response_time_ms: 25.0,
+                p99_response_time_ms: 50.0,
                 active_requests: 5,
             },
             inference: InferenceMetrics {
@@ -723,6 +810,9 @@ mod tests {
             client_error_count: 8,
             server_error_count: 2,
             avg_response_time_ms: 25.0,
+            p50_response_time_ms: 20.0,
+            p90_response_time_ms: 45.0,
+            p99_response_time_ms: 90.0,
             active_requests: 3,
         };
 

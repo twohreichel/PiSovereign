@@ -73,6 +73,7 @@ use crate::{handlers, state::AppState};
             handlers::health::ServiceStatus,
             handlers::health::ExtendedReadinessResponse,
             handlers::health::ExtendedServiceStatus,
+            handlers::health::LatencyPercentiles,
             // Chat schemas
             handlers::chat::ChatRequest,
             handlers::chat::ChatResponse,

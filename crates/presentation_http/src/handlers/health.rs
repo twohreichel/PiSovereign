@@ -60,8 +60,26 @@ pub struct ExtendedReadinessResponse {
     pub ready: bool,
     /// Individual service health statuses
     pub services: HashMap<String, ExtendedServiceStatus>,
+    /// Latency percentiles for HTTP requests
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency: Option<LatencyPercentiles>,
     /// Timestamp when the check was performed
     pub checked_at: String,
+}
+
+/// Latency percentiles for monitoring SLOs
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LatencyPercentiles {
+    /// P50 (median) response time in milliseconds
+    pub p50_ms: f64,
+    /// P90 response time in milliseconds
+    pub p90_ms: f64,
+    /// P99 response time in milliseconds
+    pub p99_ms: f64,
+    /// Average response time in milliseconds
+    pub avg_ms: f64,
+    /// Total number of requests measured
+    pub total_requests: u64,
 }
 
 /// Extended status of a service with response time
@@ -100,6 +118,7 @@ impl From<HealthReport> for ExtendedReadinessResponse {
                 .into_iter()
                 .map(|(k, v)| (k, v.into()))
                 .collect(),
+            latency: None, // Set by handler when metrics available
             checked_at: report.checked_at.to_rfc3339(),
         }
     }
@@ -157,6 +176,19 @@ pub async fn readiness_check(
 pub async fn extended_readiness_check(
     State(state): State<AppState>,
 ) -> (StatusCode, Json<ExtendedReadinessResponse>) {
+    // Get latency metrics if available
+    let latency = {
+        let metrics = state.metrics.as_ref();
+        let request_metrics = metrics.request_metrics();
+        Some(LatencyPercentiles {
+            p50_ms: request_metrics.p50_response_time_ms,
+            p90_ms: request_metrics.p90_response_time_ms,
+            p99_ms: request_metrics.p99_response_time_ms,
+            avg_ms: request_metrics.avg_response_time_ms,
+            total_requests: request_metrics.total_requests,
+        })
+    };
+
     let Some(health_service) = &state.health_service else {
         // Fall back to basic inference check if HealthService not configured
         let inference_healthy = state.chat_service.is_healthy().await;
@@ -192,6 +224,7 @@ pub async fn extended_readiness_check(
             Json(ExtendedReadinessResponse {
                 ready: inference_healthy,
                 services,
+                latency,
                 checked_at: chrono::Utc::now().to_rfc3339(),
             }),
         );
@@ -204,7 +237,10 @@ pub async fn extended_readiness_check(
         StatusCode::SERVICE_UNAVAILABLE
     };
 
-    (status_code, Json(report.into()))
+    let mut response: ExtendedReadinessResponse = report.into();
+    response.latency = latency;
+
+    (status_code, Json(response))
 }
 
 /// Check inference engine health
@@ -616,6 +652,7 @@ mod tests {
         let resp = ExtendedReadinessResponse {
             ready: true,
             services,
+            latency: None,
             checked_at: "2024-01-01T00:00:00Z".to_string(),
         };
         assert!(resp.ready);
@@ -638,6 +675,13 @@ mod tests {
         let resp = ExtendedReadinessResponse {
             ready: true,
             services,
+            latency: Some(LatencyPercentiles {
+                p50_ms: 5.0,
+                p90_ms: 10.0,
+                p99_ms: 25.0,
+                avg_ms: 7.5,
+                total_requests: 100,
+            }),
             checked_at: "2024-01-01T00:00:00Z".to_string(),
         };
         let json = serde_json::to_string(&resp).unwrap();
@@ -665,6 +709,7 @@ mod tests {
         let resp = ExtendedReadinessResponse {
             ready: true,
             services: HashMap::new(),
+            latency: None,
             checked_at: "2024-01-01T00:00:00Z".to_string(),
         };
         #[allow(clippy::redundant_clone)]
@@ -689,6 +734,7 @@ mod tests {
         let resp = ExtendedReadinessResponse {
             ready: true,
             services: HashMap::new(),
+            latency: None,
             checked_at: "2024-01-01T00:00:00Z".to_string(),
         };
         let debug = format!("{resp:?}");
