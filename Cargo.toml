@@ -158,6 +158,10 @@ argon2 = "0.5"
 # Template engine
 tera = "1.20"
 
+# Cron scheduling
+tokio-cron-scheduler = "0.15"
+cron = "0.15"
+
 # S3 storage (for backups)
 rust-s3 = { version = "0.36", default-features = false, features = ["tokio-native-tls"] }
 

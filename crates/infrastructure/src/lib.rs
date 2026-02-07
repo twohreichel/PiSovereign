@@ -11,6 +11,7 @@ pub mod config;
 pub mod http;
 pub mod persistence;
 pub mod retry;
+pub mod scheduler;
 pub mod telemetry;
 pub mod templates;
 #[cfg(test)]
@@ -29,6 +30,10 @@ pub use persistence::{
     ConnectionPool, SqliteConversationStore, SqliteDatabaseHealth, SqliteDraftStore, create_pool,
 };
 pub use retry::{RetryConfig, RetryResult, Retryable, retry, with_retry};
+pub use scheduler::{
+    SchedulerConfig, SchedulerError, TaskBuilder, TaskEvent, TaskScheduler, TaskStats, TaskStatus,
+    schedules,
+};
 pub use telemetry::{TelemetryConfig, TelemetryGuard, init_telemetry};
 pub use templates::{
     AssistantResponseData, CalendarEventData, EmailDraftData, ForecastDay, TemplateConfig,

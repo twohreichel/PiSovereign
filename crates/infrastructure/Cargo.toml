@@ -58,6 +58,10 @@ rand = "0.8"
 # Template engine
 tera.workspace = true
 
+# Cron scheduling
+tokio-cron-scheduler.workspace = true
+cron.workspace = true
+
 [dev-dependencies]
 tokio-test.workspace = true
 mockall.workspace = true
