@@ -25,7 +25,7 @@ pub struct SearchResult {
 impl SearchResult {
     /// Create a new search result
     #[must_use]
-    pub fn new(title: String, url: String, snippet: String, source: String, position: u32) -> Self {
+    pub const fn new(title: String, url: String, snippet: String, source: String, position: u32) -> Self {
         Self {
             title,
             url,

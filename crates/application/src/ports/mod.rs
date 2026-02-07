@@ -19,6 +19,7 @@ mod speech_port;
 mod task_port;
 mod user_profile_store;
 mod weather_port;
+mod websearch_port;
 
 pub use approval_queue::ApprovalQueuePort;
 pub use audit_log::{AuditLogPort, AuditQuery};
@@ -46,3 +47,6 @@ pub use user_profile_store::UserProfileStore;
 #[cfg(test)]
 pub use weather_port::MockWeatherPort;
 pub use weather_port::{CurrentWeather, DailyForecast, WeatherCondition, WeatherPort};
+#[cfg(test)]
+pub use websearch_port::MockWebSearchPort;
+pub use websearch_port::{SafeSearchLevel, SearchOptions, WebSearchPort};

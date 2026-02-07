@@ -9,7 +9,10 @@ use tracing::{debug, info, instrument, warn};
 use crate::{
     command_parser::CommandParser,
     error::ApplicationError,
-    ports::{DraftStorePort, InferencePort, Task, TaskPort, UserProfileStore, WeatherPort},
+    ports::{
+        DraftStorePort, InferencePort, Task, TaskPort, UserProfileStore, WeatherPort,
+        WebSearchPort,
+    },
     services::briefing_service::WeatherSummary,
 };
 
@@ -57,6 +60,8 @@ pub struct AgentService {
     task_service: Option<Arc<dyn TaskPort>>,
     /// Optional weather service for weather integration
     weather_service: Option<Arc<dyn WeatherPort>>,
+    /// Optional web search service for internet search
+    websearch_service: Option<Arc<dyn WebSearchPort>>,
     /// Default location for weather when user profile has no location
     default_weather_location: Option<GeoLocation>,
 }
@@ -71,6 +76,7 @@ impl fmt::Debug for AgentService {
             .field("has_user_profile", &self.user_profile_store.is_some())
             .field("has_task", &self.task_service.is_some())
             .field("has_weather", &self.weather_service.is_some())
+            .field("has_websearch", &self.websearch_service.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -87,6 +93,7 @@ impl AgentService {
             user_profile_store: None,
             task_service: None,
             weather_service: None,
+            websearch_service: None,
             default_weather_location: None,
         }
     }
@@ -130,6 +137,13 @@ impl AgentService {
     #[must_use]
     pub fn with_weather_service(mut self, service: Arc<dyn WeatherPort>) -> Self {
         self.weather_service = Some(service);
+        self
+    }
+
+    /// Add web search service for internet search capabilities
+    #[must_use]
+    pub fn with_websearch_service(mut self, service: Arc<dyn WebSearchPort>) -> Self {
+        self.websearch_service = Some(service);
         self
     }
 
@@ -265,6 +279,11 @@ impl AgentService {
             // Commands that require approval - should not reach here without approval
             AgentCommand::CreateCalendarEvent { .. } | AgentCommand::SendEmail { .. } => {
                 Err(ApplicationError::ApprovalRequired(command.description()))
+            },
+
+            // Web search - requires websearch service to be configured
+            AgentCommand::WebSearch { query, max_results } => {
+                self.handle_web_search(query, *max_results).await
             },
         }
     }
@@ -841,6 +860,69 @@ impl AgentService {
                  **Subject:** {subject}\n\n\
                  Draft ID: `{draft_id}`\n\n\
                  To send this email, say 'send email {draft_id}' or 'approve send'."
+            ),
+        })
+    }
+
+    /// Handle web search command
+    ///
+    /// Performs a web search and returns results formatted with citations.
+    /// Uses the LLM to summarize the search results.
+    async fn handle_web_search(
+        &self,
+        query: &str,
+        max_results: Option<u32>,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        // Check if websearch service is configured
+        let Some(ref websearch_service) = self.websearch_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: "🔍 Web search is not available.\n\n\
+                          Web search service is not configured. \
+                          Please set up the Brave Search API key in your configuration."
+                    .to_string(),
+            });
+        };
+
+        let max_results = max_results.unwrap_or(5);
+
+        info!(query = %query, max_results = %max_results, "Performing web search");
+
+        // Perform the search
+        let search_response = websearch_service
+            .search_for_llm(query, max_results)
+            .await?;
+
+        // If no results, return early
+        if search_response.contains("No web search results found") {
+            return Ok(ExecutionResult {
+                success: true,
+                response: format!(
+                    "🔍 No results found for: **{query}**\n\n\
+                     Try rephrasing your search query or using different keywords."
+                ),
+            });
+        }
+
+        // Use LLM to summarize the search results with proper citation
+        let summary_prompt = format!(
+            "Based on the following web search results, provide a concise and helpful answer \
+             to the query: \"{query}\"\n\n\
+             Include relevant information from the sources and cite them using [number] notation \
+             at the end of sentences that use information from that source.\n\n\
+             Search Results:\n{search_response}\n\n\
+             Provide a clear, informative summary with proper source citations."
+        );
+
+        let llm_response = self.inference.generate(&summary_prompt).await?;
+
+        Ok(ExecutionResult {
+            success: true,
+            response: format!(
+                "🔍 **Web Search Results for:** {query}\n\n{}\n\n\
+                 ---\n*Search powered by {}*",
+                llm_response.content,
+                websearch_service.provider_name()
             ),
         })
     }
