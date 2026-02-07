@@ -1,26 +1,36 @@
 //! Request context for propagating authentication and request metadata
 //!
-//! This module provides a `RequestContext` struct that carries user identity
-//! and request metadata through the application layer. It should be extracted
-//! from the HTTP middleware (e.g., from API key authentication) and passed
-//! to service methods that require user context.
+//! This module provides a `RequestContext` struct that carries user identity,
+//! tenant identity, and request metadata through the application layer. It should
+//! be extracted from the HTTP middleware (e.g., from API key authentication) and
+//! passed to service methods that require user context.
+//!
+//! # Multi-Tenant Support
+//!
+//! The `RequestContext` carries both user and tenant information:
+//! - `user_id`: The authenticated user making the request
+//! - `tenant_id`: The tenant the user belongs to (for data isolation)
+//!
+//! For single-tenant deployments, use `TenantId::default()`.
 //!
 //! # Examples
 //!
 //! ```
 //! use application::RequestContext;
-//! use domain::UserId;
+//! use domain::{UserId, TenantId};
 //!
 //! // Create a request context for an authenticated user
 //! let user_id = UserId::new();
-//! let ctx = RequestContext::new(user_id);
+//! let tenant_id = TenantId::default(); // Single-tenant
+//! let ctx = RequestContext::new(user_id, tenant_id);
 //!
 //! assert_eq!(ctx.user_id(), user_id);
+//! assert_eq!(ctx.tenant_id(), tenant_id);
 //! assert!(!ctx.request_id().is_nil());
 //! ```
 
 use chrono::{DateTime, Utc};
-use domain::UserId;
+use domain::{TenantId, UserId};
 use uuid::Uuid;
 
 /// Context for a single request, carrying authentication and metadata
@@ -29,6 +39,7 @@ use uuid::Uuid;
 /// authentication and passed through to application services. It provides:
 ///
 /// - `user_id`: The authenticated user making the request
+/// - `tenant_id`: The tenant for data isolation (multi-tenant support)
 /// - `request_id`: A unique identifier for tracing/logging
 /// - `timestamp`: When the request was received
 ///
@@ -36,20 +47,22 @@ use uuid::Uuid;
 ///
 /// ```
 /// use application::RequestContext;
-/// use domain::UserId;
+/// use domain::{UserId, TenantId};
 ///
-/// let ctx = RequestContext::new(UserId::new());
-/// println!("Request {} from user {}", ctx.request_id(), ctx.user_id());
+/// let ctx = RequestContext::new(UserId::new(), TenantId::default());
+/// println!("Request {} from user {} (tenant {})",
+///     ctx.request_id(), ctx.user_id(), ctx.tenant_id());
 /// ```
 #[derive(Debug, Clone)]
 pub struct RequestContext {
     user_id: UserId,
+    tenant_id: TenantId,
     request_id: Uuid,
     timestamp: DateTime<Utc>,
 }
 
 impl RequestContext {
-    /// Create a new request context for the given user
+    /// Create a new request context for the given user and tenant
     ///
     /// Generates a new random request ID and captures the current timestamp.
     ///
@@ -57,15 +70,16 @@ impl RequestContext {
     ///
     /// ```
     /// use application::RequestContext;
-    /// use domain::UserId;
+    /// use domain::{UserId, TenantId};
     ///
-    /// let ctx = RequestContext::new(UserId::new());
+    /// let ctx = RequestContext::new(UserId::new(), TenantId::default());
     /// assert!(!ctx.request_id().is_nil());
     /// ```
     #[must_use]
-    pub fn new(user_id: UserId) -> Self {
+    pub fn new(user_id: UserId, tenant_id: TenantId) -> Self {
         Self {
             user_id,
+            tenant_id,
             request_id: Uuid::new_v4(),
             timestamp: Utc::now(),
         }
@@ -80,17 +94,18 @@ impl RequestContext {
     ///
     /// ```
     /// use application::RequestContext;
-    /// use domain::UserId;
+    /// use domain::{UserId, TenantId};
     /// use uuid::Uuid;
     ///
     /// let request_id = Uuid::new_v4();
-    /// let ctx = RequestContext::with_request_id(UserId::new(), request_id);
+    /// let ctx = RequestContext::with_request_id(UserId::new(), TenantId::default(), request_id);
     /// assert_eq!(ctx.request_id(), request_id);
     /// ```
     #[must_use]
-    pub fn with_request_id(user_id: UserId, request_id: Uuid) -> Self {
+    pub fn with_request_id(user_id: UserId, tenant_id: TenantId, request_id: Uuid) -> Self {
         Self {
             user_id,
+            tenant_id,
             request_id,
             timestamp: Utc::now(),
         }
@@ -104,20 +119,27 @@ impl RequestContext {
     ///
     /// ```
     /// use application::RequestContext;
-    /// use domain::UserId;
+    /// use domain::{UserId, TenantId};
     /// use uuid::Uuid;
     /// use chrono::Utc;
     ///
     /// let ctx = RequestContext::restore(
     ///     UserId::new(),
+    ///     TenantId::default(),
     ///     Uuid::new_v4(),
     ///     Utc::now(),
     /// );
     /// ```
     #[must_use]
-    pub const fn restore(user_id: UserId, request_id: Uuid, timestamp: DateTime<Utc>) -> Self {
+    pub const fn restore(
+        user_id: UserId,
+        tenant_id: TenantId,
+        request_id: Uuid,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
         Self {
             user_id,
+            tenant_id,
             request_id,
             timestamp,
         }
@@ -127,6 +149,12 @@ impl RequestContext {
     #[must_use]
     pub const fn user_id(&self) -> UserId {
         self.user_id
+    }
+
+    /// Get the tenant ID for data isolation
+    #[must_use]
+    pub const fn tenant_id(&self) -> TenantId {
+        self.tenant_id
     }
 
     /// Get the unique request identifier
@@ -149,8 +177,9 @@ mod tests {
     #[test]
     fn new_creates_unique_request_id() {
         let user_id = UserId::new();
-        let ctx1 = RequestContext::new(user_id);
-        let ctx2 = RequestContext::new(user_id);
+        let tenant_id = TenantId::default();
+        let ctx1 = RequestContext::new(user_id, tenant_id);
+        let ctx2 = RequestContext::new(user_id, tenant_id);
 
         assert_ne!(ctx1.request_id(), ctx2.request_id());
     }
@@ -158,7 +187,7 @@ mod tests {
     #[test]
     fn new_captures_current_timestamp() {
         let before = Utc::now();
-        let ctx = RequestContext::new(UserId::new());
+        let ctx = RequestContext::new(UserId::new(), TenantId::default());
         let after = Utc::now();
 
         assert!(ctx.timestamp() >= before);
@@ -168,22 +197,26 @@ mod tests {
     #[test]
     fn with_request_id_uses_provided_id() {
         let user_id = UserId::new();
+        let tenant_id = TenantId::new();
         let request_id = Uuid::new_v4();
-        let ctx = RequestContext::with_request_id(user_id, request_id);
+        let ctx = RequestContext::with_request_id(user_id, tenant_id, request_id);
 
         assert_eq!(ctx.request_id(), request_id);
         assert_eq!(ctx.user_id(), user_id);
+        assert_eq!(ctx.tenant_id(), tenant_id);
     }
 
     #[test]
     fn restore_preserves_all_fields() {
         let user_id = UserId::new();
+        let tenant_id = TenantId::new();
         let request_id = Uuid::new_v4();
         let timestamp = Utc::now() - chrono::Duration::hours(1);
 
-        let ctx = RequestContext::restore(user_id, request_id, timestamp);
+        let ctx = RequestContext::restore(user_id, tenant_id, request_id, timestamp);
 
         assert_eq!(ctx.user_id(), user_id);
+        assert_eq!(ctx.tenant_id(), tenant_id);
         assert_eq!(ctx.request_id(), request_id);
         assert_eq!(ctx.timestamp(), timestamp);
     }
@@ -191,36 +224,53 @@ mod tests {
     #[test]
     fn user_id_getter_returns_correct_value() {
         let user_id = UserId::new();
-        let ctx = RequestContext::new(user_id);
+        let ctx = RequestContext::new(user_id, TenantId::default());
 
         assert_eq!(ctx.user_id(), user_id);
     }
 
     #[test]
+    fn tenant_id_getter_returns_correct_value() {
+        let tenant_id = TenantId::new();
+        let ctx = RequestContext::new(UserId::new(), tenant_id);
+
+        assert_eq!(ctx.tenant_id(), tenant_id);
+    }
+
+    #[test]
+    fn default_tenant_is_single_tenant() {
+        let ctx = RequestContext::new(UserId::new(), TenantId::default());
+
+        assert!(ctx.tenant_id().is_default());
+    }
+
+    #[test]
     fn request_id_is_not_nil() {
-        let ctx = RequestContext::new(UserId::new());
+        let ctx = RequestContext::new(UserId::new(), TenantId::default());
 
         assert!(!ctx.request_id().is_nil());
     }
 
     #[test]
     fn clone_produces_equal_context() {
-        let ctx = RequestContext::new(UserId::new());
+        let ctx = RequestContext::new(UserId::new(), TenantId::new());
         #[allow(clippy::redundant_clone)]
         let cloned = ctx.clone();
 
         assert_eq!(ctx.user_id(), cloned.user_id());
+        assert_eq!(ctx.tenant_id(), cloned.tenant_id());
         assert_eq!(ctx.request_id(), cloned.request_id());
         assert_eq!(ctx.timestamp(), cloned.timestamp());
     }
 
     #[test]
     fn debug_format_contains_fields() {
-        let ctx = RequestContext::new(UserId::new());
+        let ctx = RequestContext::new(UserId::new(), TenantId::default());
         let debug = format!("{ctx:?}");
 
         assert!(debug.contains("RequestContext"));
         assert!(debug.contains("user_id"));
+        assert!(debug.contains("tenant_id"));
         assert!(debug.contains("request_id"));
         assert!(debug.contains("timestamp"));
     }

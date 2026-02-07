@@ -28,7 +28,7 @@ use axum::{
     http::header::AUTHORIZATION,
     response::{IntoResponse, Response},
 };
-use domain::UserId;
+use domain::{TenantId, UserId};
 use subtle::ConstantTimeEq;
 use tower::{Layer, Service};
 use tracing::warn;
@@ -257,6 +257,14 @@ where
 ///
 /// Creates a `RequestContext` with the authenticated user ID and the request ID
 /// from the request extensions (if available from the `RequestIdLayer`).
+///
+/// # Tenant Resolution
+///
+/// Currently uses a default `TenantId` (single-tenant mode). In a multi-tenant
+/// deployment, this should be enhanced to:
+/// 1. Extract tenant from JWT claims (preferred)
+/// 2. Extract tenant from `X-Tenant-Id` header
+/// 3. Look up tenant based on API key mapping
 fn inject_request_context(req: &mut Request, user_id: UserId) {
     // Try to get existing request ID from RequestIdLayer
     let request_id = req
@@ -264,7 +272,10 @@ fn inject_request_context(req: &mut Request, user_id: UserId) {
         .get::<RequestId>()
         .map_or_else(uuid::Uuid::new_v4, |r| r.0);
 
-    let ctx = RequestContext::with_request_id(user_id, request_id);
+    // TODO: Extract tenant from JWT claims or X-Tenant-Id header for multi-tenant mode
+    let tenant_id = TenantId::default();
+
+    let ctx = RequestContext::with_request_id(user_id, tenant_id, request_id);
     req.extensions_mut().insert(ctx);
 }
 
