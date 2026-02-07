@@ -14,27 +14,42 @@
 //!
 //! # Supported Providers
 //!
-//! - OpenAI Whisper (STT) and TTS API
-//! - Future: Local whisper.cpp integration
+//! | Provider | STT | TTS | Local | Notes |
+//! |----------|-----|-----|-------|-------|
+//! | `HybridSpeechProvider` | ✅ | ✅ | ✅ | **Default** - Local first, cloud fallback |
+//! | `WhisperCppProvider` | ✅ | ❌ | ✅ | Local STT via whisper.cpp |
+//! | `PiperProvider` | ❌ | ✅ | ✅ | Local TTS via Piper |
+//! | `OpenAISpeechProvider` | ✅ | ✅ | ❌ | Cloud via OpenAI API |
 //!
 //! # Example
 //!
 //! ```ignore
-//! use ai_speech::{OpenAISpeechProvider, SpeechToText, TextToSpeech, AudioData, AudioFormat, AudioConverter};
+//! use ai_speech::{
+//!     HybridSpeechProvider, SpeechToText, TextToSpeech,
+//!     AudioData, AudioFormat, AudioConverter,
+//!     LocalSttConfig, LocalTtsConfig, HybridConfig,
+//! };
 //!
-//! let provider = OpenAISpeechProvider::new(config)?;
-//! let converter = AudioConverter::new();
+//! // Create hybrid provider (local first, cloud fallback)
+//! let provider = HybridSpeechProvider::new(
+//!     Some(LocalSttConfig::default()),
+//!     Some(LocalTtsConfig::default()),
+//!     None, // No cloud fallback
+//!     HybridConfig::default(),
+//! )?;
 //!
-//! // Convert WhatsApp audio (OGG/Opus) to Whisper-compatible format
-//! let whatsapp_audio = AudioData::new(bytes, AudioFormat::Opus)?;
-//! let whisper_audio = converter.convert_for_whisper(&whatsapp_audio).await?;
+//! // Or create local-only provider
+//! let local_provider = HybridSpeechProvider::local_only(
+//!     LocalSttConfig::default(),
+//!     LocalTtsConfig::default(),
+//! )?;
 //!
 //! // Transcribe audio
-//! let transcription = provider.transcribe(whisper_audio).await?;
+//! let transcription = provider.transcribe(audio).await?;
 //! println!("Transcribed: {}", transcription.text);
 //!
 //! // Synthesize speech
-//! let audio = provider.synthesize("Hello, world!", None).await?;
+//! let audio = provider.synthesize("Hallo Welt!", None).await?;
 //! ```
 
 pub mod config;
@@ -44,9 +59,16 @@ pub mod ports;
 pub mod providers;
 pub mod types;
 
-pub use config::SpeechConfig;
+pub use config::{
+    HybridConfig, LocalSttConfig, LocalTtsConfig, ResponseFormatPreference, SpeechConfig,
+    SpeechProvider,
+};
 pub use converter::AudioConverter;
 pub use error::SpeechError;
 pub use ports::{SpeechToText, TextToSpeech};
+pub use providers::hybrid::HybridSpeechProvider;
 pub use providers::openai::OpenAISpeechProvider;
+pub use providers::piper::PiperProvider;
+pub use providers::whisper_cpp::WhisperCppProvider;
 pub use types::{AudioData, AudioFormat, Transcription, VoiceInfo};
+

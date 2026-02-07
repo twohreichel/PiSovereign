@@ -65,6 +65,10 @@ pub enum SpeechError {
     /// Audio processing/conversion failed
     #[error("Audio processing failed: {0}")]
     AudioProcessing(String),
+
+    /// Provider not available (not installed or configured)
+    #[error("Provider not available: {0}")]
+    NotAvailable(String),
 }
 
 impl From<reqwest::Error> for SpeechError {

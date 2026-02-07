@@ -1,5 +1,8 @@
 //! Configuration for speech processing
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::types::AudioFormat;
@@ -60,11 +63,206 @@ pub struct SpeechConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SpeechProvider {
-    /// OpenAI Whisper and TTS
-    #[default]
+    /// OpenAI Whisper and TTS (cloud)
     OpenAI,
-    /// Local processing (future)
+    /// Local processing (whisper.cpp + Piper)
     Local,
+    /// Hybrid: local first, cloud fallback
+    #[default]
+    Hybrid,
+}
+
+/// Configuration for local STT (whisper.cpp)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalSttConfig {
+    /// Path to whisper.cpp executable
+    #[serde(default = "default_whisper_executable")]
+    pub executable_path: PathBuf,
+
+    /// Path to GGML model file
+    #[serde(default = "default_whisper_model")]
+    pub model_path: PathBuf,
+
+    /// Number of threads to use
+    #[serde(default = "default_threads")]
+    pub threads: u32,
+
+    /// Default language hint (ISO 639-1)
+    #[serde(default)]
+    pub default_language: Option<String>,
+}
+
+impl Default for LocalSttConfig {
+    fn default() -> Self {
+        Self {
+            executable_path: default_whisper_executable(),
+            model_path: default_whisper_model(),
+            threads: default_threads(),
+            default_language: Some("de".to_string()),
+        }
+    }
+}
+
+impl LocalSttConfig {
+    /// Validate the configuration
+    pub fn validate(&self) -> Result<(), String> {
+        // Model path should end with .bin
+        if let Some(ext) = self.model_path.extension() {
+            if ext != "bin" {
+                return Err("Model path should point to a .bin GGML model file".to_string());
+            }
+        }
+
+        if self.threads == 0 {
+            return Err("Threads must be greater than 0".to_string());
+        }
+
+        Ok(())
+    }
+}
+
+/// Configuration for local TTS (Piper)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalTtsConfig {
+    /// Path to Piper executable
+    #[serde(default = "default_piper_executable")]
+    pub executable_path: PathBuf,
+
+    /// Path to default voice model (.onnx)
+    #[serde(default = "default_piper_model")]
+    pub default_model_path: PathBuf,
+
+    /// Default voice name
+    #[serde(default = "default_piper_voice")]
+    pub default_voice: String,
+
+    /// Map of voice names to model paths
+    #[serde(default)]
+    pub voices: HashMap<String, PathBuf>,
+
+    /// Output audio format
+    #[serde(default = "default_output_format")]
+    pub output_format: AudioFormat,
+
+    /// Speaking rate (1.0 = normal)
+    #[serde(default = "default_length_scale")]
+    pub length_scale: f32,
+
+    /// Silence between sentences in seconds
+    #[serde(default = "default_sentence_silence")]
+    pub sentence_silence: f32,
+}
+
+impl Default for LocalTtsConfig {
+    fn default() -> Self {
+        Self {
+            executable_path: default_piper_executable(),
+            default_model_path: default_piper_model(),
+            default_voice: default_piper_voice(),
+            voices: HashMap::new(),
+            output_format: default_output_format(),
+            length_scale: default_length_scale(),
+            sentence_silence: default_sentence_silence(),
+        }
+    }
+}
+
+impl LocalTtsConfig {
+    /// Validate the configuration
+    pub fn validate(&self) -> Result<(), String> {
+        // Model path should end with .onnx
+        if let Some(ext) = self.default_model_path.extension() {
+            if ext != "onnx" {
+                return Err("Model path should point to an .onnx voice model file".to_string());
+            }
+        }
+
+        if self.length_scale <= 0.0 || self.length_scale > 4.0 {
+            return Err(format!(
+                "Length scale must be between 0.0 and 4.0, got {}",
+                self.length_scale
+            ));
+        }
+
+        if self.sentence_silence < 0.0 {
+            return Err("Sentence silence cannot be negative".to_string());
+        }
+
+        Ok(())
+    }
+}
+
+/// Configuration for hybrid mode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HybridConfig {
+    /// Prefer local processing over cloud
+    #[serde(default = "default_prefer_local")]
+    pub prefer_local: bool,
+
+    /// Allow fallback to cloud if local fails
+    #[serde(default = "default_allow_cloud_fallback")]
+    pub allow_cloud_fallback: bool,
+
+    /// Maximum retries for local provider before fallback
+    #[serde(default = "default_local_retries")]
+    pub local_retries: u32,
+}
+
+impl Default for HybridConfig {
+    fn default() -> Self {
+        Self {
+            prefer_local: default_prefer_local(),
+            allow_cloud_fallback: default_allow_cloud_fallback(),
+            local_retries: default_local_retries(),
+        }
+    }
+}
+
+// Default functions for local configs
+
+fn default_whisper_executable() -> PathBuf {
+    PathBuf::from("whisper-cpp")
+}
+
+fn default_whisper_model() -> PathBuf {
+    // Common location on Raspberry Pi
+    PathBuf::from("/usr/local/share/whisper/ggml-base.bin")
+}
+
+fn default_threads() -> u32 {
+    4 // Good default for Raspberry Pi 5
+}
+
+fn default_piper_executable() -> PathBuf {
+    PathBuf::from("piper")
+}
+
+fn default_piper_model() -> PathBuf {
+    PathBuf::from("/usr/local/share/piper/voices/de_DE-thorsten-medium.onnx")
+}
+
+fn default_piper_voice() -> String {
+    "de_DE-thorsten-medium".to_string()
+}
+
+fn default_length_scale() -> f32 {
+    1.0
+}
+
+fn default_sentence_silence() -> f32 {
+    0.2
+}
+
+const fn default_prefer_local() -> bool {
+    true // Local first by default
+}
+
+const fn default_allow_cloud_fallback() -> bool {
+    true // Allow fallback by default
+}
+
+const fn default_local_retries() -> u32 {
+    1
 }
 
 /// Preference for how the bot should respond

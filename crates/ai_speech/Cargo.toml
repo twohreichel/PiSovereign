@@ -39,6 +39,9 @@ base64 = "0.22"
 # Mime type detection
 mime = "0.3"
 
+# Temp files for local providers
+tempfile = "3.14"
+
 [dev-dependencies]
 tokio-test.workspace = true
 wiremock.workspace = true
