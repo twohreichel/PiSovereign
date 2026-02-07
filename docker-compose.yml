@@ -3,15 +3,79 @@
 # Local development environment with Prometheus and Grafana
 # =============================================================================
 #
-# Usage:
+# Usage (Development):
 #   Start:   docker compose up -d
 #   Stop:    docker compose down
 #   Logs:    docker compose logs -f pisovereign
 #   Rebuild: docker compose up -d --build
 #
+# Usage (Production with TLS):
+#   Start:   docker compose --profile production up -d
+#   Stop:    docker compose --profile production down
+#
+# Environment Variables for Production:
+#   TRAEFIK_ACME_EMAIL    - Email for Let's Encrypt notifications
+#   PISOVEREIGN_DOMAIN    - Your domain (e.g., pisovereign.example.com)
+#
 # =============================================================================
 
 services:
+  # ---------------------------------------------------------------------------
+  # Traefik - Reverse Proxy with Automatic TLS (Production)
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.0
+    container_name: pisovereign-traefik
+    profiles:
+      - production
+    restart: unless-stopped
+    command:
+      # API and Dashboard
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      - "--ping=true"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      # Let's Encrypt ACME
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL:-admin@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=pisovereign-network"
+      # Logging
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--accesslog.format=json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-letsencrypt:/letsencrypt
+    networks:
+      - pisovereign-network
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    labels:
+      - "traefik.enable=false"
+
   # ---------------------------------------------------------------------------
   # PiSovereign Application
   # ---------------------------------------------------------------------------
@@ -22,9 +86,10 @@ services:
     image: ghcr.io/andreasreichel/pisovereign:latest
     container_name: pisovereign
     restart: unless-stopped
+    # Ports exposed directly in development, via Traefik in production
     ports:
-      - "3000:3000"   # HTTP API
-      - "8080:8080"   # Prometheus metrics
+      - "3000:3000"   # HTTP API (development only, remove in production)
+      - "8080:8080"   # Prometheus metrics (internal)
     environment:
       - RUST_LOG=info,pisovereign=debug
       - PISOVEREIGN_CONFIG=/app/config/config.toml
@@ -34,6 +99,22 @@ services:
       - ./config.toml:/app/config/config.toml:ro
     networks:
       - pisovereign-network
+    # Traefik labels for production TLS routing
+    labels:
+      - "traefik.enable=true"
+      # HTTP Router
+      - "traefik.http.routers.pisovereign.rule=Host(`${PISOVEREIGN_DOMAIN:-localhost}`)"
+      - "traefik.http.routers.pisovereign.entrypoints=websecure"
+      - "traefik.http.routers.pisovereign.tls.certresolver=letsencrypt"
+      # Service
+      - "traefik.http.services.pisovereign.loadbalancer.server.port=3000"
+      # Security headers middleware
+      - "traefik.http.middlewares.pisovereign-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.pisovereign-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.pisovereign-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.pisovereign-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.pisovereign-headers.headers.frameDeny=true"
+      - "traefik.http.routers.pisovereign.middlewares=pisovereign-headers"
     # Hailo device passthrough (uncomment for Raspberry Pi with Hailo HAT)
     # devices:
     #   - /dev/hailo0:/dev/hailo0
@@ -144,4 +225,6 @@ volumes:
   prometheus-data:
     driver: local
   grafana-data:
+    driver: local
+  traefik-letsencrypt:
     driver: local
