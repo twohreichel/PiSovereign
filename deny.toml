@@ -29,6 +29,9 @@ yanked = "warn"
 ignore = [
     # bincode is unmaintained but still functional for our use case
     { id = "RUSTSEC-2025-0141", reason = "bincode v2 is still functional, considering migration to postcard" },
+    # tokio-tar vulnerability only affects dev-dependency testcontainers
+    # No fix available yet, tracking: https://github.com/testcontainers/testcontainers-rs/issues
+    { id = "RUSTSEC-2025-0111", reason = "tokio-tar is only used in testcontainers dev-dependency, no production impact" },
 ]
 
 # ============================================================================
