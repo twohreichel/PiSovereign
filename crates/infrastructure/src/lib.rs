@@ -19,6 +19,7 @@ pub mod testing;
 pub mod validation;
 
 pub use adapters::*;
+pub use ai_speech::SpeechConfig;
 pub use cache::{MokaCache, MultiLayerCache, RedbCache, generate_cache_key, llm_cache_key};
 pub use config::{
     AppConfig, CalDavAppConfig, DatabaseConfig, DegradedModeAppConfig, Environment,

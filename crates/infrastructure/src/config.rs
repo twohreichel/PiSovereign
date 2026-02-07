@@ -1,6 +1,7 @@
 //! Application configuration
 
 use ai_core::InferenceConfig;
+use ai_speech::SpeechConfig;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -101,6 +102,10 @@ pub struct AppConfig {
     /// Degraded mode configuration (optional)
     #[serde(default)]
     pub degraded_mode: Option<DegradedModeAppConfig>,
+
+    /// Speech processing configuration (optional, for voice messages)
+    #[serde(default)]
+    pub speech: Option<SpeechConfig>,
 }
 
 /// HTTP server configuration

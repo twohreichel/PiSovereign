@@ -88,6 +88,34 @@ signature_required = true
 # Meta Graph API version
 api_version = "v18.0"
 
+# ==============================
+# Speech Processing (Voice Messages)
+# ==============================
+# Enable voice message support (STT/TTS)
+# [speech]
+# Speech provider: "openai" (default) or "local" (future)
+# provider = "openai"
+# OpenAI API key for Whisper (STT) and TTS
+# openai_api_key = "sk-..."
+# OpenAI API base URL (for custom endpoints)
+# openai_base_url = "https://api.openai.com/v1"
+# Speech-to-text model (OpenAI Whisper)
+# stt_model = "whisper-1"
+# Text-to-speech model
+# tts_model = "tts-1"
+# Default TTS voice: alloy, echo, fable, onyx, nova, shimmer
+# default_voice = "nova"
+# Output audio format: opus, ogg, mp3, wav
+# output_format = "opus"
+# Request timeout in milliseconds
+# timeout_ms = 60000
+# Maximum audio duration in milliseconds (25 min for Whisper)
+# max_audio_duration_ms = 1500000
+# Response format preference: mirror, text, voice
+# response_format = "mirror"
+# TTS speaking speed (0.25 to 4.0)
+# speed = 1.0
+
 # =====================
 # Database Settings
 # =====================
