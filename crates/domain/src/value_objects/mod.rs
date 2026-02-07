@@ -9,6 +9,7 @@ mod phone_number;
 mod priority;
 pub mod tenant;
 mod tenant_id;
+mod task_status;
 mod timezone;
 mod user_id;
 
@@ -19,6 +20,7 @@ pub use email_address::EmailAddress;
 pub use geo_location::{GeoLocation, InvalidCoordinates};
 pub use phone_number::PhoneNumber;
 pub use priority::Priority;
+pub use task_status::TaskStatus;
 pub use tenant::{TenantAware, TenantContext, TenantFilter};
 pub use tenant_id::TenantId;
 pub use timezone::Timezone;

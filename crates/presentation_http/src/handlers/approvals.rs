@@ -346,6 +346,11 @@ fn command_type_name(command: &AgentCommand) -> String {
         AgentCommand::SendEmail { .. } => "send_email",
         AgentCommand::CreateCalendarEvent { .. } => "create_calendar_event",
         AgentCommand::UpdateCalendarEvent { .. } => "update_calendar_event",
+        AgentCommand::ListTasks { .. } => "list_tasks",
+        AgentCommand::CreateTask { .. } => "create_task",
+        AgentCommand::CompleteTask { .. } => "complete_task",
+        AgentCommand::UpdateTask { .. } => "update_task",
+        AgentCommand::DeleteTask { .. } => "delete_task",
         AgentCommand::Echo { .. } => "echo",
         AgentCommand::Help { .. } => "help",
         AgentCommand::System(sys) => match sys {

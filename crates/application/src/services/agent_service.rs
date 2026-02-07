@@ -275,9 +275,19 @@ impl AgentService {
                     .await
             },
 
+            // List tasks - read-only, doesn't require approval
+            AgentCommand::ListTasks { status, priority } => {
+                self.handle_list_tasks(status.as_ref(), priority.as_ref())
+                    .await
+            },
+
             // Commands that require approval - should not reach here without approval
             AgentCommand::CreateCalendarEvent { .. }
             | AgentCommand::UpdateCalendarEvent { .. }
+            | AgentCommand::CreateTask { .. }
+            | AgentCommand::CompleteTask { .. }
+            | AgentCommand::UpdateTask { .. }
+            | AgentCommand::DeleteTask { .. }
             | AgentCommand::SendEmail { .. } => {
                 Err(ApplicationError::ApprovalRequired(command.description()))
             },
@@ -923,6 +933,90 @@ impl AgentService {
                 llm_response.content,
                 websearch_service.provider_name()
             ),
+        })
+    }
+
+    /// Handle listing tasks
+    ///
+    /// Lists tasks from the configured task service, optionally filtered by status and priority.
+    async fn handle_list_tasks(
+        &self,
+        status: Option<&domain::TaskStatus>,
+        priority: Option<&domain::Priority>,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        // Check if task service is configured
+        let Some(ref task_service) = self.task_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: "📋 Tasks are not available.\n\n\
+                          Task service is not configured. \
+                          Please set up CalDAV with task support in your configuration."
+                    .to_string(),
+            });
+        };
+
+        // Build query from filters
+        let query = crate::ports::TaskQuery {
+            status: status.copied(),
+            priority: priority.copied(),
+            include_completed: status.map_or(false, |s| s.is_done()),
+            ..Default::default()
+        };
+
+        // Get tasks
+        let user_id = UserId::default_user();
+        let tasks = task_service.list_tasks(&user_id, &query).await?;
+
+        // Format task list
+        let mut response = String::from("📋 **Tasks**\n\n");
+
+        if tasks.is_empty() {
+            let filter_desc = match (status, priority) {
+                (Some(s), Some(p)) => format!(" matching status '{}' and priority '{}'", s, p),
+                (Some(s), None) => format!(" with status '{}'", s),
+                (None, Some(p)) => format!(" with priority '{}'", p),
+                (None, None) => String::new(),
+            };
+            response.push_str(&format!("No tasks found{filter_desc}.\n"));
+        } else {
+            let today = chrono::Local::now().date_naive();
+            for task in &tasks {
+                let status_emoji = match task.status {
+                    domain::TaskStatus::Completed => "✅",
+                    domain::TaskStatus::InProgress => "🔄",
+                    domain::TaskStatus::Cancelled => "❌",
+                    domain::TaskStatus::NeedsAction => "⬜",
+                };
+                let priority_emoji = match task.priority {
+                    domain::Priority::High => "🔴",
+                    domain::Priority::Medium => "🟡",
+                    domain::Priority::Low => "🟢",
+                };
+
+                let is_overdue = task.due_date.map_or(false, |d| d < today);
+                let overdue_marker = if is_overdue { " ⚠️ OVERDUE" } else { "" };
+                let due_str = task
+                    .due_date
+                    .map_or(String::new(), |d| format!(" (due: {d})"));
+
+                response.push_str(&format!(
+                    "{} {} **{}**{}{}\n  ID: `{}`\n",
+                    status_emoji, priority_emoji, task.summary, due_str, overdue_marker, task.id
+                ));
+            }
+        }
+
+        // Count summary
+        let active_count = tasks.iter().filter(|t| t.status.is_active()).count();
+        let completed_count = tasks.iter().filter(|t| t.status.is_done()).count();
+        response.push_str(&format!(
+            "\n---\n*{} active task(s), {} completed*",
+            active_count, completed_count
+        ));
+
+        Ok(ExecutionResult {
+            success: true,
+            response,
         })
     }
 }

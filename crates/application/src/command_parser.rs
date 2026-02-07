@@ -17,6 +17,11 @@ Possible intents:
 - "morning_briefing": Request morning briefing (e.g., "What's on today?", "Briefing")
 - "create_calendar_event": Create appointment (requires: date, time, title)
 - "update_calendar_event": Update existing appointment (requires: event_id; optional: date, time, title, location, duration_minutes)
+- "list_tasks": List tasks (optional: status, priority filters)
+- "create_task": Create a task (requires: title; optional: date for due date, priority, description)
+- "complete_task": Mark task done (requires: task_id)
+- "update_task": Update task (requires: task_id; optional: title, date, priority, description)
+- "delete_task": Delete task (requires: task_id)
 - "summarize_inbox": Email summary (e.g., "What's new?", "Mails")
 - "draft_email": Draft email (requires: to, body; optional: subject)
 - "send_email": Send email (requires: draft_id)
@@ -26,10 +31,14 @@ Possible intents:
 Reply ONLY with valid JSON:
 {
   "intent": "<intent_name>",
-  "date": "YYYY-MM-DD" (optional, for appointments),
+  "date": "YYYY-MM-DD" (optional, for appointments/tasks),
   "time": "HH:MM" (optional, for appointments),
-  "title": "..." (optional, for appointments),
+  "title": "..." (optional, for appointments/tasks),
   "event_id": "..." (required for update_calendar_event),
+  "task_id": "..." (required for complete_task/update_task/delete_task),
+  "priority": "high|medium|low" (optional, for tasks),
+  "status": "needs_action|in_progress|completed|cancelled" (optional, for list_tasks),
+  "description": "..." (optional, for tasks),
   "location": "..." (optional, for appointments),
   "duration_minutes": 60 (optional, for appointments),
   "to": "email@example.com" (optional, for emails),
@@ -46,11 +55,14 @@ Examples:
 - "Briefing for tomorrow" → {"intent":"morning_briefing","date":"2025-02-02"}
 - "Appointment tomorrow 14:00 Team Meeting" → {"intent":"create_calendar_event","date":"2025-02-02","time":"14:00","title":"Team Meeting"}
 - "Move event abc123 to 15:00" → {"intent":"update_calendar_event","event_id":"abc123","time":"15:00"}
-- "Change meeting xyz to next Monday" → {"intent":"update_calendar_event","event_id":"xyz","date":"2025-02-10"}
+- "What are my tasks?" → {"intent":"list_tasks"}
+- "Show high priority tasks" → {"intent":"list_tasks","priority":"high"}
+- "Add task buy groceries" → {"intent":"create_task","title":"buy groceries"}
+- "Create task call mom due Friday priority high" → {"intent":"create_task","title":"call mom","date":"2025-02-07","priority":"high"}
+- "Mark task abc done" → {"intent":"complete_task","task_id":"abc"}
+- "Delete task xyz" → {"intent":"delete_task","task_id":"xyz"}
 - "Summarize my mails" → {"intent":"summarize_inbox"}
 - "Search the internet for Rust async patterns" → {"intent":"web_search","query":"Rust async patterns"}
-- "Google what the weather is in Paris" → {"intent":"web_search","query":"weather Paris"}
-- "Find out about quantum computing" → {"intent":"web_search","query":"quantum computing"}
 - "What's the weather like?" → {"intent":"ask","question":"What's the weather like?"}"#;
 
 /// Parsed intent from LLM
@@ -85,6 +97,14 @@ struct ParsedIntent {
     location: Option<String>,
     #[serde(default)]
     duration_minutes: Option<u32>,
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    priority: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
 }
 
 /// Parser for converting natural language to AgentCommand
@@ -506,6 +526,131 @@ impl CommandParser {
                     attendees: None,
                     location: parsed.location.clone(),
                 })
+            },
+
+            "list_tasks" => {
+                // Parse optional status filter
+                let status = parsed
+                    .status
+                    .as_ref()
+                    .map(|s| s.parse::<domain::TaskStatus>())
+                    .transpose()
+                    .map_err(|_| "Invalid task status")?;
+
+                // Parse optional priority filter
+                let priority = parsed
+                    .priority
+                    .as_ref()
+                    .map(|p| match p.to_lowercase().as_str() {
+                        "high" => Ok(domain::Priority::High),
+                        "medium" | "med" => Ok(domain::Priority::Medium),
+                        "low" => Ok(domain::Priority::Low),
+                        _ => Err("Invalid priority"),
+                    })
+                    .transpose()?;
+
+                Ok(AgentCommand::ListTasks { status, priority })
+            },
+
+            "create_task" => {
+                let title = parsed
+                    .title
+                    .as_ref()
+                    .ok_or("Missing title for task")?
+                    .clone();
+
+                // Parse optional due date
+                let due_date = parsed
+                    .date
+                    .as_ref()
+                    .map(|d| {
+                        NaiveDate::parse_from_str(d, "%Y-%m-%d")
+                            .map_err(|e| format!("Invalid date format: {e}"))
+                    })
+                    .transpose()?;
+
+                // Parse optional priority
+                let priority = parsed
+                    .priority
+                    .as_ref()
+                    .map(|p| match p.to_lowercase().as_str() {
+                        "high" => Ok(domain::Priority::High),
+                        "medium" | "med" => Ok(domain::Priority::Medium),
+                        "low" => Ok(domain::Priority::Low),
+                        _ => Err("Invalid priority"),
+                    })
+                    .transpose()?;
+
+                Ok(AgentCommand::CreateTask {
+                    title,
+                    due_date,
+                    priority,
+                    description: parsed.description.clone(),
+                })
+            },
+
+            "complete_task" => {
+                let task_id = parsed
+                    .task_id
+                    .as_ref()
+                    .ok_or("Missing task_id for complete_task")?
+                    .clone();
+
+                Ok(AgentCommand::CompleteTask { task_id })
+            },
+
+            "update_task" => {
+                let task_id = parsed
+                    .task_id
+                    .as_ref()
+                    .ok_or("Missing task_id for update_task")?
+                    .clone();
+
+                // Parse optional due date - Some(None) clears, None keeps existing
+                let due_date = parsed.date.as_ref().map(|d| {
+                    if d.is_empty() || d == "none" || d == "null" {
+                        None
+                    } else {
+                        NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()
+                    }
+                });
+
+                // Parse optional priority
+                let priority = parsed
+                    .priority
+                    .as_ref()
+                    .map(|p| match p.to_lowercase().as_str() {
+                        "high" => domain::Priority::High,
+                        "medium" | "med" => domain::Priority::Medium,
+                        _ => domain::Priority::Low,
+                    });
+
+                // Parse optional description - Some(None) clears, None keeps existing
+                let description = parsed.description.as_ref().map(|d| {
+                    if d.is_empty() || d == "none" || d == "null" {
+                        None
+                    } else {
+                        Some(d.clone())
+                    }
+                });
+
+                Ok(AgentCommand::UpdateTask {
+                    task_id,
+                    title: parsed.title.clone(),
+                    due_date,
+                    priority,
+                    description,
+                })
+            },
+
+            "delete_task" => {
+                let task_id = parsed
+                    .task_id
+                    .as_ref()
+                    .ok_or("Missing task_id for delete_task")?
+                    .clone();
+
+                Ok(AgentCommand::DeleteTask { task_id })
             },
 
             "summarize_inbox" => Ok(AgentCommand::SummarizeInbox {

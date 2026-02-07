@@ -167,6 +167,35 @@ pub enum AgentCommandSchema {
         duration_minutes: Option<u32>,
         location: Option<String>,
     },
+    /// List tasks with optional filters
+    #[schema(rename = "list_tasks")]
+    ListTasks {
+        status: Option<String>,
+        priority: Option<String>,
+    },
+    /// Create a new task
+    #[schema(rename = "create_task")]
+    CreateTask {
+        title: String,
+        due_date: Option<String>,
+        priority: Option<String>,
+        description: Option<String>,
+    },
+    /// Mark a task as completed
+    #[schema(rename = "complete_task")]
+    CompleteTask { task_id: String },
+    /// Update an existing task
+    #[schema(rename = "update_task")]
+    UpdateTask {
+        task_id: String,
+        title: Option<String>,
+        due_date: Option<String>,
+        priority: Option<String>,
+        description: Option<String>,
+    },
+    /// Delete a task
+    #[schema(rename = "delete_task")]
+    DeleteTask { task_id: String },
     /// Summarize inbox
     #[schema(rename = "summarize_inbox")]
     SummarizeInbox {
