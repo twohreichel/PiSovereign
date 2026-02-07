@@ -140,10 +140,26 @@ pub struct ServerConfig {
     /// Log format: "json" for structured JSON logs, "text" for human-readable
     #[serde(default = "default_log_format")]
     pub log_format: String,
+
+    /// Maximum body size for audio uploads in bytes (default: 10MB)
+    #[serde(default = "default_max_body_audio")]
+    pub max_body_size_audio_bytes: usize,
+
+    /// Maximum body size for JSON requests in bytes (default: 1MB)
+    #[serde(default = "default_max_body_json")]
+    pub max_body_size_json_bytes: usize,
 }
 
 fn default_host() -> String {
     "127.0.0.1".to_string()
+}
+
+const fn default_max_body_audio() -> usize {
+    10 * 1024 * 1024 // 10MB
+}
+
+const fn default_max_body_json() -> usize {
+    1024 * 1024 // 1MB
 }
 
 const fn default_port() -> u16 {
@@ -167,6 +183,8 @@ impl Default for ServerConfig {
             allowed_origins: Vec::new(),
             shutdown_timeout_secs: Some(30),
             log_format: default_log_format(),
+            max_body_size_audio_bytes: default_max_body_audio(),
+            max_body_size_json_bytes: default_max_body_json(),
         }
     }
 }

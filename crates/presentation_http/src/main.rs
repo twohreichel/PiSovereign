@@ -30,6 +30,7 @@ use presentation_http::{
 use tokio::{net::TcpListener, signal};
 use tower_http::{
     cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
     trace::TraceLayer,
 };
 use tracing::{error, info, warn};
@@ -367,15 +368,23 @@ async fn main() -> anyhow::Result<()> {
 
     // Add middleware (order matters: first added = outermost)
     // Request ID layer is outermost to ensure all logs have the correlation ID
+    // Body limit is applied early to reject oversized requests fast
     // Security headers is innermost to ensure they're always added
     let app = app
         .layer(RequestIdLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer)
+        .layer(RequestBodyLimitLayer::new(
+            initial_config.server.max_body_size_json_bytes,
+        ))
         .layer(rate_limiter)
         .layer(auth_layer)
         .layer(SecurityHeadersLayer::new());
 
+    info!(
+        max_body_size_bytes = initial_config.server.max_body_size_json_bytes,
+        "📦 Request body size limit enabled"
+    );
     info!("🔒 Security headers middleware enabled");
 
     // Start server
