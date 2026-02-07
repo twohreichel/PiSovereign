@@ -1,6 +1,6 @@
 # External Services Setup
 
-> 🔗 Configure WhatsApp, Proton Mail, CalDAV, and OpenAI integrations
+> 🔗 Configure WhatsApp, Proton Mail, CalDAV, OpenAI, and Brave Search integrations
 
 This guide covers setting up all external services that integrate with PiSovereign.
 
@@ -23,6 +23,11 @@ This guide covers setting up all external services that integrate with PiSoverei
   - [Account Setup](#openai-account-setup)
   - [API Key Generation](#api-key-generation)
   - [PiSovereign Configuration](#pisovereign-openai-configuration)
+- [Brave Search API](#brave-search-api)
+  - [Account Setup](#brave-account-setup)
+  - [API Key Generation](#brave-api-key-generation)
+  - [PiSovereign Configuration](#pisovereign-websearch-configuration)
+  - [DuckDuckGo Fallback](#duckduckgo-fallback)
 
 ---
 
@@ -475,6 +480,148 @@ pisovereign-cli tts "Hello, this is a test"
 
 # Test STT (requires audio file)
 pisovereign-cli stt /path/to/audio.wav
+```
+
+---
+
+## Brave Search API
+
+Brave Search enables web search capabilities, allowing PiSovereign to search the internet and provide answers with source citations. DuckDuckGo is used as an automatic fallback if Brave Search is unavailable.
+
+### Brave Account Setup
+
+1. **Create Brave Account**
+   - Go to [brave.com/search/api](https://brave.com/search/api/)
+   - Click "Get Started" or "Sign Up"
+   - Create account with email
+
+2. **Choose Pricing Tier**
+   
+   | Plan | Queries/Month | Cost | Features |
+   |------|---------------|------|----------|
+   | Free | 2,000 | $0 | Basic web search |
+   | Base | 20,000 | $5/mo | Web search + spellcheck |
+   | Pro | 100,000 | $15/mo | All features |
+   
+   The **Free** tier is sufficient for personal use.
+
+3. **Accept Terms of Service**
+   - Review and accept the API Terms
+   - Complete account verification if required
+
+### Brave API Key Generation
+
+1. **Access API Dashboard**
+   - Go to [api.search.brave.com](https://api.search.brave.com/)
+   - Log in with your Brave account
+   - Navigate to "API Keys"
+
+2. **Create API Key**
+   - Click "Create API Key"
+   - Name: "PiSovereign"
+   - Copy the key immediately (shown only once)
+
+3. **Test API Key**
+   
+   ```bash
+   curl -s "https://api.search.brave.com/res/v1/web/search?q=test" \
+     -H "Accept: application/json" \
+     -H "X-Subscription-Token: YOUR_API_KEY" | jq '.web.results[0].title'
+   ```
+   
+   Expected output: The title of the first search result.
+
+### PiSovereign Websearch Configuration
+
+Store API key in Vault (recommended):
+
+```bash
+vault kv put secret/pisovereign/websearch \
+    brave_api_key="BSA-your-brave-api-key"
+```
+
+Or add directly to `config.toml` (less secure):
+
+```toml
+[websearch]
+# Brave Search API key (required for primary provider)
+api_key = "BSA-your-brave-api-key"
+
+# Maximum number of results to fetch per query (default: 5)
+max_results = 5
+
+# Request timeout in seconds (default: 30)
+timeout_secs = 30
+
+# Enable DuckDuckGo fallback if Brave fails (default: true)
+fallback_enabled = true
+
+# Safe search level: "off", "moderate", or "strict" (default: "moderate")
+safe_search = "moderate"
+
+# Country code for localized results (optional)
+# Examples: "US", "DE", "GB", "FR"
+country = "DE"
+
+# Language code for results (optional)
+# Examples: "en", "de", "fr", "es"
+language = "de"
+
+# Rate limit: maximum requests per minute (default: 60)
+rate_limit_rpm = 60
+
+# Cache TTL in minutes for search results (default: 15)
+cache_ttl_minutes = 15
+```
+
+### DuckDuckGo Fallback
+
+DuckDuckGo's Instant Answer API is automatically used when:
+
+- Brave Search API key is not configured
+- Brave Search returns an error
+- Brave Search rate limit is exceeded
+
+**Fallback Benefits:**
+- No API key required
+- Free and privacy-respecting
+- Provides quick answers for common queries
+
+**Fallback Limitations:**
+- Less comprehensive results
+- No full web search (instant answers only)
+- May not find results for complex queries
+
+To disable fallback and use only Brave:
+
+```toml
+[websearch]
+api_key = "BSA-your-brave-api-key"
+fallback_enabled = false
+```
+
+### Testing Web Search
+
+Test the web search integration:
+
+```bash
+# Test via CLI
+pisovereign-cli search "current weather in Berlin"
+
+# Test via WhatsApp
+# Send: "Search the web for Rust async patterns"
+# Or in German: "Suche im Internet nach Rust async patterns"
+```
+
+Expected response format:
+```
+Based on web search results for "Rust async patterns":
+
+[Summary from LLM with inline citations]
+
+Sources:
+[1] Title - example.com
+[2] Another Title - docs.rs
 ```
 
 ---

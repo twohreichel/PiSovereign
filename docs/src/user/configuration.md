@@ -390,6 +390,44 @@ min_tls_version = "1.2"
 # ca_cert_path = "/path/to/ca.pem"  # Optional custom CA
 ```
 
+### Web Search
+
+```toml
+[websearch]
+# Brave Search API key (required for primary provider)
+# Get your key at: https://brave.com/search/api/
+# api_key = "BSA-your-brave-api-key"
+
+# Maximum results per search query (default: 5)
+max_results = 5
+
+# Request timeout in seconds (default: 30)
+timeout_secs = 30
+
+# Enable DuckDuckGo fallback if Brave fails (default: true)
+fallback_enabled = true
+
+# Safe search: "off", "moderate", "strict" (default: "moderate")
+safe_search = "moderate"
+
+# Country code for localized results (e.g., "US", "DE", "GB")
+country = "DE"
+
+# Language code for results (e.g., "en", "de", "fr")
+language = "de"
+
+# Rate limit: requests per minute (default: 60)
+rate_limit_rpm = 60
+
+# Cache TTL in minutes (default: 15)
+cache_ttl_minutes = 15
+```
+
+> **Security Note:** Store the Brave API key in Vault rather than config.toml:
+> ```bash
+> vault kv put secret/pisovereign/websearch brave_api_key="BSA-..."
+> ```
+
 ---
 
 ## Model Selector

@@ -27,6 +27,7 @@
     - [Proton Mail Bridge](./user/external-services.md#proton-mail-bridge)
     - [CalDAV (Baïkal)](./user/external-services.md#caldav-baïkal)
     - [OpenAI API](./user/external-services.md#openai-api)
+    - [Brave Search API](./user/external-services.md#brave-search-api)
 - [Troubleshooting](./user/troubleshooting.md)
 
 ---
