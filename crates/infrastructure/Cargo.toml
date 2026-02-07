@@ -12,6 +12,7 @@ workspace = true
 domain.workspace = true
 application.workspace = true
 ai_core.workspace = true
+ai_speech.workspace = true
 integration_proton.workspace = true
 integration_caldav.workspace = true
 integration_weather.workspace = true
