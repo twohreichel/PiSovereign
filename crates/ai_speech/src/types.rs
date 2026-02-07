@@ -3,6 +3,7 @@
 //! Contains data structures for audio data, formats, transcriptions, and voice information.
 
 use std::fmt;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -105,10 +106,13 @@ impl AudioFormat {
 }
 
 /// Container for audio data with metadata
+///
+/// Uses `Arc<[u8]>` internally for efficient cloning without copying
+/// the audio bytes, enabling zero-copy sharing between fallback providers.
 #[derive(Debug, Clone)]
 pub struct AudioData {
-    /// Raw audio bytes
-    data: Vec<u8>,
+    /// Raw audio bytes (shared via Arc for efficient cloning)
+    data: Arc<[u8]>,
     /// Audio format
     format: AudioFormat,
     /// Duration in milliseconds (if known)
@@ -120,9 +124,20 @@ pub struct AudioData {
 impl AudioData {
     /// Create new audio data
     #[must_use]
-    pub const fn new(data: Vec<u8>, format: AudioFormat) -> Self {
+    pub fn new(data: Vec<u8>, format: AudioFormat) -> Self {
         Self {
-            data,
+            data: Arc::from(data),
+            format,
+            duration_ms: None,
+            sample_rate: None,
+        }
+    }
+
+    /// Create audio data from a slice (copies the data into Arc)
+    #[must_use]
+    pub fn from_slice(data: &[u8], format: AudioFormat) -> Self {
+        Self {
+            data: Arc::from(data),
             format,
             duration_ms: None,
             sample_rate: None,
@@ -131,14 +146,14 @@ impl AudioData {
 
     /// Create audio data with duration
     #[must_use]
-    pub const fn with_duration(mut self, duration_ms: u64) -> Self {
+    pub fn with_duration(mut self, duration_ms: u64) -> Self {
         self.duration_ms = Some(duration_ms);
         self
     }
 
     /// Create audio data with sample rate
     #[must_use]
-    pub const fn with_sample_rate(mut self, sample_rate: u32) -> Self {
+    pub fn with_sample_rate(mut self, sample_rate: u32) -> Self {
         self.sample_rate = Some(sample_rate);
         self
     }
@@ -149,10 +164,13 @@ impl AudioData {
         &self.data
     }
 
-    /// Consume and return the raw audio bytes
+    /// Consume and return the raw audio bytes as Vec
+    ///
+    /// This creates a copy of the data. If you only need a reference,
+    /// use `data()` instead to avoid copying.
     #[must_use]
     pub fn into_data(self) -> Vec<u8> {
-        self.data
+        self.data.to_vec()
     }
 
     /// Get the audio format
