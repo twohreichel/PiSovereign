@@ -121,22 +121,23 @@ cli *ARGS:
 
 # === COVERAGE ===
 
-# Generate code coverage report (requires cargo-llvm-cov)
-# Install with: cargo install cargo-llvm-cov
+# Generate code coverage report (requires cargo-tarpaulin)
+# Install with: cargo install cargo-tarpaulin
 coverage:
     @echo "📊 Generating coverage report..."
-    cargo llvm-cov --all-features --workspace --html
-    @echo "📊 Report generated at target/llvm-cov/html/index.html"
+    cargo tarpaulin --all-features --workspace --out Html --output-dir target/coverage
+    @echo "📊 Report generated at target/coverage/tarpaulin-report.html"
 
 # Generate coverage report and open in browser
 coverage-open:
-    cargo llvm-cov --all-features --workspace --html --open
+    cargo tarpaulin --all-features --workspace --out Html --output-dir target/coverage
+    open target/coverage/tarpaulin-report.html
 
 # Generate LCOV format for CI/Codecov
 coverage-lcov:
-    cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
-    @echo "📊 LCOV report generated at lcov.info"
+    cargo tarpaulin --all-features --workspace --out Lcov --output-dir target/coverage
+    @echo "📊 LCOV report generated at target/coverage/lcov.info"
 
 # Show coverage summary in terminal
 coverage-summary:
-    cargo llvm-cov --all-features --workspace
+    cargo tarpaulin --all-features --workspace
