@@ -276,7 +276,9 @@ impl AgentService {
             },
 
             // Commands that require approval - should not reach here without approval
-            AgentCommand::CreateCalendarEvent { .. } | AgentCommand::SendEmail { .. } => {
+            AgentCommand::CreateCalendarEvent { .. }
+            | AgentCommand::UpdateCalendarEvent { .. }
+            | AgentCommand::SendEmail { .. } => {
                 Err(ApplicationError::ApprovalRequired(command.description()))
             },
 

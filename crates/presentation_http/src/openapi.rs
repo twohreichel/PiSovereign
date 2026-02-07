@@ -157,6 +157,16 @@ pub enum AgentCommandSchema {
         duration_minutes: Option<u32>,
         location: Option<String>,
     },
+    /// Update an existing calendar event
+    #[schema(rename = "update_calendar_event")]
+    UpdateCalendarEvent {
+        event_id: String,
+        date: Option<String>,
+        time: Option<String>,
+        title: Option<String>,
+        duration_minutes: Option<u32>,
+        location: Option<String>,
+    },
     /// Summarize inbox
     #[schema(rename = "summarize_inbox")]
     SummarizeInbox {

@@ -34,6 +34,24 @@ pub enum AgentCommand {
         location: Option<String>,
     },
 
+    /// Update an existing calendar event
+    UpdateCalendarEvent {
+        /// Event ID to update
+        event_id: String,
+        /// New event date (None = keep existing)
+        date: Option<NaiveDate>,
+        /// New event start time (None = keep existing)
+        time: Option<NaiveTime>,
+        /// New event title/summary (None = keep existing)
+        title: Option<String>,
+        /// New duration in minutes (None = keep existing)
+        duration_minutes: Option<u32>,
+        /// New attendees (None = keep existing)
+        attendees: Option<Vec<EmailAddress>>,
+        /// New location (None = keep existing)
+        location: Option<String>,
+    },
+
     /// Get a summary of the inbox
     SummarizeInbox {
         /// Number of recent emails to summarize (defaults to 10)
@@ -117,6 +135,7 @@ impl AgentCommand {
             self,
             Self::SendEmail { .. }
                 | Self::CreateCalendarEvent { .. }
+                | Self::UpdateCalendarEvent { .. }
                 | Self::System(SystemCommand::ReloadConfig | SystemCommand::SwitchModel { .. })
         )
     }
@@ -132,6 +151,14 @@ impl AgentCommand {
             },
             Self::CreateCalendarEvent { title, date, .. } => {
                 format!("Create event '{title}' on {date}")
+            },
+            Self::UpdateCalendarEvent {
+                event_id, title, ..
+            } => {
+                let title_str = title
+                    .as_deref()
+                    .map_or_else(|| "(no title change)".to_string(), |t| format!("'{t}'"));
+                format!("Update event {event_id} to {title_str}")
             },
             Self::SummarizeInbox { count, .. } => {
                 format!("Summarize inbox (last {} emails)", count.unwrap_or(10))

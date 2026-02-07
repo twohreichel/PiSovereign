@@ -153,6 +153,87 @@ impl CalendarService {
             .map_err(map_error)
     }
 
+    /// Update an existing calendar event
+    ///
+    /// All parameters except `event_id` are optional - only provided values will be updated.
+    /// The existing event is first fetched to preserve unchanged fields.
+    #[instrument(skip(self))]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn update_event(
+        &self,
+        event_id: &str,
+        new_title: Option<&str>,
+        new_date: Option<NaiveDate>,
+        new_time: Option<NaiveTime>,
+        new_duration_minutes: Option<u32>,
+        new_location: Option<&str>,
+        new_attendees: Option<&[String]>,
+    ) -> Result<(), ApplicationError> {
+        info!(event_id, "Updating event");
+
+        // Fetch existing event to preserve unchanged fields
+        let existing = self
+            .calendar_port
+            .get_event(event_id)
+            .await
+            .map_err(map_error)?;
+
+        // Build new event with updated or existing values
+        let title = new_title.unwrap_or(&existing.title);
+
+        // Handle date/time - if new values provided, use them; otherwise parse from existing
+        let (start, end) = if new_date.is_some() || new_time.is_some() {
+            // Need to reconstruct start/end
+            let date = new_date.unwrap_or_else(|| {
+                // Parse date from existing start (RFC3339 format)
+                chrono::DateTime::parse_from_rfc3339(&existing.start)
+                    .map(|dt| dt.naive_local().date())
+                    .unwrap_or_else(|_| chrono::Local::now().date_naive())
+            });
+
+            let time = new_time.unwrap_or_else(|| {
+                chrono::DateTime::parse_from_rfc3339(&existing.start)
+                    .map(|dt| dt.naive_local().time())
+                    .unwrap_or_else(|_| NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"))
+            });
+
+            let duration = new_duration_minutes.unwrap_or_else(|| {
+                // Calculate existing duration
+                if let (Ok(start_dt), Ok(end_dt)) = (
+                    chrono::DateTime::parse_from_rfc3339(&existing.start),
+                    chrono::DateTime::parse_from_rfc3339(&existing.end),
+                ) {
+                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                    let mins = (end_dt - start_dt).num_minutes().unsigned_abs() as u32;
+                    mins
+                } else {
+                    60 // Default duration
+                }
+            });
+
+            let end_time = time + chrono::Duration::minutes(i64::from(duration));
+            (format!("{date}T{time}"), format!("{date}T{end_time}"))
+        } else {
+            (existing.start.clone(), existing.end.clone())
+        };
+
+        let mut event = NewEvent::new(title, &start, &end);
+
+        // Set location: new value, or existing if not provided
+        let location = new_location.or(existing.location.as_deref());
+        if let Some(loc) = location {
+            event = event.with_location(loc);
+        }
+
+        // Set attendees: new list, or existing if not provided
+        event.attendees = new_attendees.map_or_else(|| existing.attendees.clone(), Vec::from);
+
+        self.calendar_port
+            .update_event(event_id, &event)
+            .await
+            .map_err(map_error)
+    }
+
     /// Get calendar brief for briefing service
     #[instrument(skip(self))]
     pub async fn get_calendar_brief(

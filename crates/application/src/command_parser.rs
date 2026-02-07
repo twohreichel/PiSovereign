@@ -16,6 +16,7 @@ Analyze the user input and extract the intent as JSON.
 Possible intents:
 - "morning_briefing": Request morning briefing (e.g., "What's on today?", "Briefing")
 - "create_calendar_event": Create appointment (requires: date, time, title)
+- "update_calendar_event": Update existing appointment (requires: event_id; optional: date, time, title, location, duration_minutes)
 - "summarize_inbox": Email summary (e.g., "What's new?", "Mails")
 - "draft_email": Draft email (requires: to, body; optional: subject)
 - "send_email": Send email (requires: draft_id)
@@ -25,9 +26,12 @@ Possible intents:
 Reply ONLY with valid JSON:
 {
   "intent": "<intent_name>",
-  "date": "YYYY-MM-DD" (optional, only for appointments),
-  "time": "HH:MM" (optional, only for appointments),
+  "date": "YYYY-MM-DD" (optional, for appointments),
+  "time": "HH:MM" (optional, for appointments),
   "title": "..." (optional, for appointments),
+  "event_id": "..." (required for update_calendar_event),
+  "location": "..." (optional, for appointments),
+  "duration_minutes": 60 (optional, for appointments),
   "to": "email@example.com" (optional, for emails),
   "subject": "..." (optional, for emails),
   "body": "..." (optional, for emails),
@@ -41,6 +45,8 @@ Reply ONLY with valid JSON:
 Examples:
 - "Briefing for tomorrow" → {"intent":"morning_briefing","date":"2025-02-02"}
 - "Appointment tomorrow 14:00 Team Meeting" → {"intent":"create_calendar_event","date":"2025-02-02","time":"14:00","title":"Team Meeting"}
+- "Move event abc123 to 15:00" → {"intent":"update_calendar_event","event_id":"abc123","time":"15:00"}
+- "Change meeting xyz to next Monday" → {"intent":"update_calendar_event","event_id":"xyz","date":"2025-02-10"}
 - "Summarize my mails" → {"intent":"summarize_inbox"}
 - "Search the internet for Rust async patterns" → {"intent":"web_search","query":"Rust async patterns"}
 - "Google what the weather is in Paris" → {"intent":"web_search","query":"weather Paris"}
@@ -73,6 +79,12 @@ struct ParsedIntent {
     query: Option<String>,
     #[serde(default)]
     max_results: Option<u32>,
+    #[serde(default)]
+    event_id: Option<String>,
+    #[serde(default)]
+    location: Option<String>,
+    #[serde(default)]
+    duration_minutes: Option<u32>,
 }
 
 /// Parser for converting natural language to AgentCommand
@@ -454,6 +466,45 @@ impl CommandParser {
                     duration_minutes: Some(60),
                     attendees: None,
                     location: None,
+                })
+            },
+
+            "update_calendar_event" => {
+                let event_id = parsed
+                    .event_id
+                    .as_ref()
+                    .ok_or("Missing event_id for calendar event update")?
+                    .clone();
+
+                // Parse optional date
+                let date = parsed
+                    .date
+                    .as_ref()
+                    .map(|d| {
+                        NaiveDate::parse_from_str(d, "%Y-%m-%d")
+                            .map_err(|e| format!("Invalid date format: {e}"))
+                    })
+                    .transpose()?;
+
+                // Parse optional time
+                let time = parsed
+                    .time
+                    .as_ref()
+                    .map(|t| {
+                        NaiveTime::parse_from_str(t, "%H:%M")
+                            .or_else(|_| NaiveTime::parse_from_str(t, "%H:%M:%S"))
+                            .map_err(|e| format!("Invalid time format: {e}"))
+                    })
+                    .transpose()?;
+
+                Ok(AgentCommand::UpdateCalendarEvent {
+                    event_id,
+                    date,
+                    time,
+                    title: parsed.title.clone(),
+                    duration_minutes: parsed.duration_minutes,
+                    attendees: None,
+                    location: parsed.location.clone(),
                 })
             },
 

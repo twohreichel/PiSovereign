@@ -345,6 +345,7 @@ fn command_type_name(command: &AgentCommand) -> String {
         AgentCommand::DraftEmail { .. } => "draft_email",
         AgentCommand::SendEmail { .. } => "send_email",
         AgentCommand::CreateCalendarEvent { .. } => "create_calendar_event",
+        AgentCommand::UpdateCalendarEvent { .. } => "update_calendar_event",
         AgentCommand::Echo { .. } => "echo",
         AgentCommand::Help { .. } => "help",
         AgentCommand::System(sys) => match sys {

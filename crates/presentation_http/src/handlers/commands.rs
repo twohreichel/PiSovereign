@@ -147,6 +147,7 @@ fn command_type_name(cmd: &AgentCommand) -> String {
     match cmd {
         AgentCommand::MorningBriefing { .. } => "morning_briefing",
         AgentCommand::CreateCalendarEvent { .. } => "create_calendar_event",
+        AgentCommand::UpdateCalendarEvent { .. } => "update_calendar_event",
         AgentCommand::SummarizeInbox { .. } => "summarize_inbox",
         AgentCommand::DraftEmail { .. } => "draft_email",
         AgentCommand::SendEmail { .. } => "send_email",
