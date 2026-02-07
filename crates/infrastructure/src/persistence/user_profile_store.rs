@@ -49,7 +49,14 @@ fn row_to_profile(row: &Row<'_>) -> Result<UserProfile, rusqlite::Error> {
         _ => None,
     };
 
-    let timezone = Timezone::new(timezone_str);
+    // Validate timezone; fall back to UTC if invalid (for legacy data)
+    let timezone = Timezone::try_new(&timezone_str).unwrap_or_else(|_| {
+        tracing::warn!(
+            timezone = %timezone_str,
+            "Invalid timezone in database, falling back to UTC"
+        );
+        Timezone::utc()
+    });
 
     let created_at = DateTime::parse_from_rfc3339(&created_at_str)
         .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
@@ -251,7 +258,7 @@ mod tests {
 
         let user_id = UserId::new();
         let location = GeoLocation::new(52.52, 13.405).unwrap();
-        let timezone = Timezone::new("Europe/Berlin");
+        let timezone = Timezone::try_new("Europe/Berlin").expect("valid tz");
         let profile = UserProfile::with_defaults(user_id, location, timezone);
 
         // Save profile
@@ -297,7 +304,7 @@ mod tests {
 
         // Update with location
         let location = GeoLocation::new(48.8566, 2.3522).unwrap();
-        let new_tz = Timezone::new("Europe/Paris");
+        let new_tz = Timezone::try_new("Europe/Paris").expect("valid tz");
         let updated_profile = UserProfile::with_defaults(profile.id(), location, new_tz);
         store.save(&updated_profile).await.unwrap();
 
@@ -354,7 +361,7 @@ mod tests {
 
         let user_id = UserId::new();
         let mut profile = UserProfile::new(user_id);
-        profile.update_timezone(Timezone::new("America/New_York"));
+        profile.update_timezone(Timezone::try_new("America/New_York").expect("valid tz"));
 
         // Save profile
         store.save(&profile).await.unwrap();
@@ -421,7 +428,7 @@ mod tests {
         store.save(&profile).await.unwrap();
 
         // Update timezone
-        let new_tz = Timezone::new("Europe/London");
+        let new_tz = Timezone::try_new("Europe/London").expect("valid tz");
         let updated = store.update_timezone(&profile.id(), &new_tz).await.unwrap();
         assert!(updated);
 
@@ -437,7 +444,7 @@ mod tests {
         let store = SqliteUserProfileStore::new(pool);
 
         let user_id = UserId::new();
-        let timezone = Timezone::new("Asia/Tokyo");
+        let timezone = Timezone::try_new("Asia/Tokyo").expect("valid tz");
         let updated = store.update_timezone(&user_id, &timezone).await.unwrap();
         assert!(!updated);
     }
