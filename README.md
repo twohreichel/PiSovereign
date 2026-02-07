@@ -1,9 +1,12 @@
 # PiSovereign
 
-[![CI](https://github.com/twohreichel/PiSovereign/actions/workflows/ci.yml/badge.svg)](https://github.com/twohreichel/PiSovereign/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/twohreichel/PiSovereign/graph/badge.svg)](https://codecov.io/gh/twohreichel/PiSovereign)
+[![CI](https://img.shields.io/github/actions/workflow/status/twohreichel/PiSovereign/ci.yml?branch=main&label=CI&logo=github)](https://github.com/twohreichel/PiSovereign/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/twohreichel/PiSovereign/graph/badge.svg)](https://codecov.io/gh/twohreichel/PiSovereign)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-online-blue)](https://twohreichel.github.io/PiSovereign/)
+[![Rust](https://img.shields.io/badge/Rust-1.75+-orange?logo=rust)](https://www.rust-lang.org/)
+[![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-5-C51A4A?logo=raspberrypi)](https://www.raspberrypi.com/)
+[![AI](https://img.shields.io/badge/AI-Hailo--10H-blueviolet?logo=ai)](https://hailo.ai/)
 
 🤖 **Local, private AI assistant for Raspberry Pi 5 + Hailo-10H AI HAT+ 2**
 
