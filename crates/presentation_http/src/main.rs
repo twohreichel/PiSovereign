@@ -305,6 +305,7 @@ async fn main() -> anyhow::Result<()> {
         agent_service: Arc::new(agent_service),
         approval_service,
         health_service: Some(Arc::new(health_service)),
+        voice_message_service: None, // VoiceMessageService not yet configured in main
         config: reloadable_config,
         metrics,
     };

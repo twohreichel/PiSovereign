@@ -451,6 +451,7 @@ fn create_test_state_with_health_service(
         agent_service: Arc::new(AgentService::new(inference)),
         approval_service: None,
         health_service: Some(Arc::new(health_service)),
+        voice_message_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }
@@ -467,6 +468,7 @@ fn create_test_state() -> AppState {
         agent_service: Arc::new(AgentService::new(inference)),
         approval_service: None,
         health_service: None,
+        voice_message_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }
@@ -483,6 +485,7 @@ fn create_unhealthy_test_state() -> AppState {
         agent_service: Arc::new(AgentService::new(inference)),
         approval_service: None,
         health_service: None,
+        voice_message_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }
@@ -992,6 +995,7 @@ mod degraded_mode_tests {
             agent_service: Arc::new(AgentService::new(inference)),
             approval_service: None,
             health_service: None,
+            voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         }
@@ -1288,6 +1292,7 @@ mod workflow_tests {
             agent_service: Arc::new(agent_service),
             approval_service: None,
             health_service: None,
+            voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
@@ -1311,6 +1316,7 @@ mod workflow_tests {
             agent_service: Arc::new(agent_service),
             approval_service: None,
             health_service: None,
+            voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
@@ -1616,6 +1622,7 @@ mod workflow_tests {
             agent_service,
             approval_service: None,
             health_service: None,
+            voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
@@ -1684,6 +1691,7 @@ mod workflow_tests {
             agent_service,
             approval_service: None,
             health_service: None,
+            voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
@@ -1722,6 +1730,7 @@ mod workflow_tests {
             agent_service,
             approval_service: None,
             health_service: None,
+            voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
@@ -1887,6 +1896,7 @@ mod health_service_e2e_tests {
             agent_service: Arc::new(AgentService::new(inference)),
             approval_service: None,
             health_service: Some(Arc::new(health_service)),
+            voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
         };
