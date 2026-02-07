@@ -64,6 +64,14 @@ pub enum AgentCommand {
         question: String,
     },
 
+    /// Search the web for information
+    WebSearch {
+        /// The search query
+        query: String,
+        /// Maximum number of results to return (defaults to 5)
+        max_results: Option<u32>,
+    },
+
     /// System-level commands
     System(SystemCommand),
 
@@ -138,6 +146,11 @@ impl AgentCommand {
             Self::Ask { question } => {
                 let preview: String = question.chars().take(50).collect();
                 format!("Ask: {preview}...")
+            },
+            Self::WebSearch { query, max_results } => {
+                let preview: String = query.chars().take(50).collect();
+                let results = max_results.unwrap_or(5);
+                format!("Web search: {preview}... (max {results} results)")
             },
             Self::System(cmd) => match cmd {
                 SystemCommand::Status => "System status".to_string(),
@@ -472,5 +485,49 @@ mod tests {
         };
         let json = serde_json::to_string(&cmd).unwrap();
         assert!(json.contains("help"));
+    }
+
+    // === WebSearch Tests ===
+
+    #[test]
+    fn web_search_does_not_require_approval() {
+        let cmd = AgentCommand::WebSearch {
+            query: "rust programming".to_string(),
+            max_results: Some(5),
+        };
+        assert!(!cmd.requires_approval());
+    }
+
+    #[test]
+    fn web_search_description() {
+        let cmd = AgentCommand::WebSearch {
+            query: "rust programming".to_string(),
+            max_results: Some(3),
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("Web search"));
+        assert!(desc.contains("rust programming"));
+        assert!(desc.contains("max 3 results"));
+    }
+
+    #[test]
+    fn web_search_description_default_results() {
+        let cmd = AgentCommand::WebSearch {
+            query: "test query".to_string(),
+            max_results: None,
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("max 5 results"));
+    }
+
+    #[test]
+    fn web_search_command_serializes_correctly() {
+        let cmd = AgentCommand::WebSearch {
+            query: "rust".to_string(),
+            max_results: Some(5),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("web_search"));
+        assert!(json.contains("rust"));
     }
 }

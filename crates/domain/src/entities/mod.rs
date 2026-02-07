@@ -8,6 +8,7 @@ mod conversation;
 mod email_draft;
 mod user_profile;
 mod voice_message;
+mod web_search;
 
 pub use approval_request::{ApprovalError, ApprovalRequest, ApprovalStatus};
 pub use audit_entry::{AuditBuilder, AuditEntry, AuditEventType};
@@ -19,3 +20,4 @@ pub use conversation::Conversation;
 pub use email_draft::{DEFAULT_DRAFT_TTL_DAYS, PersistedEmailDraft};
 pub use user_profile::UserProfile;
 pub use voice_message::{AudioFormat, VoiceMessage, VoiceMessageSource, VoiceMessageStatus};
+pub use web_search::{SearchResult, WebSearchResponse};
