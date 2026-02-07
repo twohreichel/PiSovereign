@@ -815,7 +815,10 @@ mod tests {
         };
 
         let integration_config = config.to_websearch_config();
-        assert_eq!(integration_config.brave_api_key, Some("test-key".to_string()));
+        assert_eq!(
+            integration_config.brave_api_key,
+            Some("test-key".to_string())
+        );
         assert_eq!(integration_config.max_results, 8);
         assert_eq!(integration_config.timeout_secs, 60);
         assert!(!integration_config.fallback_enabled);

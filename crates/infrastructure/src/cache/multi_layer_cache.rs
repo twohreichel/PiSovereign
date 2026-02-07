@@ -309,4 +309,274 @@ mod tests {
         // Non-existent key
         assert!(!cache.exists("missing").await.unwrap());
     }
+
+    // =========================================================================
+    // Concurrency Tests
+    // =========================================================================
+
+    mod concurrency_tests {
+        use super::*;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[tokio::test]
+        async fn concurrent_reads_same_key() {
+            let cache = Arc::new(create_multi_cache());
+            let data = TestData {
+                value: "shared".to_string(),
+            };
+
+            // Pre-populate the cache
+            cache
+                .set("shared_key", &data, Duration::from_secs(60))
+                .await
+                .unwrap();
+
+            // Spawn 100 concurrent read tasks
+            let mut handles = Vec::new();
+            for _ in 0..100 {
+                let cache_clone = Arc::clone(&cache);
+                handles.push(tokio::spawn(async move {
+                    let result: Option<TestData> = cache_clone.get("shared_key").await.unwrap();
+                    result
+                }));
+            }
+
+            // All reads should succeed and return the same value
+            for handle in handles {
+                let result = handle.await.unwrap();
+                assert_eq!(
+                    result,
+                    Some(TestData {
+                        value: "shared".to_string()
+                    })
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn concurrent_writes_different_keys() {
+            let cache = Arc::new(create_multi_cache());
+
+            // Spawn 50 concurrent write tasks, each with a different key
+            let mut handles = Vec::new();
+            for i in 0..50 {
+                let cache_clone = Arc::clone(&cache);
+                handles.push(tokio::spawn(async move {
+                    let data = TestData {
+                        value: format!("value_{i}"),
+                    };
+                    cache_clone
+                        .set(&format!("key_{i}"), &data, Duration::from_secs(60))
+                        .await
+                }));
+            }
+
+            // All writes should succeed
+            for handle in handles {
+                handle.await.unwrap().unwrap();
+            }
+
+            // Verify all values are present
+            for i in 0..50 {
+                let result: Option<TestData> = cache.get(&format!("key_{i}")).await.unwrap();
+                assert_eq!(
+                    result,
+                    Some(TestData {
+                        value: format!("value_{i}")
+                    })
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn concurrent_reads_and_writes_same_key() {
+            let cache = Arc::new(create_multi_cache());
+            let success_count = Arc::new(AtomicUsize::new(0));
+
+            // Initial value
+            cache
+                .set(
+                    "contested_key",
+                    &TestData {
+                        value: "initial".to_string(),
+                    },
+                    Duration::from_secs(60),
+                )
+                .await
+                .unwrap();
+
+            // Spawn mixed read/write tasks
+            let mut handles = Vec::new();
+
+            // 50 readers
+            for _ in 0..50 {
+                let cache_clone = Arc::clone(&cache);
+                let counter = Arc::clone(&success_count);
+                handles.push(tokio::spawn(async move {
+                    let result: Result<Option<TestData>, _> =
+                        cache_clone.get("contested_key").await;
+                    if result.is_ok() {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                    }
+                }));
+            }
+
+            // 25 writers
+            for i in 0..25 {
+                let cache_clone = Arc::clone(&cache);
+                let counter = Arc::clone(&success_count);
+                handles.push(tokio::spawn(async move {
+                    let data = TestData {
+                        value: format!("updated_{i}"),
+                    };
+                    let result = cache_clone
+                        .set("contested_key", &data, Duration::from_secs(60))
+                        .await;
+                    if result.is_ok() {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                    }
+                }));
+            }
+
+            // Wait for all tasks
+            for handle in handles {
+                let _ = handle.await;
+            }
+
+            // All operations should have succeeded (75 total)
+            assert_eq!(success_count.load(Ordering::SeqCst), 75);
+
+            // Final value should exist (we don't care which write won)
+            let final_result: Option<TestData> = cache.get("contested_key").await.unwrap();
+            assert!(final_result.is_some());
+        }
+
+        #[tokio::test]
+        async fn concurrent_invalidations() {
+            let cache = Arc::new(create_multi_cache());
+
+            // Pre-populate with many keys
+            for i in 0..100 {
+                cache
+                    .set(
+                        &format!("batch_{i}"),
+                        &TestData {
+                            value: format!("v{i}"),
+                        },
+                        Duration::from_secs(60),
+                    )
+                    .await
+                    .unwrap();
+            }
+
+            // Spawn concurrent invalidation tasks
+            let mut handles = Vec::new();
+            for i in 0..50 {
+                let cache_clone = Arc::clone(&cache);
+                handles.push(tokio::spawn(async move {
+                    cache_clone.invalidate(&format!("batch_{i}")).await
+                }));
+            }
+
+            // All invalidations should succeed
+            for handle in handles {
+                handle.await.unwrap().unwrap();
+            }
+
+            // First 50 keys should be gone
+            for i in 0..50 {
+                assert!(!cache.exists(&format!("batch_{i}")).await.unwrap());
+            }
+
+            // Remaining 50 keys should still exist
+            for i in 50..100 {
+                assert!(cache.exists(&format!("batch_{i}")).await.unwrap());
+            }
+        }
+
+        #[tokio::test]
+        async fn concurrent_pattern_invalidation() {
+            let cache = Arc::new(create_multi_cache());
+
+            // Pre-populate with keys in different namespaces
+            for i in 0..50 {
+                cache
+                    .set(&format!("ns_a:{i}"), &i, Duration::from_secs(60))
+                    .await
+                    .unwrap();
+                cache
+                    .set(&format!("ns_b:{i}"), &i, Duration::from_secs(60))
+                    .await
+                    .unwrap();
+            }
+
+            // Concurrent pattern invalidations for different namespaces
+            let cache_a = Arc::clone(&cache);
+            let cache_b = Arc::clone(&cache);
+
+            let (count_a, count_b) = tokio::join!(
+                async move { cache_a.invalidate_pattern("ns_a:*").await.unwrap() },
+                async move { cache_b.invalidate_pattern("ns_b:*").await.unwrap() }
+            );
+
+            assert_eq!(count_a, 50);
+            assert_eq!(count_b, 50);
+
+            // All keys should be gone
+            for i in 0..50 {
+                assert!(!cache.exists(&format!("ns_a:{i}")).await.unwrap());
+                assert!(!cache.exists(&format!("ns_b:{i}")).await.unwrap());
+            }
+        }
+
+        #[tokio::test]
+        async fn l2_promotion_under_concurrent_access() {
+            let l1 = MokaCache::new();
+            let l2 = RedbCache::in_memory().unwrap();
+
+            // Only populate L2
+            for i in 0..20 {
+                l2.set(
+                    &format!("promote_{i}"),
+                    &TestData {
+                        value: format!("l2_value_{i}"),
+                    },
+                    Duration::from_secs(60),
+                )
+                .await
+                .unwrap();
+            }
+
+            let cache = Arc::new(MultiLayerCache::new(l1, l2));
+
+            // Concurrent reads should all trigger promotion without race conditions
+            let mut handles = Vec::new();
+            for i in 0..20 {
+                let cache_clone = Arc::clone(&cache);
+                handles.push(tokio::spawn(async move {
+                    // Multiple reads of the same key to stress promotion
+                    for _ in 0..5 {
+                        let result: Option<TestData> =
+                            cache_clone.get(&format!("promote_{i}")).await.unwrap();
+                        assert!(result.is_some());
+                    }
+                }));
+            }
+
+            for handle in handles {
+                handle.await.unwrap();
+            }
+
+            // After promotion, all keys should be in L1
+            for i in 0..20 {
+                let l1_result: Option<TestData> =
+                    cache.l1().get(&format!("promote_{i}")).await.unwrap();
+                assert!(
+                    l1_result.is_some(),
+                    "Key promote_{i} should be promoted to L1"
+                );
+            }
+        }
+    }
 }

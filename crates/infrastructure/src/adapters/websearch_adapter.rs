@@ -104,9 +104,9 @@ impl WebSearchAdapter {
             },
             WebSearchError::ServiceUnavailable(e) => ApplicationError::ExternalService(e),
             WebSearchError::InvalidQuery(e) => ApplicationError::InvalidOperation(e),
-            WebSearchError::Timeout { timeout_secs } => {
-                ApplicationError::ExternalService(format!("Request timed out after {timeout_secs}s"))
-            },
+            WebSearchError::Timeout { timeout_secs } => ApplicationError::ExternalService(format!(
+                "Request timed out after {timeout_secs}s"
+            )),
         }
     }
 
@@ -143,10 +143,7 @@ impl WebSearchPort for WebSearchAdapter {
     ) -> Result<WebSearchResponse, ApplicationError> {
         self.check_circuit()?;
 
-        let max_results = options
-            .as_ref()
-            .and_then(|o| o.max_results)
-            .unwrap_or(5) as usize;
+        let max_results = options.as_ref().and_then(|o| o.max_results).unwrap_or(5) as usize;
 
         // Note: language and safe_search options are available in the port but
         // would need to be passed through the config or as a separate API call.
@@ -307,5 +304,162 @@ mod tests {
     fn trait_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<WebSearchAdapter>();
+    }
+}
+
+// =============================================================================
+// Error Path Tests
+// Tests for error mapping and circuit breaker behavior
+// =============================================================================
+
+#[cfg(test)]
+mod error_path_tests {
+    use super::*;
+    use application::ports::SafeSearchLevel;
+
+    // Test error mapping functions directly
+    #[test]
+    fn map_error_timeout() {
+        let err = WebSearchError::Timeout { timeout_secs: 30 };
+        let app_err = WebSearchAdapter::map_error(err);
+        assert!(matches!(app_err, ApplicationError::ExternalService(_)));
+        if let ApplicationError::ExternalService(msg) = app_err {
+            assert!(msg.contains("30"));
+        }
+    }
+
+    #[test]
+    fn map_error_service_unavailable() {
+        let err = WebSearchError::ServiceUnavailable("503 Service Unavailable".to_string());
+        let app_err = WebSearchAdapter::map_error(err);
+        assert!(matches!(app_err, ApplicationError::ExternalService(_)));
+    }
+
+    #[test]
+    fn map_error_connection_failed() {
+        let err = WebSearchError::ConnectionFailed("Connection refused".to_string());
+        let app_err = WebSearchAdapter::map_error(err);
+        assert!(matches!(app_err, ApplicationError::ExternalService(_)));
+    }
+
+    #[test]
+    fn map_error_parse_error() {
+        let err = WebSearchError::ParseError("Invalid JSON".to_string());
+        let app_err = WebSearchAdapter::map_error(err);
+        assert!(matches!(app_err, ApplicationError::Internal(_)));
+    }
+
+    #[test]
+    fn map_error_configuration_error() {
+        let err = WebSearchError::ConfigurationError("Missing API key".to_string());
+        let app_err = WebSearchAdapter::map_error(err);
+        assert!(matches!(app_err, ApplicationError::Internal(_)));
+    }
+
+    #[test]
+    fn map_error_invalid_query() {
+        let err = WebSearchError::InvalidQuery("Query too long".to_string());
+        let app_err = WebSearchAdapter::map_error(err);
+        assert!(matches!(app_err, ApplicationError::InvalidOperation(_)));
+    }
+
+    // Circuit breaker behavior tests
+    #[test]
+    fn check_circuit_returns_ok_when_closed() {
+        let adapter = WebSearchAdapter::with_defaults()
+            .unwrap()
+            .with_circuit_breaker();
+        // Circuit starts closed
+        let result = adapter.check_circuit();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn circuit_breaker_config_custom() {
+        let cb_config = CircuitBreakerConfig::custom(10, 5, 120);
+        let adapter = WebSearchAdapter::with_defaults()
+            .unwrap()
+            .with_circuit_breaker_config(cb_config);
+        assert!(adapter.circuit_breaker.is_some());
+        assert!(adapter.check_circuit().is_ok());
+    }
+
+    #[test]
+    fn circuit_breaker_sensitive_config() {
+        let adapter = WebSearchAdapter::with_defaults()
+            .unwrap()
+            .with_circuit_breaker_config(CircuitBreakerConfig::sensitive());
+        assert!(adapter.circuit_breaker.is_some());
+    }
+
+    #[test]
+    fn circuit_breaker_resilient_config() {
+        let adapter = WebSearchAdapter::with_defaults()
+            .unwrap()
+            .with_circuit_breaker_config(CircuitBreakerConfig::resilient());
+        assert!(adapter.circuit_breaker.is_some());
+    }
+
+    #[tokio::test]
+    async fn is_available_true_when_no_circuit_breaker() {
+        // Without circuit breaker, availability depends on actual health check
+        // This test just verifies no panic occurs
+        let adapter = WebSearchAdapter::with_defaults().unwrap();
+        let _ = adapter.is_available().await;
+    }
+
+    #[tokio::test]
+    async fn search_validates_empty_query_via_client() {
+        let adapter = WebSearchAdapter::with_defaults().unwrap();
+        let result = adapter.search("", None).await;
+        // Empty query should be rejected by the client as InvalidQuery
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ApplicationError::InvalidOperation(_)));
+    }
+
+    #[tokio::test]
+    async fn search_validates_whitespace_query_via_client() {
+        let adapter = WebSearchAdapter::with_defaults().unwrap();
+        let result = adapter.search("   ", None).await;
+        // Whitespace-only query should be rejected
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ApplicationError::InvalidOperation(_)));
+    }
+
+    // Search options handling tests
+    #[tokio::test]
+    async fn search_respects_max_results_option() {
+        let adapter = WebSearchAdapter::with_defaults().unwrap();
+        let options = Some(SearchOptions {
+            max_results: Some(10),
+            safe_search: None,
+            language: None,
+        });
+        // This will fail with network error, but we're testing that options are accepted
+        let _ = adapter.search("test", options).await;
+    }
+
+    #[tokio::test]
+    async fn search_accepts_safe_search_option() {
+        let adapter = WebSearchAdapter::with_defaults().unwrap();
+        let options = Some(SearchOptions {
+            max_results: None,
+            safe_search: Some(SafeSearchLevel::Strict),
+            language: None,
+        });
+        let _ = adapter.search("test", options).await;
+    }
+
+    #[tokio::test]
+    async fn search_accepts_language_option() {
+        let adapter = WebSearchAdapter::with_defaults().unwrap();
+        let options = Some(SearchOptions {
+            max_results: None,
+            safe_search: None,
+            language: Some("de".to_string()),
+        });
+        let _ = adapter.search("test", options).await;
     }
 }

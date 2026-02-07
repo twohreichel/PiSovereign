@@ -25,7 +25,13 @@ pub struct SearchResult {
 impl SearchResult {
     /// Create a new search result
     #[must_use]
-    pub const fn new(title: String, url: String, snippet: String, source: String, position: u32) -> Self {
+    pub const fn new(
+        title: String,
+        url: String,
+        snippet: String,
+        source: String,
+        position: u32,
+    ) -> Self {
         Self {
             title,
             url,
@@ -142,8 +148,7 @@ mod tests {
         SearchResult::new(
             "Rust Programming Language".to_string(),
             "https://www.rust-lang.org/learn".to_string(),
-            "Rust is a systems programming language focused on safety and performance."
-                .to_string(),
+            "Rust is a systems programming language focused on safety and performance.".to_string(),
             "www.rust-lang.org".to_string(),
             1,
         )
@@ -232,8 +237,11 @@ mod tests {
             WebSearchResponse::new("test".to_string(), vec![], "brave".to_string());
         assert!(!empty_response.has_results());
 
-        let response =
-            WebSearchResponse::new("test".to_string(), vec![sample_result()], "brave".to_string());
+        let response = WebSearchResponse::new(
+            "test".to_string(),
+            vec![sample_result()],
+            "brave".to_string(),
+        );
         assert!(response.has_results());
     }
 }

@@ -282,12 +282,14 @@ async fn main() -> anyhow::Result<()> {
 
         Commands::Openapi { format, output } => {
             let spec = match format {
-                OpenApiFormat::Json => ApiDoc::openapi()
-                    .to_pretty_json()
-                    .expect("Failed to serialize OpenAPI spec to JSON"),
-                OpenApiFormat::Yaml => ApiDoc::openapi()
-                    .to_yaml()
-                    .expect("Failed to serialize OpenAPI spec to YAML"),
+                OpenApiFormat::Json => ApiDoc::openapi().to_pretty_json().unwrap_or_else(|e| {
+                    println!("❌ Failed to serialize OpenAPI spec to JSON: {e}");
+                    std::process::exit(1);
+                }),
+                OpenApiFormat::Yaml => ApiDoc::openapi().to_yaml().unwrap_or_else(|e| {
+                    println!("❌ Failed to serialize OpenAPI spec to YAML: {e}");
+                    std::process::exit(1);
+                }),
             };
 
             match output {
@@ -297,7 +299,10 @@ async fn main() -> anyhow::Result<()> {
                         OpenApiFormat::Json => "JSON",
                         OpenApiFormat::Yaml => "YAML",
                     };
-                    eprintln!("📄 OpenAPI specification ({format_name}) written to: {}", path.display());
+                    println!(
+                        "📄 OpenAPI specification ({format_name}) written to: {}",
+                        path.display()
+                    );
                 },
                 None => {
                     println!("{spec}");

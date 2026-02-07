@@ -120,24 +120,25 @@ cli *ARGS:
     cargo run --bin pisovereign-cli -- {{ARGS}}
 
 # === COVERAGE ===
+# Uses .tarpaulin.toml for configuration (90% threshold, excludes, etc.)
 
 # Generate code coverage report (requires cargo-tarpaulin)
 # Install with: cargo install cargo-tarpaulin
 coverage:
     @echo "📊 Generating coverage report..."
-    cargo tarpaulin --all-features --workspace --out Html --output-dir target/coverage
+    cargo tarpaulin
     @echo "📊 Report generated at target/coverage/tarpaulin-report.html"
 
 # Generate coverage report and open in browser
 coverage-open:
-    cargo tarpaulin --all-features --workspace --out Html --output-dir target/coverage
+    cargo tarpaulin
     open target/coverage/tarpaulin-report.html
 
-# Generate LCOV format for CI/Codecov
+# Generate LCOV format only (for CI)
 coverage-lcov:
-    cargo tarpaulin --all-features --workspace --out Lcov --output-dir target/coverage
+    cargo tarpaulin --out Lcov
     @echo "📊 LCOV report generated at target/coverage/lcov.info"
 
-# Show coverage summary in terminal
+# Show coverage summary in terminal (no HTML)
 coverage-summary:
-    cargo tarpaulin --all-features --workspace
+    cargo tarpaulin --out Stdout

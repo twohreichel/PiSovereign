@@ -10,8 +10,7 @@ use crate::{
     command_parser::CommandParser,
     error::ApplicationError,
     ports::{
-        DraftStorePort, InferencePort, Task, TaskPort, UserProfileStore, WeatherPort,
-        WebSearchPort,
+        DraftStorePort, InferencePort, Task, TaskPort, UserProfileStore, WeatherPort, WebSearchPort,
     },
     services::briefing_service::WeatherSummary,
 };
@@ -889,9 +888,7 @@ impl AgentService {
         info!(query = %query, max_results = %max_results, "Performing web search");
 
         // Perform the search
-        let search_response = websearch_service
-            .search_for_llm(query, max_results)
-            .await?;
+        let search_response = websearch_service.search_for_llm(query, max_results).await?;
 
         // If no results, return early
         if search_response.contains("No web search results found") {
@@ -2083,9 +2080,11 @@ mod async_tests {
         use crate::ports::MockWebSearchPort;
 
         let mut mock_inference = MockInferenceEngine::new();
-        mock_inference
-            .expect_generate()
-            .returning(|_| Ok(mock_inference_result("Here is a summary with citations [1][2].")));
+        mock_inference.expect_generate().returning(|_| {
+            Ok(mock_inference_result(
+                "Here is a summary with citations [1][2].",
+            ))
+        });
 
         let mut mock_websearch = MockWebSearchPort::new();
         mock_websearch
@@ -2126,7 +2125,9 @@ mod async_tests {
         mock_websearch
             .expect_search_for_llm()
             .returning(|query, _| Ok(format!("No web search results found for: {query}")));
-        mock_websearch.expect_provider_name().return_const("mock".to_string());
+        mock_websearch
+            .expect_provider_name()
+            .return_const("mock".to_string());
 
         let service = AgentService::new(Arc::new(mock_inference))
             .with_websearch_service(Arc::new(mock_websearch));
@@ -2150,8 +2151,8 @@ mod async_tests {
         let mock = MockInferenceEngine::new();
         let mock_websearch = MockWebSearchPort::new();
 
-        let service = AgentService::new(Arc::new(mock))
-            .with_websearch_service(Arc::new(mock_websearch));
+        let service =
+            AgentService::new(Arc::new(mock)).with_websearch_service(Arc::new(mock_websearch));
 
         let debug = format!("{service:?}");
         assert!(debug.contains("has_websearch: true"));

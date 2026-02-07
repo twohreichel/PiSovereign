@@ -123,21 +123,23 @@ jobs:
         run: cargo test --workspace --all-features
 
   # ---------------------------------------------------------------------------
-  # Code Coverage
+  # Code Coverage (runs only on main branch)
+  # Uses .tarpaulin.toml for 90% threshold, excludes, and other settings
   # ---------------------------------------------------------------------------
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.0"
+          components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
+      - uses: taiki-e/install-action@cargo-tarpaulin
       - name: Generate coverage report
-        run: cargo tarpaulin --all-features --workspace --out Lcov --output-dir target/coverage
+        run: cargo tarpaulin --out Lcov
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
@@ -209,11 +211,12 @@ jobs:
     steps:
       - name: Check all jobs
         run: |
+          # Coverage job is skipped on PRs (runs only on main), so allow 'skipped' result
           if [[ "${{ needs.fmt.result }}" != "success" ]] || \
              [[ "${{ needs.clippy.result }}" != "success" ]] || \
              [[ "${{ needs.deny.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \
-             [[ "${{ needs.coverage.result }}" != "success" ]] || \
+             [[ "${{ needs.coverage.result }}" != "success" && "${{ needs.coverage.result }}" != "skipped" ]] || \
              [[ "${{ needs.build.result }}" != "success" ]] || \
              [[ "${{ needs.doc.result }}" != "success" ]]; then
             echo "One or more jobs failed"

@@ -399,9 +399,12 @@ impl CommandParser {
         }
 
         // Handle { ... } directly
+        // Ensure start < end to avoid panics with malformed input like "} {"
         if let Some(start) = response.find('{') {
             if let Some(end) = response.rfind('}') {
-                return &response[start..=end];
+                if start <= end {
+                    return &response[start..=end];
+                }
             }
         }
 
@@ -1208,7 +1211,9 @@ mod async_tests {
     #[test]
     fn parses_web_search_german_suche_im_internet() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("suche im internet nach Rust Programmierung").unwrap();
+        let cmd = parser
+            .parse_quick("suche im internet nach Rust Programmierung")
+            .unwrap();
 
         let AgentCommand::WebSearch { query, max_results } = cmd else {
             unreachable!("Expected WebSearch command")
@@ -1220,7 +1225,9 @@ mod async_tests {
     #[test]
     fn parses_web_search_german_recherchiere() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("recherchiere quantum computing").unwrap();
+        let cmd = parser
+            .parse_quick("recherchiere quantum computing")
+            .unwrap();
 
         let AgentCommand::WebSearch { query, max_results } = cmd else {
             unreachable!("Expected WebSearch command")
@@ -1232,7 +1239,9 @@ mod async_tests {
     #[test]
     fn parses_web_search_german_google() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("google nach aktuelle Nachrichten").unwrap();
+        let cmd = parser
+            .parse_quick("google nach aktuelle Nachrichten")
+            .unwrap();
 
         let AgentCommand::WebSearch { query, max_results } = cmd else {
             unreachable!("Expected WebSearch command")
@@ -1244,7 +1253,9 @@ mod async_tests {
     #[test]
     fn parses_web_search_german_finde_heraus() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("finde heraus was die beste Programmiersprache ist").unwrap();
+        let cmd = parser
+            .parse_quick("finde heraus was die beste Programmiersprache ist")
+            .unwrap();
 
         let AgentCommand::WebSearch { query, max_results } = cmd else {
             unreachable!("Expected WebSearch command")
@@ -1256,7 +1267,9 @@ mod async_tests {
     #[test]
     fn parses_web_search_english_search_the_web() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("search the web for AI trends 2025").unwrap();
+        let cmd = parser
+            .parse_quick("search the web for AI trends 2025")
+            .unwrap();
 
         let AgentCommand::WebSearch { query, max_results } = cmd else {
             unreachable!("Expected WebSearch command")
@@ -1280,7 +1293,9 @@ mod async_tests {
     #[test]
     fn parses_web_search_german_was_sagt_das_internet() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("was sagt das internet zu klimawandel").unwrap();
+        let cmd = parser
+            .parse_quick("was sagt das internet zu klimawandel")
+            .unwrap();
 
         let AgentCommand::WebSearch { query, max_results } = cmd else {
             unreachable!("Expected WebSearch command")
@@ -1295,5 +1310,163 @@ mod async_tests {
         // Just the keyword without a query should return None
         let cmd = parser.parse_quick("google");
         assert!(cmd.is_none());
+    }
+
+    // =========================================================================
+    // Property-Based Tests (proptest)
+    // =========================================================================
+
+    mod proptest_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        // Strategy for generating valid date strings
+        fn valid_date_strategy() -> impl Strategy<Value = String> {
+            (2020u32..2030, 1u32..13, 1u32..29)
+                .prop_map(|(year, month, day)| format!("{year:04}-{month:02}-{day:02}"))
+        }
+
+        // Strategy for generating valid time strings
+        fn valid_time_strategy() -> impl Strategy<Value = String> {
+            (0u32..24, 0u32..60).prop_map(|(hour, minute)| format!("{hour:02}:{minute:02}"))
+        }
+
+        // Strategy for generating valid email addresses
+        fn valid_email_strategy() -> impl Strategy<Value = String> {
+            ("[a-z]{3,10}", "[a-z]{2,8}", "[a-z]{2,4}")
+                .prop_map(|(local, domain, tld)| format!("{local}@{domain}.{tld}"))
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(100))]
+
+            // Test: extract_json should never panic on arbitrary input
+            #[test]
+            fn extract_json_never_panics(input in ".*") {
+                let _ = CommandParser::extract_json(&input);
+            }
+
+            // Test: parse_llm_response should handle malformed JSON gracefully
+            #[test]
+            fn parse_llm_response_handles_garbage(garbage in "[^{}]*") {
+                let parser = CommandParser::new();
+                let result = parser.parse_llm_response(&garbage, "fallback");
+                // Should either succeed (with fallback) or return an error, never panic
+                assert!(result.is_ok() || result.is_err());
+            }
+
+            // Test: Valid morning_briefing JSON should always parse
+            #[test]
+            fn valid_morning_briefing_parses(date in valid_date_strategy()) {
+                let parser = CommandParser::new();
+                let json = format!(r#"{{"intent":"morning_briefing","date":"{date}"}}"#);
+                let result = parser.parse_llm_response(&json, "");
+                prop_assert!(result.is_ok());
+            }
+
+            // Test: Valid web_search JSON should always parse
+            #[test]
+            fn valid_web_search_parses(query in "[a-zA-Z0-9 ]{1,50}") {
+                let parser = CommandParser::new();
+                let escaped_query = query.replace('\\', "\\\\").replace('"', "\\\"");
+                let json = format!(r#"{{"intent":"web_search","query":"{escaped_query}"}}"#);
+                let result = parser.parse_llm_response(&json, "");
+                prop_assert!(result.is_ok());
+            }
+
+            // Test: Valid calendar event JSON should always parse
+            #[test]
+            fn valid_calendar_event_parses(
+                date in valid_date_strategy(),
+                time in valid_time_strategy(),
+                title in "[a-zA-Z0-9 ]{1,30}"
+            ) {
+                let parser = CommandParser::new();
+                let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
+                let json = format!(
+                    r#"{{"intent":"create_calendar_event","date":"{date}","time":"{time}","title":"{escaped_title}"}}"#
+                );
+                let result = parser.parse_llm_response(&json, "");
+                prop_assert!(result.is_ok());
+            }
+
+            // Test: Valid draft_email JSON should always parse
+            #[test]
+            fn valid_draft_email_parses(
+                email in valid_email_strategy(),
+                body in "[a-zA-Z0-9 ]{1,100}"
+            ) {
+                let parser = CommandParser::new();
+                let escaped_body = body.replace('\\', "\\\\").replace('"', "\\\"");
+                let json = format!(
+                    r#"{{"intent":"draft_email","to":"{email}","body":"{escaped_body}"}}"#
+                );
+                let result = parser.parse_llm_response(&json, "");
+                prop_assert!(result.is_ok());
+            }
+
+            // Test: Invalid date formats should be rejected
+            #[test]
+            fn invalid_date_format_rejected(
+                day in 1u32..32,
+                month in 1u32..13,
+                year in 2020u32..2030
+            ) {
+                let parser = CommandParser::new();
+                // DD-MM-YYYY format (wrong order)
+                let json = format!(
+                    r#"{{"intent":"create_calendar_event","date":"{day:02}-{month:02}-{year}","time":"14:00","title":"Test"}}"#
+                );
+                let result = parser.parse_llm_response(&json, "");
+                prop_assert!(result.is_err());
+            }
+
+            // Test: Unknown intents should fallback to Ask
+            #[test]
+            fn unknown_intent_falls_back_to_ask(intent in "[a-z_]{5,20}") {
+                // Skip known intents
+                prop_assume!(
+                    intent != "morning_briefing"
+                        && intent != "create_calendar_event"
+                        && intent != "summarize_inbox"
+                        && intent != "draft_email"
+                        && intent != "send_email"
+                        && intent != "web_search"
+                        && intent != "ask"
+                );
+
+                let parser = CommandParser::new();
+                let json = format!(r#"{{"intent":"{intent}"}}"#);
+                let result = parser.parse_llm_response(&json, "original input");
+                prop_assert!(result.is_ok());
+
+                if let Ok(AgentCommand::Ask { question }) = result {
+                    prop_assert_eq!(question, "original input");
+                } else {
+                    prop_assert!(false, "Expected Ask command for unknown intent");
+                }
+            }
+
+            // Test: parse_quick should never panic on arbitrary input
+            #[test]
+            fn parse_quick_never_panics(input in ".*") {
+                let parser = CommandParser::new();
+                let _ = parser.parse_quick(&input);
+            }
+
+            // Test: JSON with extra fields should still parse (forward compatibility)
+            #[test]
+            fn extra_fields_ignored(
+                extra_key in "[a-z]{3,10}",
+                extra_value in "[a-z0-9]{1,20}"
+            ) {
+                let parser = CommandParser::new();
+                let json = format!(
+                    r#"{{"intent":"morning_briefing","{extra_key}":"{extra_value}"}}"#
+                );
+                let result = parser.parse_llm_response(&json, "");
+                prop_assert!(result.is_ok());
+            }
+        }
     }
 }
