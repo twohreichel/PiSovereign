@@ -94,6 +94,124 @@ export PISOVEREIGN_INFERENCE_BASE_URL=http://localhost:11434
 export PISOVEREIGN_INFERENCE_DEFAULT_MODEL=qwen2.5-1.5b-instruct
 ```
 
+## Production Deployment
+
+### TLS with Traefik (Recommended)
+
+PiSovereign includes a production-ready Docker Compose configuration with automatic TLS via Let's Encrypt:
+
+```bash
+# Copy production config
+cp docker-compose.production.yml docker-compose.override.yml
+
+# Set your domain
+export DOMAIN=pisovereign.example.com
+export ACME_EMAIL=admin@example.com
+
+# Start with production profile
+docker compose --profile production up -d
+```
+
+**Features:**
+- Automatic TLS certificate provisioning
+- HTTP → HTTPS redirect
+- Modern TLS 1.2+ only
+- Security headers (HSTS, X-Frame-Options, etc.)
+
+For manual TLS termination, see [docs/security.md](docs/security.md).
+
+### Database Backup
+
+The CLI includes a backup command for SQLite database protection:
+
+```bash
+# Local backup
+pisovereign-cli backup --output /backup/pisovereign-$(date +%Y%m%d).db
+
+# Backup to S3-compatible storage
+pisovereign-cli backup \
+  --s3-bucket my-backups \
+  --s3-region eu-central-1 \
+  --s3-endpoint https://s3.example.com \
+  --s3-access-key "$AWS_ACCESS_KEY_ID" \
+  --s3-secret-key "$AWS_SECRET_ACCESS_KEY"
+```
+
+**Recommended backup strategy:**
+- Daily backups with 7-day retention
+- Weekly backups with 4-week retention
+- Monthly backups with 12-month retention
+
+Example cron job:
+```bash
+# Daily backup at 2 AM
+0 2 * * * /usr/local/bin/pisovereign-cli backup --output /backup/daily/db-$(date +\%Y\%m\%d).db
+```
+
+### Monitoring Stack
+
+PiSovereign exposes comprehensive metrics for production monitoring:
+
+**Prometheus Metrics (`/metrics/prometheus`):**
+- `http_requests_total` – Request counts by status
+- `http_response_time_p50/p90/p99_ms` – Latency percentiles
+- `inference_requests_total` – Inference success/failure
+- `inference_time_ms_bucket` – Inference latency histogram
+
+**Health Endpoints:**
+- `/health` – Liveness probe (always OK if running)
+- `/ready` – Readiness with inference engine status
+- `/ready/all` – Extended health with latency percentiles
+
+**Grafana Dashboard:**
+
+Import the pre-built dashboard from `grafana/dashboards/pisovereign.json`:
+
+```bash
+# Start monitoring stack
+docker compose up -d grafana prometheus
+
+# Access Grafana at http://localhost:3001 (admin/admin)
+```
+
+**Log Aggregation:**
+
+For centralized logging with Loki:
+
+```bash
+# Configure promtail (see grafana/promtail.yml)
+docker compose up -d loki promtail
+
+# JSON logging enabled by default in production
+export PISOVEREIGN_LOG_FORMAT=json
+```
+
+Log rotation is configured in `grafana/logrotate.d/pisovereign`.
+
+### Scheduled Tasks
+
+PiSovereign includes a cron-based scheduler for recurring tasks:
+
+```rust
+// Example: Weather refresh every 30 minutes
+scheduler.add_task("weather-refresh", "0 */30 * * * *", || async {
+    // Fetch and cache weather data
+    Ok(())
+}).await?;
+
+// Example: Daily briefing at 7 AM
+scheduler.add_task("morning-briefing", "0 0 7 * * *", || async {
+    // Generate and send briefing
+    Ok(())
+}).await?;
+```
+
+**Predefined schedules:**
+- `EVERY_30_MINUTES` – Weather data refresh
+- `EVERY_15_MINUTES` – Calendar sync
+- `DAILY_7AM` – Morning briefing
+- `DAILY_MIDNIGHT` – Database backup
+
 ## Performance Features
 
 ### Multi-Layer Caching
