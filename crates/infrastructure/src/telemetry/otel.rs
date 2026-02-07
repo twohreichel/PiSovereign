@@ -1,6 +1,7 @@
 //! OpenTelemetry initialization and configuration
 //!
 //! Provides tracing pipeline setup for exporting traces to Tempo or other OTLP endpoints.
+//! Features graceful degradation when the collector is unavailable.
 
 use std::time::Duration;
 
@@ -11,7 +12,7 @@ use opentelemetry_sdk::{
     trace::{Sampler, TracerProvider as SdkTracerProvider},
 };
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -45,6 +46,14 @@ pub struct TelemetryConfig {
     /// Log level filter (e.g., "info", "debug", "pisovereign=debug,tower_http=info")
     #[serde(default = "default_log_filter")]
     pub log_filter: String,
+
+    /// Whether to fall back to console-only logging if OTLP export fails
+    ///
+    /// When `true` (default), if the OpenTelemetry collector is unavailable,
+    /// the application will continue with console-only logging instead of failing.
+    /// Set to `false` to require a working collector in production environments.
+    #[serde(default = "default_graceful_fallback")]
+    pub graceful_fallback: bool,
 }
 
 const fn default_sampling_ratio() -> f64 {
@@ -71,6 +80,10 @@ fn default_log_filter() -> String {
     "pisovereign=info,tower_http=info".to_string()
 }
 
+const fn default_graceful_fallback() -> bool {
+    true
+}
+
 impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
@@ -81,6 +94,7 @@ impl Default for TelemetryConfig {
             export_timeout_secs: default_export_timeout(),
             max_batch_size: default_max_batch_size(),
             log_filter: default_log_filter(),
+            graceful_fallback: default_graceful_fallback(),
         }
     }
 }
@@ -154,60 +168,87 @@ pub fn init_telemetry(config: &TelemetryConfig) -> Result<TelemetryGuard, Teleme
         return Ok(TelemetryGuard { provider: None });
     }
 
-    // Build OTLP exporter
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
+    // Try to build OTLP exporter - may fail if collector is unavailable
+    let exporter_result = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(&config.endpoint)
         .with_timeout(Duration::from_secs(config.export_timeout_secs))
-        .build()
-        .map_err(|e| TelemetryError::Exporter(e.to_string()))?;
-
-    // Build sampler
-    let sampler = if (config.sampling_ratio - 1.0).abs() < f64::EPSILON {
-        Sampler::AlwaysOn
-    } else if config.sampling_ratio <= 0.0 {
-        Sampler::AlwaysOff
-    } else {
-        Sampler::TraceIdRatioBased(config.sampling_ratio)
-    };
-
-    // Build resource with service name
-    let resource = Resource::new(vec![opentelemetry::KeyValue::new(
-        "service.name",
-        config.service_name.clone(),
-    )]);
-
-    // Build tracer provider using new API
-    let provider = SdkTracerProvider::builder()
-        .with_batch_exporter(exporter, runtime::Tokio)
-        .with_sampler(sampler)
-        .with_resource(resource)
         .build();
 
-    // Get tracer
-    let tracer = provider.tracer(config.service_name.clone());
+    match exporter_result {
+        Ok(exporter) => {
+            // Build sampler
+            let sampler = if (config.sampling_ratio - 1.0).abs() < f64::EPSILON {
+                Sampler::AlwaysOn
+            } else if config.sampling_ratio <= 0.0 {
+                Sampler::AlwaysOff
+            } else {
+                Sampler::TraceIdRatioBased(config.sampling_ratio)
+            };
 
-    // Create OpenTelemetry layer
-    let otel_layer = OpenTelemetryLayer::new(tracer);
+            // Build resource with service name
+            let resource = Resource::new(vec![opentelemetry::KeyValue::new(
+                "service.name",
+                config.service_name.clone(),
+            )]);
 
-    // Initialize subscriber
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(fmt_layer)
-        .with(otel_layer)
-        .try_init()
-        .map_err(|e: tracing_subscriber::util::TryInitError| TelemetryError::Init(e.to_string()))?;
+            // Build tracer provider using new API
+            let provider = SdkTracerProvider::builder()
+                .with_batch_exporter(exporter, runtime::Tokio)
+                .with_sampler(sampler)
+                .with_resource(resource)
+                .build();
 
-    info!(
-        endpoint = %config.endpoint,
-        service = %config.service_name,
-        sampling = %config.sampling_ratio,
-        "Telemetry initialized with OTLP export"
-    );
+            // Get tracer
+            let tracer = provider.tracer(config.service_name.clone());
 
-    Ok(TelemetryGuard {
-        provider: Some(provider),
-    })
+            // Create OpenTelemetry layer
+            let otel_layer = OpenTelemetryLayer::new(tracer);
+
+            // Initialize subscriber with OTLP export
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt_layer)
+                .with(otel_layer)
+                .try_init()
+                .map_err(|e: tracing_subscriber::util::TryInitError| {
+                    TelemetryError::Init(e.to_string())
+                })?;
+
+            info!(
+                endpoint = %config.endpoint,
+                service = %config.service_name,
+                sampling = %config.sampling_ratio,
+                "Telemetry initialized with OTLP export"
+            );
+
+            Ok(TelemetryGuard {
+                provider: Some(provider),
+            })
+        }
+        Err(e) => {
+            if config.graceful_fallback {
+                // Fall back to console-only logging
+                warn!(
+                    endpoint = %config.endpoint,
+                    error = %e,
+                    "OTLP collector unavailable, falling back to console-only logging"
+                );
+
+                tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(fmt_layer)
+                    .try_init()
+                    .map_err(|e| TelemetryError::Init(e.to_string()))?;
+
+                info!("Telemetry initialized (OTLP fallback to console)");
+                Ok(TelemetryGuard { provider: None })
+            } else {
+                // Fail if collector is required
+                Err(TelemetryError::Exporter(e.to_string()))
+            }
+        }
+    }
 }
 
 /// Error type for telemetry initialization
@@ -239,6 +280,7 @@ mod tests {
         assert!((config.sampling_ratio - 1.0).abs() < f64::EPSILON);
         assert_eq!(config.export_timeout_secs, 30);
         assert_eq!(config.max_batch_size, 512);
+        assert!(config.graceful_fallback);
     }
 
     #[test]
@@ -251,6 +293,7 @@ mod tests {
             export_timeout_secs: 60,
             max_batch_size: 1024,
             log_filter: "debug".to_string(),
+            graceful_fallback: false,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -262,6 +305,15 @@ mod tests {
         assert!((parsed.sampling_ratio - 0.5).abs() < f64::EPSILON);
         assert_eq!(parsed.export_timeout_secs, 60);
         assert_eq!(parsed.max_batch_size, 1024);
+        assert!(!parsed.graceful_fallback);
+    }
+
+    #[test]
+    fn test_config_graceful_fallback_default() {
+        // When graceful_fallback is not specified in JSON, it should default to true
+        let json = r#"{"enabled": true, "endpoint": "http://tempo:4317"}"#;
+        let parsed: TelemetryConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.graceful_fallback);
     }
 
     #[test]

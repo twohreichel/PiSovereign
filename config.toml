@@ -136,6 +136,10 @@ sample_ratio = 1.0
 # export_timeout_secs = 30
 # Maximum batch size for trace export
 # max_batch_size = 512
+# Graceful fallback to console-only logging if OTLP collector is unavailable.
+# When true (default), the application starts with console logging if the collector
+# cannot be reached. Set to false to require a working collector in production.
+# graceful_fallback = true
 
 # ==============================
 # Degraded Mode / Resilience
