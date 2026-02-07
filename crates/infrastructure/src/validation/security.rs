@@ -124,7 +124,7 @@ impl SecurityValidator {
         Self::check_cors_configuration(config, is_production, &mut warnings);
 
         // Check for plaintext secrets
-        Self::check_plaintext_secrets(config, &mut warnings);
+        Self::check_plaintext_secrets(config, is_production, &mut warnings);
 
         // Check API key configuration
         Self::check_api_key_configuration(config, is_production, &mut warnings);
@@ -229,7 +229,18 @@ impl SecurityValidator {
         }
     }
 
-    fn check_plaintext_secrets(config: &AppConfig, warnings: &mut Vec<SecurityWarning>) {
+    fn check_plaintext_secrets(
+        config: &AppConfig,
+        is_production: bool,
+        warnings: &mut Vec<SecurityWarning>,
+    ) {
+        // Severity is Critical in production to block startup with plaintext secrets
+        let severity = if is_production {
+            WarningSeverity::Critical
+        } else {
+            WarningSeverity::Warning
+        };
+
         // Check for plaintext API keys that look like they might be real
         if let Some(ref api_key) = config.security.api_key {
             if !api_key.is_empty()
@@ -237,10 +248,11 @@ impl SecurityValidator {
                 && !api_key.contains("your-")
                 && !api_key.contains("example")
             {
-                warnings.push(SecurityWarning::warning(
+                warnings.push(SecurityWarning::new(
+                    severity,
                     "SEC003",
                     "API key appears to be stored in plaintext configuration",
-                    "Use environment variables (PISOVEREIGN_SECURITY_API_KEY) for secrets",
+                    "Use environment variables (PISOVEREIGN_SECURITY_API_KEY) or hash with `pisovereign-cli hash-api-key`",
                 ));
             }
         }
@@ -248,20 +260,22 @@ impl SecurityValidator {
         // Check WhatsApp secrets
         if let Some(ref token) = config.whatsapp.access_token {
             if !token.is_empty() && !token.starts_with("${") && !token.contains("your-") {
-                warnings.push(SecurityWarning::warning(
+                warnings.push(SecurityWarning::new(
+                    severity,
                     "SEC004",
                     "WhatsApp access token appears to be stored in plaintext",
-                    "Use environment variables for WhatsApp credentials",
+                    "Use environment variables (PISOVEREIGN_WHATSAPP_ACCESS_TOKEN) for WhatsApp credentials",
                 ));
             }
         }
 
         if let Some(ref secret) = config.whatsapp.app_secret {
             if !secret.is_empty() && !secret.starts_with("${") && !secret.contains("your-") {
-                warnings.push(SecurityWarning::warning(
+                warnings.push(SecurityWarning::new(
+                    severity,
                     "SEC005",
                     "WhatsApp app secret appears to be stored in plaintext",
-                    "Use environment variables for WhatsApp credentials",
+                    "Use environment variables (PISOVEREIGN_WHATSAPP_APP_SECRET) for WhatsApp credentials",
                 ));
             }
         }
@@ -405,7 +419,41 @@ mod tests {
 
         let warnings = SecurityValidator::validate(&config);
 
-        assert!(warnings.iter().any(|w| w.code == "SEC003"));
+        let warning = warnings.iter().find(|w| w.code == "SEC003").unwrap();
+        assert_eq!(warning.severity, WarningSeverity::Warning);
+    }
+
+    #[test]
+    fn validate_critical_plaintext_api_key_in_production() {
+        let mut config = create_production_config();
+        config.security.api_key = Some("sk-real-secret-key-12345".to_string());
+
+        let warnings = SecurityValidator::validate(&config);
+
+        let warning = warnings.iter().find(|w| w.code == "SEC003").unwrap();
+        assert!(warning.is_critical());
+    }
+
+    #[test]
+    fn validate_critical_plaintext_whatsapp_token_in_production() {
+        let mut config = create_production_config();
+        config.whatsapp.access_token = Some("EAABwzLixnjYBO...".to_string());
+
+        let warnings = SecurityValidator::validate(&config);
+
+        let warning = warnings.iter().find(|w| w.code == "SEC004").unwrap();
+        assert!(warning.is_critical());
+    }
+
+    #[test]
+    fn validate_critical_plaintext_whatsapp_secret_in_production() {
+        let mut config = create_production_config();
+        config.whatsapp.app_secret = Some("abc123def456".to_string());
+
+        let warnings = SecurityValidator::validate(&config);
+
+        let warning = warnings.iter().find(|w| w.code == "SEC005").unwrap();
+        assert!(warning.is_critical());
     }
 
     #[test]
