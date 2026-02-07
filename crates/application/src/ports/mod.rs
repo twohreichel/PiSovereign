@@ -15,6 +15,7 @@ mod inference_port;
 mod message_gateway_port;
 mod model_registry_port;
 mod secret_store;
+mod speech_port;
 mod task_port;
 mod user_profile_store;
 mod weather_port;
@@ -35,6 +36,9 @@ pub use inference_port::{InferencePort, InferenceResult, InferenceStream, Stream
 pub use message_gateway_port::{IncomingMessage, MessageGatewayPort, OutgoingMessage};
 pub use model_registry_port::{ModelCapabilities, ModelCapability, ModelInfo, ModelRegistryPort};
 pub use secret_store::{SecretStoreExt, SecretStorePort};
+#[cfg(test)]
+pub use speech_port::MockSpeechPort;
+pub use speech_port::{SpeechPort, SynthesisResult, TranscriptionResult, VoiceConfig, VoiceInfo};
 #[cfg(test)]
 pub use task_port::MockTaskPort;
 pub use task_port::{NewTask, Task, TaskPort, TaskQuery, TaskStatus, TaskUpdates};
