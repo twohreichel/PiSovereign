@@ -229,7 +229,7 @@ fn default_whisper_model() -> PathBuf {
     PathBuf::from("/usr/local/share/whisper/ggml-base.bin")
 }
 
-fn default_threads() -> u32 {
+const fn default_threads() -> u32 {
     4 // Good default for Raspberry Pi 5
 }
 
@@ -245,11 +245,11 @@ fn default_piper_voice() -> String {
     "de_DE-thorsten-medium".to_string()
 }
 
-fn default_length_scale() -> f32 {
+const fn default_length_scale() -> f32 {
     1.0
 }
 
-fn default_sentence_silence() -> f32 {
+const fn default_sentence_silence() -> f32 {
     0.2
 }
 
@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(config.default_voice, "nova");
         assert_eq!(config.output_format, AudioFormat::Opus);
         assert_eq!(config.timeout_ms, 30000);
-        assert_eq!(config.max_audio_duration_ms, 120000);
+        assert_eq!(config.max_audio_duration_ms, 120_000);
         assert!(config.include_transcription);
         assert_eq!(config.response_format, ResponseFormatPreference::Mirror);
         assert!((config.speed - 1.0).abs() < f32::EPSILON);

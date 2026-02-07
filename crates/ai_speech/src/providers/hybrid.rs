@@ -77,17 +77,11 @@ impl HybridSpeechProvider {
         cloud_config: Option<SpeechConfig>,
         hybrid_config: HybridConfig,
     ) -> Result<Self, SpeechError> {
-        let local_stt = local_stt_config
-            .map(WhisperCppProvider::new)
-            .transpose()?;
+        let local_stt = local_stt_config.map(WhisperCppProvider::new).transpose()?;
 
-        let local_tts = local_tts_config
-            .map(PiperProvider::new)
-            .transpose()?;
+        let local_tts = local_tts_config.map(PiperProvider::new).transpose()?;
 
-        let cloud = cloud_config
-            .map(OpenAISpeechProvider::new)
-            .transpose()?;
+        let cloud = cloud_config.map(OpenAISpeechProvider::new).transpose()?;
 
         // Validate that we have at least one provider
         if local_stt.is_none() && local_tts.is_none() && cloud.is_none() {
@@ -185,11 +179,11 @@ impl SpeechToText for HybridSpeechProvider {
                         Ok(result) => {
                             info!("Local STT succeeded");
                             return Ok(result);
-                        }
+                        },
                         Err(e) => {
                             warn!("Local STT failed: {e}");
                             last_error = Some(e);
-                        }
+                        },
                     }
                 } else {
                     debug!("Local STT not available");
@@ -205,19 +199,18 @@ impl SpeechToText for HybridSpeechProvider {
                     Ok(result) => {
                         info!("Cloud STT succeeded (fallback)");
                         return Ok(result);
-                    }
+                    },
                     Err(e) => {
                         warn!("Cloud STT failed: {e}");
                         last_error = Some(e);
-                    }
+                    },
                 }
             }
         }
 
         // All providers failed
-        Err(last_error.unwrap_or_else(|| {
-            SpeechError::NotAvailable("No STT provider available".to_string())
-        }))
+        Err(last_error
+            .unwrap_or_else(|| SpeechError::NotAvailable("No STT provider available".to_string())))
     }
 
     #[instrument(skip(self, audio), fields(format = ?audio.format(), language = %language))]
@@ -233,15 +226,18 @@ impl SpeechToText for HybridSpeechProvider {
             if let Some(ref local) = self.local_stt {
                 if local.is_available().await {
                     debug!("Attempting local STT with language hint: {}", language);
-                    match local.transcribe_with_language(audio.clone(), language).await {
+                    match local
+                        .transcribe_with_language(audio.clone(), language)
+                        .await
+                    {
                         Ok(result) => {
                             info!("Local STT succeeded");
                             return Ok(result);
-                        }
+                        },
                         Err(e) => {
                             warn!("Local STT failed: {e}");
                             last_error = Some(e);
-                        }
+                        },
                     }
                 }
             }
@@ -255,18 +251,17 @@ impl SpeechToText for HybridSpeechProvider {
                     Ok(result) => {
                         info!("Cloud STT succeeded (fallback)");
                         return Ok(result);
-                    }
+                    },
                     Err(e) => {
                         warn!("Cloud STT failed: {e}");
                         last_error = Some(e);
-                    }
+                    },
                 }
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            SpeechError::NotAvailable("No STT provider available".to_string())
-        }))
+        Err(last_error
+            .unwrap_or_else(|| SpeechError::NotAvailable("No STT provider available".to_string())))
     }
 
     async fn is_available(&self) -> bool {
@@ -302,11 +297,11 @@ impl TextToSpeech for HybridSpeechProvider {
                         Ok(result) => {
                             info!("Local TTS succeeded");
                             return Ok(result);
-                        }
+                        },
                         Err(e) => {
                             warn!("Local TTS failed: {e}");
                             last_error = Some(e);
-                        }
+                        },
                     }
                 } else {
                     debug!("Local TTS not available");
@@ -322,18 +317,17 @@ impl TextToSpeech for HybridSpeechProvider {
                     Ok(result) => {
                         info!("Cloud TTS succeeded (fallback)");
                         return Ok(result);
-                    }
+                    },
                     Err(e) => {
                         warn!("Cloud TTS failed: {e}");
                         last_error = Some(e);
-                    }
+                    },
                 }
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            SpeechError::NotAvailable("No TTS provider available".to_string())
-        }))
+        Err(last_error
+            .unwrap_or_else(|| SpeechError::NotAvailable("No TTS provider available".to_string())))
     }
 
     #[instrument(skip(self, text), fields(text_len = text.len(), format = ?format))]
@@ -354,11 +348,11 @@ impl TextToSpeech for HybridSpeechProvider {
                         Ok(result) => {
                             info!("Local TTS succeeded");
                             return Ok(result);
-                        }
+                        },
                         Err(e) => {
                             warn!("Local TTS failed: {e}");
                             last_error = Some(e);
-                        }
+                        },
                     }
                 }
             }
@@ -372,18 +366,17 @@ impl TextToSpeech for HybridSpeechProvider {
                     Ok(result) => {
                         info!("Cloud TTS succeeded (fallback)");
                         return Ok(result);
-                    }
+                    },
                     Err(e) => {
                         warn!("Cloud TTS failed: {e}");
                         last_error = Some(e);
-                    }
+                    },
                 }
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            SpeechError::NotAvailable("No TTS provider available".to_string())
-        }))
+        Err(last_error
+            .unwrap_or_else(|| SpeechError::NotAvailable("No TTS provider available".to_string())))
     }
 
     async fn list_voices(&self) -> Result<Vec<VoiceInfo>, SpeechError> {
@@ -393,10 +386,8 @@ impl TextToSpeech for HybridSpeechProvider {
         if let Some(ref local) = self.local_tts {
             if let Ok(voices) = local.list_voices().await {
                 for mut voice in voices {
-                    voice.description = Some(format!(
-                        "[Local] {}",
-                        voice.description.unwrap_or_default()
-                    ));
+                    voice.description =
+                        Some(format!("[Local] {}", voice.description.unwrap_or_default()));
                     all_voices.push(voice);
                 }
             }
@@ -407,10 +398,8 @@ impl TextToSpeech for HybridSpeechProvider {
             if let Some(ref cloud) = self.cloud {
                 if let Ok(voices) = cloud.list_voices().await {
                     for mut voice in voices {
-                        voice.description = Some(format!(
-                            "[Cloud] {}",
-                            voice.description.unwrap_or_default()
-                        ));
+                        voice.description =
+                            Some(format!("[Cloud] {}", voice.description.unwrap_or_default()));
                         all_voices.push(voice);
                     }
                 }
@@ -497,10 +486,8 @@ mod tests {
 
     #[test]
     fn creates_local_only_provider() {
-        let provider = HybridSpeechProvider::local_only(
-            test_local_stt_config(),
-            test_local_tts_config(),
-        );
+        let provider =
+            HybridSpeechProvider::local_only(test_local_stt_config(), test_local_tts_config());
         assert!(provider.is_ok());
     }
 
@@ -512,12 +499,7 @@ mod tests {
 
     #[test]
     fn fails_without_any_provider() {
-        let provider = HybridSpeechProvider::new(
-            None,
-            None,
-            None,
-            HybridConfig::default(),
-        );
+        let provider = HybridSpeechProvider::new(None, None, None, HybridConfig::default());
         assert!(provider.is_err());
     }
 
@@ -528,7 +510,8 @@ mod tests {
             Some(test_local_tts_config()),
             Some(test_cloud_config()),
             HybridConfig::default(),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Will return false since local providers aren't actually installed
         // but the method shouldn't panic

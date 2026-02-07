@@ -399,7 +399,7 @@ mod tests {
                     assert_eq!(media_id, "media-id-456");
                     assert!(is_voice);
                 },
-                _ => panic!("Expected Audio message"),
+                IncomingMessage::Text { .. } => unreachable!("Expected Audio message"),
             }
         }
 
@@ -416,7 +416,7 @@ mod tests {
                 IncomingMessage::Audio { is_voice, .. } => {
                     assert!(!is_voice);
                 },
-                _ => panic!("Expected Audio message"),
+                IncomingMessage::Text { .. } => unreachable!("Expected Audio message"),
             }
         }
 
@@ -444,7 +444,7 @@ mod tests {
                 IncomingMessage::Audio { mime_type, .. } => {
                     assert_eq!(mime_type, "audio/ogg; codecs=opus");
                 },
-                _ => panic!("Expected Audio message"),
+                IncomingMessage::Text { .. } => unreachable!("Expected Audio message"),
             }
         }
     }

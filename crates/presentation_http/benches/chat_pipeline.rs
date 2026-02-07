@@ -203,6 +203,7 @@ fn create_benchmark_state() -> AppState {
         agent_service,
         approval_service: None,
         health_service: None,
+        voice_message_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }

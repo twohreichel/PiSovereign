@@ -299,12 +299,8 @@ async fn converter_skips_already_supported_formats() {
     let result = converter.convert_for_whisper(&mp3_audio).await;
 
     assert!(result.is_ok());
-    let converted = result.unwrap();
-    assert_eq!(
-        converted.format(),
-        AudioFormat::Mp3,
-        "Should keep MP3 format"
-    );
+    let output = result.unwrap();
+    assert_eq!(output.format(), AudioFormat::Mp3, "Should keep MP3 format");
 }
 
 // ============ Full Flow Integration Tests ============
@@ -342,11 +338,8 @@ async fn full_voice_message_flow_text_response() {
 
     // Step 2: AI would process transcription.text here
     // (In real flow, this would call ChatService)
-    let ai_response = "The weather is sunny with temperatures around 22°C.";
-
     // Step 3: Synthesize response (optional based on config)
     // This test validates the transcription part of the flow
-    assert!(!ai_response.is_empty());
 }
 
 #[tokio::test]

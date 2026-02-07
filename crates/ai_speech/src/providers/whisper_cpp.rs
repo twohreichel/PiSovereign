@@ -73,14 +73,21 @@ impl WhisperCppProvider {
 
     /// Run whisper.cpp on an audio file
     #[instrument(skip(self, audio_path), fields(model = %self.model().display()))]
-    async fn run_whisper(&self, audio_path: &Path, language: Option<&str>) -> Result<String, SpeechError> {
+    async fn run_whisper(
+        &self,
+        audio_path: &Path,
+        language: Option<&str>,
+    ) -> Result<String, SpeechError> {
         let mut cmd = Command::new(self.executable());
 
-        cmd.arg("-m").arg(self.model())
-            .arg("-f").arg(audio_path)
+        cmd.arg("-m")
+            .arg(self.model())
+            .arg("-f")
+            .arg(audio_path)
             .arg("--output-txt")
             .arg("--no-timestamps")
-            .arg("-t").arg(self.config.threads.to_string());
+            .arg("-t")
+            .arg(self.config.threads.to_string());
 
         // Add language hint if provided
         if let Some(lang) = language {
@@ -90,8 +97,7 @@ impl WhisperCppProvider {
         }
 
         // Suppress output
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         debug!("Running whisper.cpp: {:?}", cmd);
 
@@ -135,9 +141,11 @@ impl WhisperCppProvider {
         })?;
 
         // Write audio data
-        let mut file = tokio::fs::File::create(temp_file.path()).await.map_err(|e| {
-            SpeechError::TranscriptionFailed(format!("Failed to write temp file: {e}"))
-        })?;
+        let mut file = tokio::fs::File::create(temp_file.path())
+            .await
+            .map_err(|e| {
+                SpeechError::TranscriptionFailed(format!("Failed to write temp file: {e}"))
+            })?;
 
         file.write_all(audio.data()).await.map_err(|e| {
             SpeechError::TranscriptionFailed(format!("Failed to write audio data: {e}"))
@@ -155,7 +163,8 @@ impl WhisperCppProvider {
 impl SpeechToText for WhisperCppProvider {
     #[instrument(skip(self, audio), fields(format = ?audio.format()))]
     async fn transcribe(&self, audio: AudioData) -> Result<Transcription, SpeechError> {
-        self.transcribe_with_language(audio, self.config.default_language.as_deref().unwrap_or("")).await
+        self.transcribe_with_language(audio, self.config.default_language.as_deref().unwrap_or(""))
+            .await
     }
 
     #[instrument(skip(self, audio), fields(format = ?audio.format(), language = %language))]
@@ -164,11 +173,14 @@ impl SpeechToText for WhisperCppProvider {
         audio: AudioData,
         language: &str,
     ) -> Result<Transcription, SpeechError> {
-        debug!("Transcribing audio with whisper.cpp, format: {:?}", audio.format());
+        debug!(
+            "Transcribing audio with whisper.cpp, format: {:?}",
+            audio.format()
+        );
 
         // Whisper.cpp works best with WAV
         let needs_conversion = audio.format() != AudioFormat::Wav;
-        
+
         let audio_to_process = if needs_conversion {
             // Use the audio converter to convert to WAV
             let converter = crate::AudioConverter::new();
@@ -181,7 +193,11 @@ impl SpeechToText for WhisperCppProvider {
         let temp_file = self.write_temp_audio(&audio_to_process).await?;
 
         // Run whisper.cpp
-        let lang = if language.is_empty() { None } else { Some(language) };
+        let lang = if language.is_empty() {
+            None
+        } else {
+            Some(language)
+        };
         let text = self.run_whisper(temp_file.path(), lang).await?;
 
         // Temp file is automatically cleaned up when dropped
@@ -271,7 +287,7 @@ mod tests {
         let mut config = test_config();
         config.executable_path = PathBuf::from("/nonexistent/whisper-cpp");
         let provider = WhisperCppProvider::new(config).unwrap();
-        
+
         // Should return false since executable doesn't exist
         assert!(!provider.is_available().await);
     }

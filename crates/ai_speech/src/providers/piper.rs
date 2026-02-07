@@ -30,7 +30,7 @@
 //! | English | en_US-lessac-medium | Good | Clear American English |
 //! | English | en_GB-alan-medium | Good | British English |
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use async_trait::async_trait;
@@ -77,13 +77,12 @@ impl PiperProvider {
     fn voice_model_path(&self, voice: Option<&str>) -> &Path {
         // Use specified voice or default
         let voice_name = voice.unwrap_or(&self.config.default_voice);
-        
+
         // Look up in voice map or use default path
         self.config
             .voices
             .get(voice_name)
-            .map(|p| p.as_path())
-            .unwrap_or(&self.config.default_model_path)
+            .map_or(&self.config.default_model_path, PathBuf::as_path)
     }
 
     /// Run Piper to synthesize speech
@@ -97,11 +96,15 @@ impl PiperProvider {
         })?;
 
         let mut cmd = Command::new(self.executable());
-        
-        cmd.arg("--model").arg(model_path)
-            .arg("--output_file").arg(output_file.path())
-            .arg("--length_scale").arg(self.config.length_scale.to_string())
-            .arg("--sentence_silence").arg(self.config.sentence_silence.to_string())
+
+        cmd.arg("--model")
+            .arg(model_path)
+            .arg("--output_file")
+            .arg(output_file.path())
+            .arg("--length_scale")
+            .arg(self.config.length_scale.to_string())
+            .arg("--sentence_silence")
+            .arg(self.config.sentence_silence.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -128,9 +131,10 @@ impl PiperProvider {
             // stdin is dropped here, closing it
         }
 
-        let output = child.wait_with_output().await.map_err(|e| {
-            SpeechError::SynthesisFailed(format!("Failed to wait for piper: {e}"))
-        })?;
+        let output = child
+            .wait_with_output()
+            .await
+            .map_err(|e| SpeechError::SynthesisFailed(format!("Failed to wait for piper: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -149,24 +153,30 @@ impl PiperProvider {
 
         if audio_data.is_empty() {
             warn!("Piper produced empty output");
-            return Err(SpeechError::SynthesisFailed("Piper produced empty output".to_string()));
+            return Err(SpeechError::SynthesisFailed(
+                "Piper produced empty output".to_string(),
+            ));
         }
 
         Ok(audio_data)
     }
 
     /// Convert WAV to the requested format
-    async fn convert_format(&self, wav_data: Vec<u8>, format: AudioFormat) -> Result<Vec<u8>, SpeechError> {
+    async fn convert_format(
+        &self,
+        wav_data: Vec<u8>,
+        format: AudioFormat,
+    ) -> Result<Vec<u8>, SpeechError> {
         if format == AudioFormat::Wav {
             return Ok(wav_data);
         }
 
         // Use the audio converter
-        let audio = AudioData::new(wav_data.into(), AudioFormat::Wav);
+        let audio = AudioData::new(wav_data, AudioFormat::Wav);
         let converter = crate::AudioConverter::new();
-        let converted = converter.convert(&audio, format).await?;
-        
-        Ok(converted.into_data().to_vec())
+        let result = converter.convert(&audio, format).await?;
+
+        Ok(result.into_data())
     }
 }
 
@@ -174,7 +184,8 @@ impl PiperProvider {
 impl TextToSpeech for PiperProvider {
     #[instrument(skip(self, text), fields(text_len = text.len()))]
     async fn synthesize(&self, text: &str, voice: Option<&str>) -> Result<AudioData, SpeechError> {
-        self.synthesize_with_format(text, voice, self.config.output_format).await
+        self.synthesize_with_format(text, voice, self.config.output_format)
+            .await
     }
 
     #[instrument(skip(self, text), fields(text_len = text.len(), format = ?format))]
@@ -185,7 +196,9 @@ impl TextToSpeech for PiperProvider {
         format: AudioFormat,
     ) -> Result<AudioData, SpeechError> {
         if text.is_empty() {
-            return Err(SpeechError::SynthesisFailed("Cannot synthesize empty text".to_string()));
+            return Err(SpeechError::SynthesisFailed(
+                "Cannot synthesize empty text".to_string(),
+            ));
         }
 
         debug!("Synthesizing {} chars with Piper", text.len());
@@ -196,29 +209,32 @@ impl TextToSpeech for PiperProvider {
         // Convert to requested format
         let audio_data = self.convert_format(wav_data, format).await?;
 
-        Ok(AudioData::new(audio_data.into(), format))
+        Ok(AudioData::new(audio_data, format))
     }
 
     async fn list_voices(&self) -> Result<Vec<VoiceInfo>, SpeechError> {
         // Return configured voices
-        let mut voices: Vec<VoiceInfo> = self.config.voices.keys().map(|name| {
-            // Parse voice info from name (e.g., "de_DE-thorsten-medium")
-            let parts: Vec<&str> = name.split('-').collect();
-            let locale = parts.first().copied().unwrap_or("unknown");
-            let speaker = parts.get(1).copied().unwrap_or("default");
+        let mut voices: Vec<VoiceInfo> = self
+            .config
+            .voices
+            .keys()
+            .map(|name| {
+                // Parse voice info from name (e.g., "de_DE-thorsten-medium")
+                let parts: Vec<&str> = name.split('-').collect();
+                let locale = parts.first().copied().unwrap_or("unknown");
+                let speaker = parts.get(1).copied().unwrap_or("default");
 
-            let mut voice = VoiceInfo::new(name.clone(), format!("{speaker} ({locale})"));
-            voice.languages = vec![locale.replace('_', "-")];
-            voice.description = Some(format!("Piper voice: {name}"));
-            voice
-        }).collect();
+                let mut voice = VoiceInfo::new(name.clone(), format!("{speaker} ({locale})"));
+                voice.languages = vec![locale.replace('_', "-")];
+                voice.description = Some(format!("Piper voice: {name}"));
+                voice
+            })
+            .collect();
 
         // Add default voice if not already in list
         if !voices.iter().any(|v| v.id == self.config.default_voice) {
-            let mut default_voice = VoiceInfo::new(
-                self.config.default_voice.clone(),
-                "Default".to_string(),
-            );
+            let mut default_voice =
+                VoiceInfo::new(self.config.default_voice.clone(), "Default".to_string());
             default_voice.languages = vec!["en".to_string()];
             default_voice.description = Some("Default Piper voice".to_string());
             voices.push(default_voice);
@@ -335,7 +351,7 @@ mod tests {
         let config = test_config();
         let provider = PiperProvider::new(config).unwrap();
         let voices = provider.list_voices().await.unwrap();
-        
+
         assert!(voices.len() >= 2);
         assert!(voices.iter().any(|v| v.id == "de_DE-thorsten-medium"));
         assert!(voices.iter().any(|v| v.id == "en_US-lessac-medium"));
@@ -346,7 +362,7 @@ mod tests {
         let mut config = test_config();
         config.executable_path = PathBuf::from("/nonexistent/piper");
         let provider = PiperProvider::new(config).unwrap();
-        
+
         assert!(!provider.is_available().await);
     }
 }

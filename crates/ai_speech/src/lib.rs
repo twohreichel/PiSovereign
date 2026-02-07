@@ -71,4 +71,3 @@ pub use providers::openai::OpenAISpeechProvider;
 pub use providers::piper::PiperProvider;
 pub use providers::whisper_cpp::WhisperCppProvider;
 pub use types::{AudioData, AudioFormat, Transcription, VoiceInfo};
-

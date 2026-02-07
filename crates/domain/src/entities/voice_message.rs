@@ -395,7 +395,7 @@ mod tests {
         #[test]
         fn new_incoming_creates_correctly() {
             let conv_id = sample_conversation_id();
-            let msg = VoiceMessage::new_incoming(conv_id.clone(), AudioFormat::Opus, 1024);
+            let msg = VoiceMessage::new_incoming(conv_id, AudioFormat::Opus, 1024);
 
             assert_eq!(msg.conversation_id, conv_id);
             assert_eq!(msg.source, VoiceMessageSource::WhatsAppUser);
@@ -410,7 +410,7 @@ mod tests {
         #[test]
         fn new_response_creates_correctly() {
             let conv_id = sample_conversation_id();
-            let msg = VoiceMessage::new_response(conv_id.clone(), AudioFormat::Opus, 2048);
+            let msg = VoiceMessage::new_response(conv_id, AudioFormat::Opus, 2048);
 
             assert_eq!(msg.conversation_id, conv_id);
             assert_eq!(msg.source, VoiceMessageSource::AssistantResponse);

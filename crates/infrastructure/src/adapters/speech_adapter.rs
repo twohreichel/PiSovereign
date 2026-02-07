@@ -124,6 +124,9 @@ impl SpeechAdapter {
             SpeechError::AudioProcessing(e) => {
                 ApplicationError::Internal(format!("Audio processing failed: {e}"))
             },
+            SpeechError::NotAvailable(e) => {
+                ApplicationError::Configuration(format!("Speech provider not available: {e}"))
+            },
         }
     }
 }

@@ -520,7 +520,7 @@ mod tests {
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    async fn create_test_provider(mock_server: &MockServer) -> OpenAISpeechProvider {
+    fn create_test_provider(mock_server: &MockServer) -> OpenAISpeechProvider {
         let config = SpeechConfig {
             openai_api_key: Some("test-api-key".to_string()),
             openai_base_url: mock_server.uri(),
@@ -548,7 +548,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
             let audio = AudioData::new(vec![0, 1, 2, 3], AudioFormat::Mp3);
 
             let result = provider.transcribe(audio).await;
@@ -574,7 +574,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
             let audio = AudioData::new(vec![0, 1, 2, 3], AudioFormat::Mp3);
 
             let result = provider.transcribe_with_language(audio, "de").await;
@@ -588,7 +588,7 @@ mod tests {
         #[tokio::test]
         async fn transcribe_empty_audio_fails() {
             let mock_server = MockServer::start().await;
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
             let audio = AudioData::new(vec![], AudioFormat::Mp3);
 
             let result = provider.transcribe(audio).await;
@@ -599,7 +599,7 @@ mod tests {
         #[tokio::test]
         async fn transcribe_unsupported_format_fails() {
             let mock_server = MockServer::start().await;
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
             // Opus is not directly supported by Whisper
             let audio = AudioData::new(vec![1, 2, 3], AudioFormat::Opus);
 
@@ -611,7 +611,7 @@ mod tests {
         #[tokio::test]
         async fn transcribe_audio_too_long() {
             let mock_server = MockServer::start().await;
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
             // Audio with duration exceeding max
             let audio = AudioData::new(vec![1, 2, 3], AudioFormat::Mp3).with_duration(200_000);
 
@@ -643,7 +643,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
             let audio = AudioData::new(vec![1, 2, 3], AudioFormat::Mp3);
 
             let result = provider.transcribe(audio).await;
@@ -669,7 +669,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
 
             let result = provider.synthesize("Hello, world!", None).await;
 
@@ -689,7 +689,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
 
             let result = provider.synthesize("Test", Some("alloy")).await;
 
@@ -707,7 +707,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
 
             let result = provider
                 .synthesize_with_format("Test", None, AudioFormat::Mp3)
@@ -720,7 +720,7 @@ mod tests {
         #[tokio::test]
         async fn synthesize_empty_text_fails() {
             let mock_server = MockServer::start().await;
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
 
             let result = provider.synthesize("", None).await;
 
@@ -730,7 +730,7 @@ mod tests {
         #[tokio::test]
         async fn synthesize_text_too_long_fails() {
             let mock_server = MockServer::start().await;
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
 
             let long_text = "a".repeat(5000);
             let result = provider.synthesize(&long_text, None).await;
@@ -755,7 +755,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
 
             let result = provider.synthesize("Test", None).await;
 
@@ -778,7 +778,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
 
             assert!(SpeechToText::is_available(&provider).await);
         }
@@ -793,7 +793,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
 
             assert!(!SpeechToText::is_available(&provider).await);
         }
@@ -805,7 +805,7 @@ mod tests {
         #[tokio::test]
         async fn list_voices_returns_all_openai_voices() {
             let mock_server = MockServer::start().await;
-            let provider = create_test_provider(&mock_server).await;
+            let provider = create_test_provider(&mock_server);
 
             let voices = provider.list_voices().await.unwrap();
 

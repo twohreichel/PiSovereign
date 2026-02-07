@@ -301,7 +301,9 @@ mod tests {
                 &self,
                 _message: &str,
             ) -> Result<InferenceStream, ApplicationError> {
-                unimplemented!()
+                Err(ApplicationError::Internal(
+                    "Streaming not supported in test mock".to_string(),
+                ))
             }
 
             async fn generate_stream_with_system(
@@ -309,7 +311,9 @@ mod tests {
                 _system_prompt: &str,
                 _message: &str,
             ) -> Result<InferenceStream, ApplicationError> {
-                unimplemented!()
+                Err(ApplicationError::Internal(
+                    "Streaming not supported in test mock".to_string(),
+                ))
             }
 
             async fn is_healthy(&self) -> bool {

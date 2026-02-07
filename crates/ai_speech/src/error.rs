@@ -108,8 +108,8 @@ mod tests {
     #[test]
     fn audio_too_long_error_message() {
         let err = SpeechError::AudioTooLong {
-            duration_ms: 180000,
-            max_ms: 120000,
+            duration_ms: 180_000,
+            max_ms: 120_000,
         };
         assert_eq!(
             err.to_string(),
