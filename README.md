@@ -216,22 +216,48 @@ scheduler.add_task("morning-briefing", "0 0 7 * * *", || async {
 
 ## Voice Messages (STT/TTS)
 
-PiSovereign supports bidirectional voice communication via WhatsApp:
+PiSovereign supports bidirectional voice communication via WhatsApp with **local-first processing**:
 
-### Speech-to-Text (STT)
+### Provider Options
 
-Receive voice messages from WhatsApp users, transcribe them using OpenAI Whisper, and process the text through your AI assistant:
+| Provider | STT | TTS | Local | Privacy |
+|----------|-----|-----|-------|---------|
+| **Hybrid (Default)** | ✅ | ✅ | ✅ | Local first, cloud fallback |
+| Local Only | ✅ | ✅ | ✅ | 100% on-device |
+| OpenAI | ✅ | ✅ | ❌ | Cloud-based |
 
+### Local Setup (Recommended)
+
+#### 1. Install whisper.cpp (STT)
+
+```bash
+# Clone and build whisper.cpp
+git clone https://github.com/ggerganov/whisper.cpp
+cd whisper.cpp
+make -j4
+
+# Download a model (base is good for Pi)
+./models/download-ggml-model.sh base
+
+# Install system-wide
+sudo cp main /usr/local/bin/whisper-cpp
+sudo mkdir -p /usr/local/share/whisper
+sudo cp models/ggml-base.bin /usr/local/share/whisper/
 ```
-User sends 🎤 voice message → Whisper transcription → AI response → Text reply
-```
 
-### Text-to-Speech (TTS)
+#### 2. Install Piper (TTS)
 
-Optionally respond with audio messages using OpenAI TTS:
+```bash
+# Download Piper for ARM64
+wget https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_arm64.tar.gz
+tar -xzf piper_arm64.tar.gz
+sudo mv piper /usr/local/bin/
 
-```
-AI text response → TTS synthesis → 🔊 Audio message to user
+# Download German voice (or other language)
+sudo mkdir -p /usr/local/share/piper/voices
+cd /usr/local/share/piper/voices
+sudo wget https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx
+sudo wget https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json
 ```
 
 ### Configuration
@@ -240,22 +266,57 @@ Add to `config.toml`:
 
 ```toml
 [speech]
-api_key = "sk-your-openai-key"         # Required: OpenAI API key
-base_url = "https://api.openai.com/v1" # Optional: API endpoint
-stt_model = "whisper-1"                # Optional: STT model
-tts_model = "tts-1"                    # Optional: TTS model (tts-1, tts-1-hd)
-default_voice = "nova"                 # Optional: nova, alloy, echo, fable, onyx, shimmer
-response_format = "text"               # Optional: text or audio
-timeout_ms = 30000                     # Optional: API timeout
-max_audio_duration_ms = 120000         # Optional: Max voice message length (2 min)
+# Provider: "hybrid" (default), "local", or "openai"
+provider = "hybrid"
+
+# Local STT (whisper.cpp)
+[speech.local_stt]
+executable_path = "whisper-cpp"
+model_path = "/usr/local/share/whisper/ggml-base.bin"
+threads = 4
+default_language = "de"
+
+# Local TTS (Piper)
+[speech.local_tts]
+executable_path = "piper"
+default_model_path = "/usr/local/share/piper/voices/de_DE-thorsten-medium.onnx"
+default_voice = "de_DE-thorsten-medium"
+length_scale = 1.0        # Speaking rate (1.0 = normal)
+sentence_silence = 0.2    # Pause between sentences
+
+# Hybrid mode settings
+[speech.hybrid]
+prefer_local = true       # Try local first
+allow_cloud_fallback = true  # Fall back to OpenAI if local fails
+
+# OpenAI (optional fallback)
+[speech.openai]
+api_key = "sk-your-openai-key"  # Only needed if using cloud fallback
 ```
 
-Or via environment variables:
+### Local-Only Mode (Maximum Privacy)
 
-```bash
-export PISOVEREIGN_SPEECH_API_KEY="sk-your-openai-key"
-export PISOVEREIGN_SPEECH_DEFAULT_VOICE="nova"
-export PISOVEREIGN_SPEECH_RESPONSE_FORMAT="audio"  # Enable TTS responses
+For 100% on-device processing without any cloud connectivity:
+
+```toml
+[speech]
+provider = "local"
+
+[speech.hybrid]
+prefer_local = true
+allow_cloud_fallback = false  # Never use cloud
+```
+
+### Speech-to-Text (STT) Flow
+
+```
+User sends 🎤 voice message → Local whisper.cpp transcription → AI response
+```
+
+### Text-to-Speech (TTS) Flow
+
+```
+AI text response → Local Piper synthesis → 🔊 Audio message to user
 ```
 
 ### Supported Audio Formats
