@@ -11,7 +11,7 @@ use application::{
     },
 };
 use infrastructure::{
-    ApiKeyHasher, AppConfig, HailoInferenceAdapter, SecurityValidator,
+    AppConfig, HailoInferenceAdapter, SecurityValidator,
     adapters::{
         CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig, ProtonEmailAdapter,
         WeatherAdapter,
@@ -129,24 +129,17 @@ async fn main() -> anyhow::Result<()> {
         "Configuration loaded"
     );
 
-    // Security check: warn about plaintext API keys
-    if !initial_config.security.api_key_users.is_empty() {
-        let plaintext_count = ApiKeyHasher::detect_plaintext_keys(
-            initial_config
-                .security
-                .api_key_users
-                .keys()
-                .map(String::as_str),
+    // Security check: validate API keys are properly hashed
+    // In release builds with plaintext keys, startup is blocked by SecurityValidator above
+    // This provides an additional warning for development mode
+    let plaintext_count = initial_config.security.count_plaintext_keys();
+    if plaintext_count > 0 {
+        warn!(
+            count = plaintext_count,
+            "⚠️ SECURITY WARNING: {} API key(s) are not properly hashed with Argon2. \
+             Run 'pisovereign-cli migrate-keys' to convert them to secure hashes.",
+            plaintext_count
         );
-        if plaintext_count > 0 {
-            warn!(
-                count = plaintext_count,
-                "⚠️ SECURITY WARNING: {} API key(s) are stored in plaintext. \
-                 Consider hashing them using 'pisovereign-cli hash-api-key <key>' \
-                 or using a secrets manager like HashiCorp Vault.",
-                plaintext_count
-            );
-        }
     }
 
     // Initialize OpenTelemetry if configured
@@ -353,11 +346,12 @@ async fn main() -> anyhow::Result<()> {
         Duration::from_secs(initial_config.security.rate_limit_cleanup_max_age_secs),
     );
 
-    // Configure API key auth with both single-key and multi-user support
-    let auth_layer = ApiKeyAuthLayer::with_config(
-        initial_config.security.api_key.clone(),
-        initial_config.security.api_key_users.clone(),
-    );
+    // Configure API key auth from hashed API keys
+    let auth_layer = if initial_config.security.api_keys.is_empty() {
+        ApiKeyAuthLayer::disabled()
+    } else {
+        ApiKeyAuthLayer::from_api_keys(initial_config.security.api_keys.clone())
+    };
 
     // Add middleware (order matters: first added = outermost)
     // Request ID layer is outermost to ensure all logs have the correlation ID

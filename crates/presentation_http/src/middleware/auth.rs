@@ -1,21 +1,14 @@
 //! API key authentication middleware
 //!
 //! Validates Bearer tokens in the Authorization header against configured API keys.
-//! Uses constant-time comparison to prevent timing attacks.
+//! Uses Argon2 hash verification for secure API key storage and constant-time
+//! comparison to prevent timing attacks.
 //!
-//! Supports two modes:
-//! - Single-key mode: Legacy mode with a single API key for all users
-//! - Multi-user mode: Maps API keys to specific user IDs for tenant isolation
-//!
-//! When multi-user mode is enabled (via `api_key_users`), the middleware:
-//! 1. Validates the API key using constant-time comparison
-//! 2. Looks up the associated user ID
-//! 3. Creates a `RequestContext` and injects it into request extensions
-//!
-//! Handlers can then extract the `RequestContext` to access the authenticated user.
+//! API keys are stored as Argon2id hashes in configuration, and incoming keys
+//! are verified against these hashes. Each key is associated with a user ID
+//! for tenant isolation.
 
 use std::{
-    collections::HashMap,
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -29,120 +22,132 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use domain::{TenantId, UserId};
-use subtle::ConstantTimeEq;
+use infrastructure::{ApiKeyHasher, config::ApiKeyEntry};
 use tower::{Layer, Service};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::error::ApiError;
 use crate::middleware::RequestId;
 
-/// Mapping of API keys to user IDs for multi-user authentication
-#[derive(Clone, Debug, Default)]
-pub struct ApiKeyUserMap {
-    /// Maps API key strings to user UUID strings
-    inner: HashMap<String, String>,
+/// Verified API key entry with parsed user ID
+#[derive(Clone, Debug)]
+struct VerifiedKeyEntry {
+    /// Argon2 hash of the API key
+    hash: String,
+    /// Parsed user ID
+    user_id: UserId,
 }
 
-impl ApiKeyUserMap {
-    /// Create a new empty API key user map
+/// Storage for API key entries with hash verification
+#[derive(Clone, Debug, Default)]
+pub struct ApiKeyStore {
+    /// Verified API key entries
+    entries: Vec<VerifiedKeyEntry>,
+    /// Hasher for verification
+    hasher: ApiKeyHasher,
+}
+
+impl ApiKeyStore {
+    /// Create a new empty API key store
     #[must_use]
     pub fn new() -> Self {
         Self {
-            inner: HashMap::new(),
+            entries: Vec::new(),
+            hasher: ApiKeyHasher::new(),
         }
     }
 
-    /// Create from a HashMap
+    /// Create from a list of API key entries
+    ///
+    /// Parses user IDs and logs warnings for invalid entries.
     #[must_use]
-    pub const fn from_map(map: HashMap<String, String>) -> Self {
-        Self { inner: map }
+    pub fn from_entries(entries: Vec<ApiKeyEntry>) -> Self {
+        let verified_entries: Vec<VerifiedKeyEntry> = entries
+            .into_iter()
+            .filter_map(|entry| {
+                match UserId::parse(&entry.user_id) {
+                    Ok(user_id) => Some(VerifiedKeyEntry {
+                        hash: entry.hash,
+                        user_id,
+                    }),
+                    Err(e) => {
+                        warn!(
+                            user_id = %entry.user_id,
+                            error = %e,
+                            "Invalid user ID format in api_keys configuration, skipping entry"
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Self {
+            entries: verified_entries,
+            hasher: ApiKeyHasher::new(),
+        }
     }
 
-    /// Check if the map is empty
+    /// Check if the store is empty
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.entries.is_empty()
     }
 
-    /// Look up user ID for a given API key using constant-time comparison
+    /// Verify an API key and return the associated user ID if valid
     ///
-    /// Returns the user ID if found, None otherwise.
-    /// Uses constant-time comparison to prevent timing attacks.
+    /// Uses Argon2 hash verification which provides constant-time comparison
+    /// protection against timing attacks.
     #[must_use]
-    pub fn lookup(&self, api_key: &str) -> Option<UserId> {
-        // Iterate through all keys to prevent timing attacks
-        let mut result: Option<UserId> = None;
-        for (key, user_id_str) in &self.inner {
-            let matches: bool = api_key.as_bytes().ct_eq(key.as_bytes()).into();
-            if matches {
-                // Parse user ID - log warning if invalid but don't expose to attacker
-                result = UserId::parse(user_id_str).ok();
-                if result.is_none() {
-                    warn!(
-                        user_id = %user_id_str,
-                        "Invalid user ID format in api_key_users configuration"
-                    );
+    pub fn verify(&self, api_key: &str) -> Option<UserId> {
+        for entry in &self.entries {
+            match self.hasher.verify(api_key, &entry.hash) {
+                Ok(true) => {
+                    debug!("API key verified successfully");
+                    return Some(entry.user_id.clone());
+                }
+                Ok(false) => continue,
+                Err(e) => {
+                    warn!(error = %e, "Error verifying API key hash");
+                    continue;
                 }
             }
         }
-        result
+        None
     }
 }
 
 /// Layer that applies API key authentication
 #[derive(Clone, Debug)]
 pub struct ApiKeyAuthLayer {
-    /// The expected API key (if None, auth is disabled) - legacy single-key mode
-    api_key: Option<Arc<String>>,
-    /// API key to user ID mapping for multi-user mode
-    api_key_users: Arc<ApiKeyUserMap>,
+    /// API key store for hash verification
+    api_key_store: Arc<ApiKeyStore>,
     /// Paths that should be excluded from authentication
     excluded_paths: Vec<String>,
 }
 
 impl ApiKeyAuthLayer {
-    /// Create a new API key auth layer with single-key mode (legacy)
+    /// Create a new API key auth layer with no authentication
     ///
-    /// # Arguments
-    /// * `api_key` - The expected API key. If None, authentication is disabled.
+    /// Authentication is disabled - all requests pass through.
     #[must_use]
-    pub fn new(api_key: Option<String>) -> Self {
+    pub fn disabled() -> Self {
         Self {
-            api_key: api_key.map(Arc::new),
-            api_key_users: Arc::new(ApiKeyUserMap::new()),
+            api_key_store: Arc::new(ApiKeyStore::new()),
             excluded_paths: vec!["/health".to_string(), "/ready".to_string()],
         }
     }
 
-    /// Create a new API key auth layer with multi-user mode
+    /// Create a new API key auth layer from API key entries
     ///
-    /// Multi-user mode maps API keys to specific user IDs, enabling tenant isolation.
-    /// The user ID is injected into the request context for use by handlers.
-    ///
-    /// # Arguments
-    /// * `api_key_users` - Mapping of API keys to user UUID strings
-    #[must_use]
-    pub fn with_user_mapping(api_key_users: HashMap<String, String>) -> Self {
-        Self {
-            api_key: None,
-            api_key_users: Arc::new(ApiKeyUserMap::from_map(api_key_users)),
-            excluded_paths: vec!["/health".to_string(), "/ready".to_string()],
-        }
-    }
-
-    /// Create a new API key auth layer supporting both modes
-    ///
-    /// If `api_key_users` is non-empty, multi-user mode takes precedence.
-    /// Otherwise falls back to single-key mode with `api_key`.
+    /// Each entry contains an Argon2 hash and associated user ID.
     ///
     /// # Arguments
-    /// * `api_key` - Legacy single API key (optional)
-    /// * `api_key_users` - Mapping of API keys to user UUID strings
+    /// * `entries` - List of API key entries with hashes and user IDs
     #[must_use]
-    pub fn with_config(api_key: Option<String>, api_key_users: HashMap<String, String>) -> Self {
+    pub fn from_api_keys(entries: Vec<ApiKeyEntry>) -> Self {
         Self {
-            api_key: api_key.map(Arc::new),
-            api_key_users: Arc::new(ApiKeyUserMap::from_map(api_key_users)),
+            api_key_store: Arc::new(ApiKeyStore::from_entries(entries)),
             excluded_paths: vec!["/health".to_string(), "/ready".to_string()],
         }
     }
@@ -161,8 +166,7 @@ impl<S> Layer<S> for ApiKeyAuthLayer {
     fn layer(&self, inner: S) -> Self::Service {
         ApiKeyAuth {
             inner,
-            api_key: self.api_key.clone(),
-            api_key_users: Arc::clone(&self.api_key_users),
+            api_key_store: Arc::clone(&self.api_key_store),
             excluded_paths: self.excluded_paths.clone(),
         }
     }
@@ -172,8 +176,7 @@ impl<S> Layer<S> for ApiKeyAuthLayer {
 #[derive(Clone, Debug)]
 pub struct ApiKeyAuth<S> {
     inner: S,
-    api_key: Option<Arc<String>>,
-    api_key_users: Arc<ApiKeyUserMap>,
+    api_key_store: Arc<ApiKeyStore>,
     excluded_paths: Vec<String>,
 }
 
@@ -191,8 +194,7 @@ where
     }
 
     fn call(&mut self, mut req: Request) -> Self::Future {
-        let api_key = self.api_key.clone();
-        let api_key_users = Arc::clone(&self.api_key_users);
+        let api_key_store = Arc::clone(&self.api_key_store);
         let excluded_paths = self.excluded_paths.clone();
         let mut inner = self.inner.clone();
 
@@ -203,9 +205,8 @@ where
                 return inner.call(req).await;
             }
 
-            // If no API key and no user mappings configured, auth is disabled
-            let auth_disabled = api_key.is_none() && api_key_users.is_empty();
-            if auth_disabled {
+            // If no API keys configured, auth is disabled
+            if api_key_store.is_empty() {
                 // Inject default request context for unauthenticated requests
                 inject_request_context(&mut req, UserId::default());
                 return inner.call(req).await;
@@ -221,25 +222,10 @@ where
                 Some(header) if header.starts_with("Bearer ") => {
                     let token = &header[7..]; // Skip "Bearer "
 
-                    // Try multi-user mode first (api_key_users takes precedence)
-                    if !api_key_users.is_empty() {
-                        if let Some(user_id) = api_key_users.lookup(token) {
-                            inject_request_context(&mut req, user_id);
-                            return inner.call(req).await;
-                        }
-                        // If multi-user mode is active but key not found, reject
-                        // (don't fall back to single-key mode for security)
-                        return Ok(unauthorized_response("Invalid API key"));
-                    }
-
-                    // Fall back to legacy single-key mode
-                    if let Some(expected_key) = api_key {
-                        let token_matches = token.as_bytes().ct_eq(expected_key.as_bytes());
-                        if token_matches.into() {
-                            // Single-key mode: use default user ID
-                            inject_request_context(&mut req, UserId::default());
-                            return inner.call(req).await;
-                        }
+                    // Verify API key against stored hashes
+                    if let Some(user_id) = api_key_store.verify(token) {
+                        inject_request_context(&mut req, user_id);
+                        return inner.call(req).await;
                     }
 
                     Ok(unauthorized_response("Invalid API key"))
@@ -287,6 +273,7 @@ fn unauthorized_response(message: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use axum::{Extension, Router, body::Body, http::StatusCode, routing::get};
+    use infrastructure::ApiKeyHasher;
     use tower::ServiceExt;
 
     use super::*;
@@ -300,24 +287,28 @@ mod tests {
         ctx.user_id().to_string()
     }
 
-    fn create_test_router(api_key: Option<String>) -> Router {
-        Router::new()
-            .route("/test", get(test_handler))
-            .route("/health", get(test_handler))
-            .layer(ApiKeyAuthLayer::new(api_key))
-    }
-
-    fn create_multi_user_router(api_key_users: HashMap<String, String>) -> Router {
+    fn create_test_router(entries: Vec<ApiKeyEntry>) -> Router {
         Router::new()
             .route("/test", get(test_handler))
             .route("/user", get(user_id_handler))
             .route("/health", get(test_handler))
-            .layer(ApiKeyAuthLayer::with_user_mapping(api_key_users))
+            .layer(ApiKeyAuthLayer::from_api_keys(entries))
+    }
+
+    fn create_disabled_router() -> Router {
+        Router::new()
+            .route("/test", get(test_handler))
+            .route("/health", get(test_handler))
+            .layer(ApiKeyAuthLayer::disabled())
+    }
+
+    fn hash_key(key: &str) -> String {
+        ApiKeyHasher::new().hash(key).unwrap()
     }
 
     #[tokio::test]
-    async fn auth_disabled_when_no_key_configured() {
-        let app = create_test_router(None);
+    async fn auth_disabled_when_no_keys_configured() {
+        let app = create_disabled_router();
 
         let response = app
             .oneshot(Request::builder().uri("/test").body(Body::empty()).unwrap())
@@ -329,7 +320,11 @@ mod tests {
 
     #[tokio::test]
     async fn valid_bearer_token_passes() {
-        let app = create_test_router(Some("secret-key".to_string()));
+        let entries = vec![ApiKeyEntry {
+            hash: hash_key("secret-key"),
+            user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+        }];
+        let app = create_test_router(entries);
 
         let response = app
             .oneshot(
@@ -347,7 +342,11 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_bearer_token_rejected() {
-        let app = create_test_router(Some("secret-key".to_string()));
+        let entries = vec![ApiKeyEntry {
+            hash: hash_key("secret-key"),
+            user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+        }];
+        let app = create_test_router(entries);
 
         let response = app
             .oneshot(
@@ -365,7 +364,11 @@ mod tests {
 
     #[tokio::test]
     async fn missing_authorization_header_rejected() {
-        let app = create_test_router(Some("secret-key".to_string()));
+        let entries = vec![ApiKeyEntry {
+            hash: hash_key("secret-key"),
+            user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+        }];
+        let app = create_test_router(entries);
 
         let response = app
             .oneshot(Request::builder().uri("/test").body(Body::empty()).unwrap())
@@ -377,7 +380,11 @@ mod tests {
 
     #[tokio::test]
     async fn non_bearer_auth_rejected() {
-        let app = create_test_router(Some("secret-key".to_string()));
+        let entries = vec![ApiKeyEntry {
+            hash: hash_key("secret-key"),
+            user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+        }];
+        let app = create_test_router(entries);
 
         let response = app
             .oneshot(
@@ -395,7 +402,11 @@ mod tests {
 
     #[tokio::test]
     async fn health_endpoint_excluded_from_auth() {
-        let app = create_test_router(Some("secret-key".to_string()));
+        let entries = vec![ApiKeyEntry {
+            hash: hash_key("secret-key"),
+            user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+        }];
+        let app = create_test_router(entries);
 
         let response = app
             .oneshot(
@@ -410,64 +421,14 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
     }
 
-    // Multi-user mode tests
-
     #[tokio::test]
-    async fn multi_user_valid_key_authenticates() {
-        let mut users = HashMap::new();
-        users.insert(
-            "sk-user1".to_string(),
-            "550e8400-e29b-41d4-a716-446655440001".to_string(),
-        );
-        users.insert(
-            "sk-user2".to_string(),
-            "550e8400-e29b-41d4-a716-446655440002".to_string(),
-        );
-        let app = create_multi_user_router(users);
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/test")
-                    .header(AUTHORIZATION, "Bearer sk-user1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn multi_user_invalid_key_rejected() {
-        let mut users = HashMap::new();
-        users.insert(
-            "sk-user1".to_string(),
-            "550e8400-e29b-41d4-a716-446655440001".to_string(),
-        );
-        let app = create_multi_user_router(users);
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/test")
-                    .header(AUTHORIZATION, "Bearer sk-unknown")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn multi_user_injects_correct_user_id() {
+    async fn valid_key_authenticates_and_returns_correct_user() {
         let user_uuid = "550e8400-e29b-41d4-a716-446655440001";
-        let mut users = HashMap::new();
-        users.insert("sk-user1".to_string(), user_uuid.to_string());
-        let app = create_multi_user_router(users);
+        let entries = vec![ApiKeyEntry {
+            hash: hash_key("sk-user1"),
+            user_id: user_uuid.to_string(),
+        }];
+        let app = create_test_router(entries);
 
         let response = app
             .oneshot(
@@ -488,64 +449,105 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_key_user_map_constant_time_lookup() {
-        let mut users = HashMap::new();
-        users.insert(
-            "sk-valid".to_string(),
-            "550e8400-e29b-41d4-a716-446655440001".to_string(),
-        );
-        let map = ApiKeyUserMap::from_map(users);
+    async fn multiple_users_each_get_correct_user_id() {
+        let entries = vec![
+            ApiKeyEntry {
+                hash: hash_key("sk-user1"),
+                user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+            },
+            ApiKeyEntry {
+                hash: hash_key("sk-user2"),
+                user_id: "550e8400-e29b-41d4-a716-446655440002".to_string(),
+            },
+        ];
+        let app = create_test_router(entries);
 
-        // Valid key returns user ID
-        let result = map.lookup("sk-valid");
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().to_string(),
-            "550e8400-e29b-41d4-a716-446655440001"
-        );
-
-        // Invalid key returns None
-        assert!(map.lookup("sk-invalid").is_none());
-    }
-
-    #[tokio::test]
-    async fn with_config_prefers_multi_user_when_available() {
-        let mut users = HashMap::new();
-        users.insert(
-            "sk-multi".to_string(),
-            "550e8400-e29b-41d4-a716-446655440001".to_string(),
-        );
-
-        // Create layer with both single key and multi-user
-        let layer = ApiKeyAuthLayer::with_config(Some("sk-single".to_string()), users);
-
-        let app = Router::new().route("/test", get(test_handler)).layer(layer);
-
-        // Multi-user key should work
+        // First user
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/test")
-                    .header(AUTHORIZATION, "Bearer sk-multi")
+                    .uri("/user")
+                    .header(AUTHORIZATION, "Bearer sk-user1")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&body),
+            "550e8400-e29b-41d4-a716-446655440001"
+        );
 
-        // Single key should NOT work when multi-user is active (security)
+        // Second user
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/test")
-                    .header(AUTHORIZATION, "Bearer sk-single")
+                    .uri("/user")
+                    .header(AUTHORIZATION, "Bearer sk-user2")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&body),
+            "550e8400-e29b-41d4-a716-446655440002"
+        );
+    }
+
+    #[tokio::test]
+    async fn api_key_store_verify_valid() {
+        let hasher = ApiKeyHasher::new();
+        let hash = hasher.hash("sk-valid").unwrap();
+        
+        let entries = vec![ApiKeyEntry {
+            hash,
+            user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+        }];
+        let store = ApiKeyStore::from_entries(entries);
+
+        let result = store.verify("sk-valid");
+        assert!(result.is_some());
+        assert_eq!(
+            result.unwrap().to_string(),
+            "550e8400-e29b-41d4-a716-446655440001"
+        );
+    }
+
+    #[tokio::test]
+    async fn api_key_store_verify_invalid() {
+        let hasher = ApiKeyHasher::new();
+        let hash = hasher.hash("sk-valid").unwrap();
+        
+        let entries = vec![ApiKeyEntry {
+            hash,
+            user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
+        }];
+        let store = ApiKeyStore::from_entries(entries);
+
+        assert!(store.verify("sk-invalid").is_none());
+    }
+
+    #[tokio::test]
+    async fn api_key_store_skips_invalid_user_ids() {
+        let hasher = ApiKeyHasher::new();
+        
+        let entries = vec![ApiKeyEntry {
+            hash: hasher.hash("sk-test").unwrap(),
+            user_id: "not-a-valid-uuid".to_string(),
+        }];
+        let store = ApiKeyStore::from_entries(entries);
+
+        // Store should be empty because the user ID was invalid
+        assert!(store.is_empty());
     }
 }

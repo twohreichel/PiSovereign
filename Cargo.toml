@@ -161,6 +161,12 @@ aho-corasick = "1.1"
 # Password hashing
 argon2 = "0.5"
 
+# Secret management with zeroization
+secrecy = { version = "0.10", features = ["serde"] }
+
+# Timezone validation
+chrono-tz = "0.10"
+
 # Template engine
 tera = "1.20"
 

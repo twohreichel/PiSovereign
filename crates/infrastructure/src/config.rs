@@ -2,8 +2,10 @@
 
 use ai_core::InferenceConfig;
 use ai_speech::SpeechConfig;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::net::IpAddr;
 
 /// Application environment (development or production)
 ///
@@ -141,7 +143,7 @@ pub struct ServerConfig {
 }
 
 fn default_host() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 
 const fn default_port() -> u16 {
@@ -169,6 +171,20 @@ impl Default for ServerConfig {
     }
 }
 
+/// Configuration for a hashed API key with associated user ID
+///
+/// API keys must be pre-hashed using Argon2id format (PHC string).
+/// Use `pisovereign-cli migrate-keys` to convert plaintext keys.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyEntry {
+    /// Argon2id hash of the API key in PHC format
+    /// Example: "$argon2id$v=19$m=19456,t=2,p=1$..."
+    pub hash: String,
+
+    /// User ID associated with this API key
+    pub user_id: String,
+}
+
 /// Security configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
@@ -176,24 +192,26 @@ pub struct SecurityConfig {
     #[serde(default)]
     pub whitelisted_phones: Vec<String>,
 
-    /// API key for HTTP API (optional, legacy single-key mode)
-    #[serde(default)]
-    pub api_key: Option<String>,
-
-    /// API key to User ID mapping for multi-user authentication
+    /// Hashed API keys for authentication (recommended)
     ///
-    /// Maps API keys to their corresponding user UUIDs. When an API key
-    /// is provided in the Authorization header, the system looks up the
-    /// associated user ID to establish the request context.
+    /// Each entry contains an Argon2id hash and associated user ID.
+    /// Use `pisovereign-cli migrate-keys` to generate hashes.
     ///
     /// Example in config.toml:
     /// ```toml
-    /// [security.api_key_users]
-    /// "sk-abc123" = "550e8400-e29b-41d4-a716-446655440000"
-    /// "sk-xyz789" = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+    /// [[security.api_keys]]
+    /// hash = "$argon2id$v=19$m=19456,t=2,p=1$..."
+    /// user_id = "550e8400-e29b-41d4-a716-446655440000"
     /// ```
     #[serde(default)]
-    pub api_key_users: std::collections::HashMap<String, String>,
+    pub api_keys: Vec<ApiKeyEntry>,
+
+    /// Trusted proxy IP addresses for X-Forwarded-For header validation
+    ///
+    /// Only IPs in this list are trusted to set X-Forwarded-For headers.
+    /// If empty, the direct connection IP is always used (secure default).
+    #[serde(default)]
+    pub trusted_proxies: Vec<IpAddr>,
 
     /// Enable rate limiting
     #[serde(default = "default_true")]
@@ -248,8 +266,8 @@ impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
             whitelisted_phones: Vec::new(),
-            api_key: None,
-            api_key_users: std::collections::HashMap::new(),
+            api_keys: Vec::new(),
+            trusted_proxies: Vec::new(),
             rate_limit_enabled: true,
             rate_limit_rpm: default_rate_limit(),
             rate_limit_cleanup_interval_secs: default_cleanup_interval(),
@@ -258,6 +276,26 @@ impl Default for SecurityConfig {
             connection_timeout_secs: default_connection_timeout(),
             min_tls_version: default_min_tls_version(),
         }
+    }
+}
+
+impl SecurityConfig {
+    /// Validate that all API keys are properly hashed (not plaintext)
+    ///
+    /// Returns the number of invalid (plaintext) keys found.
+    /// In release builds, this should cause startup to fail.
+    #[must_use]
+    pub fn count_plaintext_keys(&self) -> usize {
+        self.api_keys
+            .iter()
+            .filter(|entry| !entry.hash.starts_with("$argon2"))
+            .count()
+    }
+
+    /// Check if the configuration has any API keys configured
+    #[must_use]
+    pub fn has_api_keys(&self) -> bool {
+        !self.api_keys.is_empty()
     }
 }
 
@@ -356,19 +394,19 @@ impl CacheConfig {
 }
 
 /// WhatsApp integration configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct WhatsAppConfig {
-    /// Meta Graph API access token
-    #[serde(default)]
-    pub access_token: Option<String>,
+    /// Meta Graph API access token (sensitive - uses SecretString)
+    #[serde(default, skip_serializing)]
+    pub access_token: Option<SecretString>,
 
     /// Phone number ID from WhatsApp Business
     #[serde(default)]
     pub phone_number_id: Option<String>,
 
-    /// App secret for webhook signature verification
-    #[serde(default)]
-    pub app_secret: Option<String>,
+    /// App secret for webhook signature verification (sensitive - uses SecretString)
+    #[serde(default, skip_serializing)]
+    pub app_secret: Option<SecretString>,
 
     /// Verify token for webhook setup
     #[serde(default)]
@@ -381,6 +419,19 @@ pub struct WhatsAppConfig {
     /// API version (default: v18.0)
     #[serde(default = "default_api_version")]
     pub api_version: String,
+}
+
+impl std::fmt::Debug for WhatsAppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WhatsAppConfig")
+            .field("access_token", &self.access_token.as_ref().map(|_| "[REDACTED]"))
+            .field("phone_number_id", &self.phone_number_id)
+            .field("app_secret", &self.app_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("verify_token", &self.verify_token)
+            .field("signature_required", &self.signature_required)
+            .field("api_version", &self.api_version)
+            .finish()
+    }
 }
 
 fn default_api_version() -> String {
@@ -397,6 +448,20 @@ impl Default for WhatsAppConfig {
             signature_required: true,
             api_version: default_api_version(),
         }
+    }
+}
+
+impl WhatsAppConfig {
+    /// Get the access token as a string reference (for API calls)
+    #[must_use]
+    pub fn access_token_str(&self) -> Option<&str> {
+        self.access_token.as_ref().map(ExposeSecret::expose_secret)
+    }
+
+    /// Get the app secret as a string reference (for signature verification)
+    #[must_use]
+    pub fn app_secret_str(&self) -> Option<&str> {
+        self.app_secret.as_ref().map(ExposeSecret::expose_secret)
     }
 }
 
@@ -540,14 +605,14 @@ mod tests {
     fn app_config_default() {
         let config = AppConfig::default();
         assert_eq!(config.server.port, 3000);
-        assert_eq!(config.server.host, "0.0.0.0");
+        assert_eq!(config.server.host, "127.0.0.1");
         assert!(config.server.cors_enabled);
     }
 
     #[test]
     fn server_config_default() {
         let config = ServerConfig::default();
-        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.host, "127.0.0.1");
         assert_eq!(config.port, 3000);
         assert!(config.cors_enabled);
     }
@@ -556,7 +621,8 @@ mod tests {
     fn security_config_default() {
         let config = SecurityConfig::default();
         assert!(config.whitelisted_phones.is_empty());
-        assert!(config.api_key.is_none());
+        assert!(config.api_keys.is_empty());
+        assert!(config.trusted_proxies.is_empty());
         assert!(config.rate_limit_enabled);
         assert_eq!(config.rate_limit_rpm, 60);
     }
@@ -575,7 +641,7 @@ mod tests {
         let json = r#"{"server":{"port":8080}}"#;
         let config: AppConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.server.port, 8080);
-        assert_eq!(config.server.host, "0.0.0.0");
+        assert_eq!(config.server.host, "127.0.0.1");
     }
 
     #[test]
@@ -596,10 +662,33 @@ mod tests {
     }
 
     #[test]
-    fn security_config_with_api_key() {
-        let json = r#"{"api_key":"secret123"}"#;
+    fn security_config_with_api_keys() {
+        let json = r#"{"api_keys":[{"hash":"$argon2id$v=19$m=19456,t=2,p=1$test","user_id":"550e8400-e29b-41d4-a716-446655440000"}]}"#;
         let config: SecurityConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.api_key, Some("secret123".to_string()));
+        assert_eq!(config.api_keys.len(), 1);
+        assert!(config.api_keys[0].hash.starts_with("$argon2"));
+        assert_eq!(config.api_keys[0].user_id, "550e8400-e29b-41d4-a716-446655440000");
+    }
+
+    #[test]
+    fn security_config_count_plaintext_keys() {
+        let mut config = SecurityConfig::default();
+        config.api_keys.push(ApiKeyEntry {
+            hash: "$argon2id$v=19$m=19456,t=2,p=1$valid".to_string(),
+            user_id: "user1".to_string(),
+        });
+        config.api_keys.push(ApiKeyEntry {
+            hash: "plaintext-key".to_string(),
+            user_id: "user2".to_string(),
+        });
+        assert_eq!(config.count_plaintext_keys(), 1);
+    }
+
+    #[test]
+    fn security_config_trusted_proxies() {
+        let json = r#"{"trusted_proxies":["10.0.0.1","192.168.1.1"]}"#;
+        let config: SecurityConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.trusted_proxies.len(), 2);
     }
 
     #[test]
@@ -731,49 +820,48 @@ mod tests {
     }
 
     #[test]
-    fn security_config_api_key_users_default_empty() {
+    fn security_config_api_keys_default_empty() {
         let config = SecurityConfig::default();
-        assert!(config.api_key_users.is_empty());
+        assert!(config.api_keys.is_empty());
     }
 
     #[test]
-    fn security_config_api_key_users_deserialize() {
-        let json = r#"{"api_key_users":{"sk-abc123":"550e8400-e29b-41d4-a716-446655440000","sk-xyz789":"6ba7b810-9dad-11d1-80b4-00c04fd430c8"}}"#;
+    fn security_config_api_keys_deserialize_multiple() {
+        let json = r#"{"api_keys":[{"hash":"$argon2id$v=19$m=19456,t=2,p=1$abc","user_id":"550e8400-e29b-41d4-a716-446655440000"},{"hash":"$argon2id$v=19$m=19456,t=2,p=1$xyz","user_id":"6ba7b810-9dad-11d1-80b4-00c04fd430c8"}]}"#;
         let config: SecurityConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.api_key_users.len(), 2);
+        assert_eq!(config.api_keys.len(), 2);
         assert_eq!(
-            config.api_key_users.get("sk-abc123"),
-            Some(&"550e8400-e29b-41d4-a716-446655440000".to_string())
+            config.api_keys[0].user_id,
+            "550e8400-e29b-41d4-a716-446655440000"
         );
         assert_eq!(
-            config.api_key_users.get("sk-xyz789"),
-            Some(&"6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string())
+            config.api_keys[1].user_id,
+            "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
         );
     }
 
     #[test]
-    fn security_config_api_key_users_serialize() {
+    fn security_config_api_keys_serialize() {
         let mut config = SecurityConfig::default();
-        config.api_key_users.insert(
-            "sk-test".to_string(),
-            "550e8400-e29b-41d4-a716-446655440000".to_string(),
-        );
+        config.api_keys.push(ApiKeyEntry {
+            hash: "$argon2id$v=19$m=19456,t=2,p=1$test".to_string(),
+            user_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+        });
         let json = serde_json::to_string(&config).unwrap();
-        assert!(json.contains("api_key_users"));
-        assert!(json.contains("sk-test"));
+        assert!(json.contains("api_keys"));
+        assert!(json.contains("$argon2id"));
     }
 
     #[test]
-    fn security_config_api_key_users_lookup() {
-        let json = r#"{"api_key_users":{"my-key":"user-uuid-123"}}"#;
-        let config: SecurityConfig = serde_json::from_str(json).unwrap();
-        // Key exists
-        assert_eq!(
-            config.api_key_users.get("my-key"),
-            Some(&"user-uuid-123".to_string())
-        );
-        // Key does not exist
-        assert_eq!(config.api_key_users.get("unknown-key"), None);
+    fn security_config_has_api_keys() {
+        let mut config = SecurityConfig::default();
+        assert!(!config.has_api_keys());
+        
+        config.api_keys.push(ApiKeyEntry {
+            hash: "$argon2id$test".to_string(),
+            user_id: "user".to_string(),
+        });
+        assert!(config.has_api_keys());
     }
 
     #[test]
@@ -1015,7 +1103,7 @@ impl WebSearchAppConfig {
 }
 
 /// CalDAV calendar server configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CalDavAppConfig {
     /// CalDAV server URL (e.g., <https://cal.example.com>)
     pub server_url: String,
@@ -1023,9 +1111,9 @@ pub struct CalDavAppConfig {
     /// Username for authentication
     pub username: String,
 
-    /// Password for authentication
+    /// Password for authentication (sensitive - uses SecretString)
     #[serde(skip_serializing)]
-    pub password: String,
+    pub password: SecretString,
 
     /// Default calendar path (optional)
     #[serde(default)]
@@ -1040,6 +1128,19 @@ pub struct CalDavAppConfig {
     pub timeout_secs: u64,
 }
 
+impl std::fmt::Debug for CalDavAppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CalDavAppConfig")
+            .field("server_url", &self.server_url)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("calendar_path", &self.calendar_path)
+            .field("verify_certs", &self.verify_certs)
+            .field("timeout_secs", &self.timeout_secs)
+            .finish()
+    }
+}
+
 const fn default_caldav_timeout() -> u64 {
     30
 }
@@ -1051,16 +1152,22 @@ impl CalDavAppConfig {
         integration_caldav::CalDavConfig {
             server_url: self.server_url.clone(),
             username: self.username.clone(),
-            password: self.password.clone(),
+            password: self.password.expose_secret().to_string(),
             calendar_path: self.calendar_path.clone(),
             verify_certs: self.verify_certs,
             timeout_secs: self.timeout_secs,
         }
     }
+
+    /// Get the password as a string reference
+    #[must_use]
+    pub fn password_str(&self) -> &str {
+        self.password.expose_secret()
+    }
 }
 
 /// Proton Mail configuration (via Proton Bridge)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ProtonAppConfig {
     /// IMAP server host (default: 127.0.0.1)
     #[serde(default = "default_proton_host")]
@@ -1082,12 +1189,27 @@ pub struct ProtonAppConfig {
     pub email: String,
 
     /// Bridge password (from Bridge UI, NOT Proton account password)
+    /// Sensitive - uses SecretString for zeroization
     #[serde(skip_serializing)]
-    pub password: String,
+    pub password: SecretString,
 
     /// TLS configuration
     #[serde(default)]
     pub tls: ProtonTlsAppConfig,
+}
+
+impl std::fmt::Debug for ProtonAppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProtonAppConfig")
+            .field("imap_host", &self.imap_host)
+            .field("imap_port", &self.imap_port)
+            .field("smtp_host", &self.smtp_host)
+            .field("smtp_port", &self.smtp_port)
+            .field("email", &self.email)
+            .field("password", &"[REDACTED]")
+            .field("tls", &self.tls)
+            .finish()
+    }
 }
 
 fn default_proton_host() -> String {
@@ -1132,13 +1254,19 @@ impl ProtonAppConfig {
             smtp_host: self.smtp_host.clone(),
             smtp_port: self.smtp_port,
             email: self.email.clone(),
-            password: self.password.clone(),
+            password: self.password.expose_secret().to_string(),
             tls: integration_proton::TlsConfig {
                 verify_certificates: Some(self.tls.verify_certificates),
                 min_tls_version: self.tls.min_tls_version.clone(),
                 ca_cert_path: self.tls.ca_cert_path.as_ref().map(std::path::PathBuf::from),
             },
         }
+    }
+
+    /// Get the password as a string reference
+    #[must_use]
+    pub fn password_str(&self) -> &str {
+        self.password.expose_secret()
     }
 }
 
