@@ -1487,7 +1487,7 @@ mod workflow_tests {
         let (_, profile_store) = create_workflow_test_state_with_user_profile();
 
         let user_id = UserId::default();
-        let timezone = Timezone::from("Europe/Berlin");
+        let timezone = Timezone::try_new("Europe/Berlin").expect("valid tz");
         let location = GeoLocation::new(52.52, 13.405).unwrap(); // Berlin
         let profile = UserProfile::with_defaults(user_id, location, timezone);
 
@@ -1511,7 +1511,7 @@ mod workflow_tests {
         profile_store.save(&profile).await.unwrap();
 
         // Update timezone
-        let new_tz = Timezone::from("America/New_York");
+        let new_tz = Timezone::try_new("America/New_York").expect("valid tz");
         let updated = profile_store
             .update_timezone(&user_id, &new_tz)
             .await
