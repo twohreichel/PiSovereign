@@ -16,6 +16,7 @@ ai_speech.workspace = true
 integration_proton.workspace = true
 integration_caldav.workspace = true
 integration_weather.workspace = true
+integration_websearch.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
