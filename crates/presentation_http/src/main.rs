@@ -24,8 +24,8 @@ use infrastructure::{
 };
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig, RequestIdLayer,
-    handlers::metrics::MetricsCollector, routes, spawn_cleanup_task, spawn_config_reload_handler,
-    state::AppState,
+    SecurityHeadersLayer, handlers::metrics::MetricsCollector, routes, spawn_cleanup_task,
+    spawn_config_reload_handler, state::AppState,
 };
 use tokio::{net::TcpListener, signal};
 use tower_http::{
@@ -367,12 +367,16 @@ async fn main() -> anyhow::Result<()> {
 
     // Add middleware (order matters: first added = outermost)
     // Request ID layer is outermost to ensure all logs have the correlation ID
+    // Security headers is innermost to ensure they're always added
     let app = app
         .layer(RequestIdLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer)
         .layer(rate_limiter)
-        .layer(auth_layer);
+        .layer(auth_layer)
+        .layer(SecurityHeadersLayer::new());
+
+    info!("🔒 Security headers middleware enabled");
 
     // Start server
     let addr = format!(
