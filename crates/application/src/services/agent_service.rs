@@ -2056,4 +2056,104 @@ mod async_tests {
         assert!((loc.latitude() - 51.5074).abs() < 0.01);
         assert!((loc.longitude() - (-0.1278)).abs() < 0.01);
     }
+
+    // Web search tests
+
+    #[tokio::test]
+    async fn execute_websearch_without_service_returns_error_message() {
+        let mock = MockInferenceEngine::new();
+        let service = AgentService::new(Arc::new(mock));
+
+        let result = service
+            .execute_command(&AgentCommand::WebSearch {
+                query: "rust programming".to_string(),
+                max_results: None,
+            })
+            .await
+            .unwrap();
+
+        // Without websearch service configured, should return user-friendly error
+        assert!(!result.success);
+        assert!(result.response.contains("not available"));
+        assert!(result.response.contains("not configured"));
+    }
+
+    #[tokio::test]
+    async fn execute_websearch_with_mock_service() {
+        use crate::ports::MockWebSearchPort;
+
+        let mut mock_inference = MockInferenceEngine::new();
+        mock_inference
+            .expect_generate()
+            .returning(|_| Ok(mock_inference_result("Here is a summary with citations [1][2].")));
+
+        let mut mock_websearch = MockWebSearchPort::new();
+        mock_websearch
+            .expect_search_for_llm()
+            .returning(|query, _| {
+                Ok(format!(
+                    "[1] Result 1 - example.com: Info about {query}\n\
+                     [2] Result 2 - test.org: More info about {query}"
+                ))
+            });
+        mock_websearch
+            .expect_provider_name()
+            .return_const("mock-provider".to_string());
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_websearch_service(Arc::new(mock_websearch));
+
+        let result = service
+            .execute_command(&AgentCommand::WebSearch {
+                query: "rust async patterns".to_string(),
+                max_results: Some(5),
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.response.contains("rust async patterns"));
+        assert!(result.response.contains("mock-provider"));
+    }
+
+    #[tokio::test]
+    async fn execute_websearch_no_results() {
+        use crate::ports::MockWebSearchPort;
+
+        let mock_inference = MockInferenceEngine::new();
+
+        let mut mock_websearch = MockWebSearchPort::new();
+        mock_websearch
+            .expect_search_for_llm()
+            .returning(|query, _| Ok(format!("No web search results found for: {query}")));
+        mock_websearch.expect_provider_name().return_const("mock".to_string());
+
+        let service = AgentService::new(Arc::new(mock_inference))
+            .with_websearch_service(Arc::new(mock_websearch));
+
+        let result = service
+            .execute_command(&AgentCommand::WebSearch {
+                query: "xyznonexistent12345".to_string(),
+                max_results: None,
+            })
+            .await
+            .unwrap();
+
+        assert!(result.success); // No results is still a successful execution
+        assert!(result.response.contains("No results found"));
+    }
+
+    #[tokio::test]
+    async fn websearch_service_builder() {
+        use crate::ports::MockWebSearchPort;
+
+        let mock = MockInferenceEngine::new();
+        let mock_websearch = MockWebSearchPort::new();
+
+        let service = AgentService::new(Arc::new(mock))
+            .with_websearch_service(Arc::new(mock_websearch));
+
+        let debug = format!("{service:?}");
+        assert!(debug.contains("has_websearch: true"));
+    }
 }
