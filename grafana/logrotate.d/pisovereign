@@ -1,0 +1,75 @@
+# Logrotate configuration for PiSovereign
+# ==========================================
+#
+# Installation:
+#   sudo cp grafana/logrotate.d/pisovereign /etc/logrotate.d/
+#   sudo chmod 644 /etc/logrotate.d/pisovereign
+#
+# Test configuration:
+#   sudo logrotate -d /etc/logrotate.d/pisovereign
+#
+# Manual rotation:
+#   sudo logrotate -f /etc/logrotate.d/pisovereign
+#
+
+# PiSovereign application logs
+# Assumes logs are written to /var/log/pisovereign/
+/var/log/pisovereign/*.log {
+    # Rotate daily
+    daily
+    
+    # Keep 14 days of logs
+    rotate 14
+    
+    # Compress old logs with gzip
+    compress
+    
+    # Delay compression by one rotation cycle
+    # (allows time for log shipping tools to read)
+    delaycompress
+    
+    # Don't rotate empty files
+    notifempty
+    
+    # Don't error if log file is missing
+    missingok
+    
+    # Create new log file with these permissions
+    create 0640 pisovereign pisovereign
+    
+    # Use date as suffix instead of number
+    dateext
+    dateformat -%Y%m%d
+    
+    # Truncate original file after copying
+    # (for applications that keep file handle open)
+    copytruncate
+    
+    # Maximum log file size before rotation (in addition to daily)
+    maxsize 100M
+    
+    # Run postrotate script only once for all logs
+    sharedscripts
+    
+    # Optional: Signal application to reopen log files
+    # (not needed with copytruncate, but useful if using move strategy)
+    # postrotate
+    #     systemctl reload pisovereign 2>/dev/null || true
+    # endscript
+}
+
+# Traefik access logs (for production deployments)
+/var/log/traefik/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    missingok
+    create 0640 root root
+    dateext
+    dateformat -%Y%m%d
+    copytruncate
+    maxsize 50M
+    sharedscripts
+}

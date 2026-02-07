@@ -21,7 +21,9 @@ cors_enabled = true
 allowed_origins = []
 # Graceful shutdown timeout in seconds
 shutdown_timeout_secs = 30
-# Log format: "json" for structured JSON logs, "text" for human-readable (default)
+# Log format: "json" for structured JSON logs, "text" for human-readable
+# In production mode, defaults to "json" even if set to "text".
+# For development with human-readable logs, keep environment = "development".
 log_format = "text"
 
 # ================================

@@ -41,11 +41,27 @@ const SYSTEM_PROMPT: &str = "You are PiSovereign, a helpful AI assistant running
     tasks like email, calendar, and information lookup.";
 
 /// Initialize the tracing subscriber based on configuration
-fn init_tracing(log_format: &str) {
+///
+/// In production mode, defaults to JSON format for structured logging
+/// suitable for log aggregation (Loki, Elasticsearch, etc.).
+fn init_tracing(log_format: &str, environment: Option<infrastructure::config::Environment>) {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "pisovereign_server=debug,tower_http=debug".into());
 
-    if log_format == "json" {
+    // Determine effective log format:
+    // - Use explicit config value if not "text" (the default)
+    // - In production, default to JSON unless explicitly set to "text"
+    let use_json = if log_format == "json" {
+        true
+    } else if log_format != "text" {
+        // Unknown format, treat as JSON for safety
+        true
+    } else {
+        // log_format == "text" - check if production
+        matches!(environment, Some(infrastructure::config::Environment::Production))
+    };
+
+    if use_json {
         // JSON format for production/structured logging
         tracing_subscriber::registry()
             .with(filter)
@@ -82,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Initialize tracing with configured format
-    init_tracing(&initial_config.server.log_format);
+    init_tracing(&initial_config.server.log_format, initial_config.environment);
 
     info!("🤖 PiSovereign v{} starting...", env!("CARGO_PKG_VERSION"));
 
