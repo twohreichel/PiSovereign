@@ -1,0 +1,27 @@
+[package]
+name = "integration_websearch"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Web search integration for PiSovereign (Brave Search + DuckDuckGo fallback)"
+
+[lints]
+workspace = true
+
+[dependencies]
+domain.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+url = "2.5"
+
+[dev-dependencies]
+tokio-test.workspace = true
+mockall.workspace = true
+wiremock.workspace = true
