@@ -154,6 +154,7 @@ fn command_type_name(cmd: &AgentCommand) -> String {
         AgentCommand::System(_) => "system",
         AgentCommand::Echo { .. } => "echo",
         AgentCommand::Help { .. } => "help",
+        AgentCommand::WebSearch { .. } => "web_search",
         AgentCommand::Unknown { .. } => "unknown",
     }
     .to_string()

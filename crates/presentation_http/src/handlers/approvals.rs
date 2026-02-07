@@ -355,6 +355,7 @@ fn command_type_name(command: &AgentCommand) -> String {
             domain::SystemCommand::SwitchModel { .. } => "switch_model",
         },
         AgentCommand::Unknown { .. } => "unknown",
+        AgentCommand::WebSearch { .. } => "web_search",
     }
     .to_string()
 }
