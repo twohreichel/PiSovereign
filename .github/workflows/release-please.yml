@@ -29,6 +29,11 @@ permissions:
   contents: write
   pull-requests: write
 
+# Cancel in-progress runs for the same workflow/ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   release-please:
     name: Release Please
@@ -125,6 +130,11 @@ jobs:
         with:
           toolchain: "1.93.0"
           targets: ${{ matrix.target }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Install cross-compilation tools (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'

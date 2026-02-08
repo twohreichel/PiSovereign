@@ -56,7 +56,7 @@ impl SearchResult {
 
     /// Format as a citation reference for LLM context
     ///
-    /// Returns a string like: "[1] Title - source.com: Snippet..."
+    /// Returns a string like: "\[1\] Title - source.com: Snippet..."
     #[must_use]
     pub fn format_citation(&self) -> String {
         let truncated_snippet = if self.snippet.len() > 200 {
@@ -72,7 +72,7 @@ impl SearchResult {
 
     /// Format as a footnote reference
     ///
-    /// Returns a string like: "[1] source.com/path"
+    /// Returns a string like: "\[1\] source.com/path"
     #[must_use]
     pub fn format_footnote(&self) -> String {
         format!("[{}] {}", self.position, self.url)
