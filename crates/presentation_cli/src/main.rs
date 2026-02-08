@@ -459,9 +459,7 @@ async fn main() -> anyhow::Result<()> {
                         println!("{}", result.output);
                         println!("────────────────────────────────────────");
                         println!();
-                        println!(
-                            "Run without --dry-run to apply changes."
-                        );
+                        println!("Run without --dry-run to apply changes.");
                     }
                 },
                 Err(e) => {

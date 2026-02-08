@@ -71,8 +71,7 @@ impl Timezone {
     pub fn try_new(tz: impl Into<String>) -> Result<Self, InvalidTimezone> {
         let tz_string = tz.into();
         // Validate against chrono-tz
-        chrono_tz::Tz::from_str(&tz_string)
-            .map_err(|_| InvalidTimezone(tz_string.clone()))?;
+        chrono_tz::Tz::from_str(&tz_string).map_err(|_| InvalidTimezone(tz_string.clone()))?;
         Ok(Self(tz_string))
     }
 
@@ -191,7 +190,10 @@ mod tests {
         let result = Timezone::try_new("Invalid/Timezone");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.to_string(), "invalid timezone: 'Invalid/Timezone' is not a valid IANA timezone identifier");
+        assert_eq!(
+            err.to_string(),
+            "invalid timezone: 'Invalid/Timezone' is not a valid IANA timezone identifier"
+        );
     }
 
     #[test]

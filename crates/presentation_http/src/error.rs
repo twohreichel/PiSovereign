@@ -447,7 +447,8 @@ mod tests {
     #[test]
     fn internal_error_hides_details_in_production() {
         set_expose_internal_errors(false);
-        let err = ApiError::Internal("Database connection failed at postgres://localhost".to_string());
+        let err =
+            ApiError::Internal("Database connection failed at postgres://localhost".to_string());
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         // The response body should not contain the details

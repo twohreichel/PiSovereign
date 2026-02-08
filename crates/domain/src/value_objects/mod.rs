@@ -8,9 +8,9 @@ mod geo_location;
 mod humidity;
 mod phone_number;
 mod priority;
+mod task_status;
 pub mod tenant;
 mod tenant_id;
-mod task_status;
 mod timezone;
 mod user_id;
 

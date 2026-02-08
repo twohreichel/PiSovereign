@@ -158,16 +158,18 @@ impl PersistedCircuitState {
             _ => CircuitState::Closed,
         };
 
-        let opened_at_system = self.opened_at_secs.map(|secs| {
-            SystemTime::UNIX_EPOCH + Duration::from_secs(secs)
-        });
+        let opened_at_system = self
+            .opened_at_secs
+            .map(|secs| SystemTime::UNIX_EPOCH + Duration::from_secs(secs));
 
         // Calculate Instant from SystemTime if we have an opened_at
         let opened_at = opened_at_system.and_then(|system_time| {
             // Convert SystemTime to Instant by calculating elapsed time
             system_time.elapsed().ok().map(|elapsed| {
                 // Instant::now() - elapsed gives us when it was opened
-                Instant::now().checked_sub(elapsed).unwrap_or_else(Instant::now)
+                Instant::now()
+                    .checked_sub(elapsed)
+                    .unwrap_or_else(Instant::now)
             })
         });
 
@@ -294,21 +296,20 @@ impl CircuitBreaker {
         let path = path.as_ref().to_path_buf();
 
         // Try to load existing state
-        let initial_state = Self::load_state(&path, &name)
-            .unwrap_or_else(|e| {
-                tracing::debug!(
-                    circuit = %name,
-                    error = %e,
-                    "No existing state found, starting fresh"
-                );
-                CircuitBreakerState {
-                    state: CircuitState::Closed,
-                    failure_count: 0,
-                    success_count: 0,
-                    opened_at: None,
-                    opened_at_system: None,
-                }
-            });
+        let initial_state = Self::load_state(&path, &name).unwrap_or_else(|e| {
+            tracing::debug!(
+                circuit = %name,
+                error = %e,
+                "No existing state found, starting fresh"
+            );
+            CircuitBreakerState {
+                state: CircuitState::Closed,
+                failure_count: 0,
+                success_count: 0,
+                opened_at: None,
+                opened_at_system: None,
+            }
+        });
 
         tracing::info!(
             circuit = %name,
@@ -334,7 +335,10 @@ impl CircuitBreaker {
         if persisted.name != name {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("State file is for circuit '{}', expected '{}'", persisted.name, name),
+                format!(
+                    "State file is for circuit '{}', expected '{}'",
+                    persisted.name, name
+                ),
             ));
         }
 
@@ -838,8 +842,7 @@ mod tests {
 
         // Read and verify state file content
         let content = std::fs::read_to_string(&path).expect("read state file");
-        let persisted: PersistedCircuitState =
-            serde_json::from_str(&content).expect("parse state");
+        let persisted: PersistedCircuitState = serde_json::from_str(&content).expect("parse state");
         assert_eq!(persisted.name, "persistent-test");
         assert_eq!(persisted.state, "open");
         assert!(persisted.opened_at_secs.is_some());
@@ -887,8 +890,7 @@ mod tests {
 
         // Verify state was persisted as closed
         let content = std::fs::read_to_string(&path).expect("read state file");
-        let persisted: PersistedCircuitState =
-            serde_json::from_str(&content).expect("parse state");
+        let persisted: PersistedCircuitState = serde_json::from_str(&content).expect("parse state");
         assert_eq!(persisted.state, "closed");
         assert!(persisted.opened_at_secs.is_none());
 

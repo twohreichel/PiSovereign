@@ -130,12 +130,27 @@ mod tests {
 
     #[test]
     fn from_str_variants() {
-        assert_eq!("needs_action".parse::<TaskStatus>().unwrap(), TaskStatus::NeedsAction);
-        assert_eq!("in_progress".parse::<TaskStatus>().unwrap(), TaskStatus::InProgress);
-        assert_eq!("completed".parse::<TaskStatus>().unwrap(), TaskStatus::Completed);
-        assert_eq!("cancelled".parse::<TaskStatus>().unwrap(), TaskStatus::Cancelled);
+        assert_eq!(
+            "needs_action".parse::<TaskStatus>().unwrap(),
+            TaskStatus::NeedsAction
+        );
+        assert_eq!(
+            "in_progress".parse::<TaskStatus>().unwrap(),
+            TaskStatus::InProgress
+        );
+        assert_eq!(
+            "completed".parse::<TaskStatus>().unwrap(),
+            TaskStatus::Completed
+        );
+        assert_eq!(
+            "cancelled".parse::<TaskStatus>().unwrap(),
+            TaskStatus::Cancelled
+        );
         assert_eq!("done".parse::<TaskStatus>().unwrap(), TaskStatus::Completed);
-        assert_eq!("pending".parse::<TaskStatus>().unwrap(), TaskStatus::NeedsAction);
+        assert_eq!(
+            "pending".parse::<TaskStatus>().unwrap(),
+            TaskStatus::NeedsAction
+        );
     }
 
     #[test]
@@ -143,7 +158,7 @@ mod tests {
         let status = TaskStatus::InProgress;
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(json, r#""in_progress""#);
-        
+
         let parsed: TaskStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, status);
     }

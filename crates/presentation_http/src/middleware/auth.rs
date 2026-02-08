@@ -64,21 +64,19 @@ impl ApiKeyStore {
     pub fn from_entries(entries: Vec<ApiKeyEntry>) -> Self {
         let verified_entries: Vec<VerifiedKeyEntry> = entries
             .into_iter()
-            .filter_map(|entry| {
-                match UserId::parse(&entry.user_id) {
-                    Ok(user_id) => Some(VerifiedKeyEntry {
-                        hash: entry.hash,
-                        user_id,
-                    }),
-                    Err(e) => {
-                        warn!(
-                            user_id = %entry.user_id,
-                            error = %e,
-                            "Invalid user ID format in api_keys configuration, skipping entry"
-                        );
-                        None
-                    }
-                }
+            .filter_map(|entry| match UserId::parse(&entry.user_id) {
+                Ok(user_id) => Some(VerifiedKeyEntry {
+                    hash: entry.hash,
+                    user_id,
+                }),
+                Err(e) => {
+                    warn!(
+                        user_id = %entry.user_id,
+                        error = %e,
+                        "Invalid user ID format in api_keys configuration, skipping entry"
+                    );
+                    None
+                },
             })
             .collect();
 
@@ -105,12 +103,12 @@ impl ApiKeyStore {
                 Ok(true) => {
                     debug!("API key verified successfully");
                     return Some(entry.user_id.clone());
-                }
+                },
                 Ok(false) => continue,
                 Err(e) => {
                     warn!(error = %e, "Error verifying API key hash");
                     continue;
-                }
+                },
             }
         }
         None
@@ -508,7 +506,7 @@ mod tests {
     async fn api_key_store_verify_valid() {
         let hasher = ApiKeyHasher::new();
         let hash = hasher.hash("sk-valid").unwrap();
-        
+
         let entries = vec![ApiKeyEntry {
             hash,
             user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
@@ -527,7 +525,7 @@ mod tests {
     async fn api_key_store_verify_invalid() {
         let hasher = ApiKeyHasher::new();
         let hash = hasher.hash("sk-valid").unwrap();
-        
+
         let entries = vec![ApiKeyEntry {
             hash,
             user_id: "550e8400-e29b-41d4-a716-446655440001".to_string(),
@@ -540,7 +538,7 @@ mod tests {
     #[tokio::test]
     async fn api_key_store_skips_invalid_user_ids() {
         let hasher = ApiKeyHasher::new();
-        
+
         let entries = vec![ApiKeyEntry {
             hash: hasher.hash("sk-test").unwrap(),
             user_id: "not-a-valid-uuid".to_string(),

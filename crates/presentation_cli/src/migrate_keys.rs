@@ -88,11 +88,11 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                     "  ✅ Migrated legacy api_key → api_keys[0] (user_id: {})",
                                     default_user_id
                                 );
-                            }
+                            },
                             Err(e) => {
                                 failed += 1;
                                 println!("  ❌ Failed to hash legacy api_key: {e}");
-                            }
+                            },
                         }
                     }
                 }
@@ -125,7 +125,7 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                             &key[..8.min(key.len())],
                                             user_id_str
                                         );
-                                    }
+                                    },
                                     Err(e) => {
                                         failed += 1;
                                         println!(
@@ -133,7 +133,7 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                             &key[..8.min(key.len())],
                                             e
                                         );
-                                    }
+                                    },
                                 }
                             }
                         }
@@ -176,11 +176,11 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                             "  ✅ Migrated plaintext hash → proper hash (user_id: {})",
                                             user_id
                                         );
-                                    }
+                                    },
                                     Err(e) => {
                                         failed += 1;
                                         println!("  ❌ Failed to hash: {e}");
-                                    }
+                                    },
                                 }
                             }
                         }

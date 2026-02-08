@@ -226,12 +226,10 @@ impl AgentCommand {
             },
             Self::CreateTask {
                 title, due_date, ..
-            } => {
-                due_date.map_or_else(
-                    || format!("Create task '{title}'"),
-                    |d| format!("Create task '{title}' due {d}"),
-                )
-            },
+            } => due_date.map_or_else(
+                || format!("Create task '{title}'"),
+                |d| format!("Create task '{title}' due {d}"),
+            ),
             Self::CompleteTask { task_id } => {
                 format!("Complete task {task_id}")
             },

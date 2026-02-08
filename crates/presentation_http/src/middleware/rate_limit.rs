@@ -659,7 +659,11 @@ mod tests {
 
         let layer = RateLimiterLayer::new(&config);
         assert_eq!(layer.trusted_proxies.len(), 3);
-        assert!(layer.trusted_proxies.contains(&"127.0.0.1".parse().unwrap()));
+        assert!(
+            layer
+                .trusted_proxies
+                .contains(&"127.0.0.1".parse().unwrap())
+        );
         assert!(layer.trusted_proxies.contains(&"::1".parse().unwrap()));
         assert!(layer.trusted_proxies.contains(&"10.0.0.1".parse().unwrap()));
     }

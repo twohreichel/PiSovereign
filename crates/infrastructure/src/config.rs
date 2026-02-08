@@ -442,9 +442,15 @@ pub struct WhatsAppConfig {
 impl std::fmt::Debug for WhatsAppConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WhatsAppConfig")
-            .field("access_token", &self.access_token.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "access_token",
+                &self.access_token.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("phone_number_id", &self.phone_number_id)
-            .field("app_secret", &self.app_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "app_secret",
+                &self.app_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("verify_token", &self.verify_token)
             .field("signature_required", &self.signature_required)
             .field("api_version", &self.api_version)
@@ -685,7 +691,10 @@ mod tests {
         let config: SecurityConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.api_keys.len(), 1);
         assert!(config.api_keys[0].hash.starts_with("$argon2"));
-        assert_eq!(config.api_keys[0].user_id, "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(
+            config.api_keys[0].user_id,
+            "550e8400-e29b-41d4-a716-446655440000"
+        );
     }
 
     #[test]
@@ -874,7 +883,7 @@ mod tests {
     fn security_config_has_api_keys() {
         let mut config = SecurityConfig::default();
         assert!(!config.has_api_keys());
-        
+
         config.api_keys.push(ApiKeyEntry {
             hash: "$argon2id$test".to_string(),
             user_id: "user".to_string(),
