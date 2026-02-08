@@ -8,8 +8,8 @@ mod caldav_calendar_adapter;
 mod circuit_breaker;
 mod degraded_inference;
 mod env_secret_store;
-mod ollama_inference_adapter;
 mod model_registry_adapter;
+mod ollama_inference_adapter;
 mod proton_email_adapter;
 mod speech_adapter;
 mod task_adapter;
@@ -27,8 +27,8 @@ pub use degraded_inference::{
     DegradedInferenceAdapter, DegradedModeConfig, DegradedModeStats, ServiceStatus,
 };
 pub use env_secret_store::EnvSecretStore;
-pub use ollama_inference_adapter::OllamaInferenceAdapter;
 pub use model_registry_adapter::OllamaModelRegistryAdapter;
+pub use ollama_inference_adapter::OllamaInferenceAdapter;
 pub use proton_email_adapter::ProtonEmailAdapter;
 pub use speech_adapter::SpeechAdapter;
 pub use task_adapter::TaskAdapter;
