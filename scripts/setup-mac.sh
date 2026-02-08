@@ -420,6 +420,122 @@ install_piper() {
     fi
 }
 
+install_signal_cli() {
+    step "Installing signal-cli (for Signal messenger integration)"
+    
+    # Check if user wants Signal integration
+    if ! prompt_yes_no "Install signal-cli for Signal messenger support?" "n"; then
+        info "Skipping signal-cli installation"
+        return
+    fi
+    
+    # Install OpenJDK (required for signal-cli)
+    if ! brew list openjdk@17 &>/dev/null; then
+        info "Installing OpenJDK 17 (required for signal-cli)..."
+        brew install openjdk@17
+        
+        # Create symlinks
+        if [[ ! -L /usr/local/opt/openjdk@17 ]]; then
+            sudo ln -sfn "$(brew --prefix)/opt/openjdk@17/libexec/openjdk.jdk" /Library/Java/JavaVirtualMachines/openjdk-17.jdk 2>/dev/null || true
+        fi
+        
+        success "OpenJDK 17 installed"
+    else
+        success "OpenJDK 17 already installed"
+    fi
+    
+    # Determine signal-cli version and download URL
+    local signal_cli_version="0.13.4"
+    local signal_cli_dir="${HOME}/.local/opt/signal-cli"
+    local signal_cli_bin="${HOME}/.local/bin/signal-cli"
+    
+    if [[ -x "$signal_cli_bin" ]]; then
+        success "signal-cli already installed"
+    else
+        info "Downloading signal-cli v${signal_cli_version}..."
+        
+        local signal_cli_url="https://github.com/AsamK/signal-cli/releases/download/v${signal_cli_version}/signal-cli-${signal_cli_version}.tar.gz"
+        
+        mkdir -p "${HOME}/.local/opt" "${HOME}/.local/bin"
+        
+        curl -L --progress-bar -o "/tmp/signal-cli.tar.gz" "$signal_cli_url"
+        tar -xzf "/tmp/signal-cli.tar.gz" -C "${HOME}/.local/opt"
+        
+        # Create symlink
+        ln -sf "${signal_cli_dir}/bin/signal-cli" "$signal_cli_bin"
+        
+        rm -f "/tmp/signal-cli.tar.gz"
+        
+        # Add to PATH if not already
+        if ! echo "$PATH" | grep -q "${HOME}/.local/bin"; then
+            echo 'export PATH="${HOME}/.local/bin:$PATH"' >> ~/.zshrc
+            export PATH="${HOME}/.local/bin:$PATH"
+        fi
+        
+        success "signal-cli installed"
+    fi
+    
+    # Create launchd service for signal-cli daemon
+    local signal_cli_plist="${LAUNCH_AGENTS_DIR}/com.pisovereign.signal-cli.plist"
+    local signal_cli_socket="/var/run/signal-cli"
+    
+    if [[ -f "$signal_cli_plist" ]]; then
+        success "signal-cli launchd service already configured"
+    else
+        info "Setting up signal-cli daemon service..."
+        
+        # Create socket directory
+        sudo mkdir -p "$signal_cli_socket"
+        sudo chown "$(whoami)" "$signal_cli_socket"
+        
+        cat > "$signal_cli_plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pisovereign.signal-cli</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$(brew --prefix)/opt/openjdk@17/bin/java</string>
+        <string>-jar</string>
+        <string>${signal_cli_dir}/lib/signal-cli-${signal_cli_version}.jar</string>
+        <string>--verbose</string>
+        <string>daemon</string>
+        <string>--socket</string>
+        <string>${signal_cli_socket}/socket</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${HOME}/Library/Logs/signal-cli.log</string>
+    <key>StandardErrorPath</key>
+    <string>${HOME}/Library/Logs/signal-cli.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>JAVA_HOME</key>
+        <string>$(brew --prefix)/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home</string>
+    </dict>
+</dict>
+</plist>
+EOF
+        
+        success "signal-cli daemon service configured"
+    fi
+    
+    echo
+    warn "Signal account registration is required!"
+    echo -e "${YELLOW}To register your phone number with Signal:${NC}"
+    echo "  1. Run: signal-cli -a +YOUR_PHONE_NUMBER register"
+    echo "  2. Enter the verification code: signal-cli -a +YOUR_PHONE_NUMBER verify CODE"
+    echo "  3. Start the daemon: launchctl load ~/Library/LaunchAgents/com.pisovereign.signal-cli.plist"
+    echo
+    echo -e "${CYAN}For more details, see: https://github.com/AsamK/signal-cli${NC}"
+    echo
+}
+
 # =============================================================================
 # Native Build Functions
 # =============================================================================
@@ -1317,6 +1433,7 @@ main() {
     install_ollama
     install_whisper_cpp
     install_piper
+    install_signal_cli
     
     # Mode-specific installation
     if [[ "$DEPLOY_MODE" == "native" ]]; then

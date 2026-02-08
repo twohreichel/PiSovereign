@@ -444,6 +444,108 @@ install_piper() {
     fi
 }
 
+install_signal_cli() {
+    step "Installing signal-cli (for Signal messenger integration)"
+    
+    # Check if user wants Signal integration
+    if ! prompt_yes_no "Install signal-cli for Signal messenger support?" "n"; then
+        info "Skipping signal-cli installation"
+        return
+    fi
+    
+    # Install OpenJDK 17 (required for signal-cli)
+    if ! command -v java &>/dev/null || ! java -version 2>&1 | grep -q "17\|21"; then
+        info "Installing OpenJDK 17 (required for signal-cli)..."
+        apt-get install -y default-jdk
+        success "OpenJDK installed"
+    else
+        success "Java runtime already installed"
+    fi
+    
+    # Determine signal-cli version and install location
+    local signal_cli_version="0.13.4"
+    local signal_cli_dir="/opt/signal-cli"
+    local signal_cli_bin="/usr/local/bin/signal-cli"
+    
+    if [[ -x "$signal_cli_bin" ]]; then
+        success "signal-cli already installed"
+    else
+        info "Downloading signal-cli v${signal_cli_version}..."
+        
+        local signal_cli_url="https://github.com/AsamK/signal-cli/releases/download/v${signal_cli_version}/signal-cli-${signal_cli_version}.tar.gz"
+        local temp_dir="/tmp/signal-cli-install"
+        
+        rm -rf "$temp_dir"
+        mkdir -p "$temp_dir" "$signal_cli_dir"
+        
+        wget -q --show-progress -O "$temp_dir/signal-cli.tar.gz" "$signal_cli_url"
+        tar -xzf "$temp_dir/signal-cli.tar.gz" -C "$signal_cli_dir" --strip-components=1
+        
+        # Create symlink
+        ln -sf "$signal_cli_dir/bin/signal-cli" "$signal_cli_bin"
+        
+        rm -rf "$temp_dir"
+        success "signal-cli installed"
+    fi
+    
+    # Create socket directory
+    local signal_cli_socket="/var/run/signal-cli"
+    mkdir -p "$signal_cli_socket"
+    chown pisovereign:pisovereign "$signal_cli_socket" 2>/dev/null || true
+    
+    # Create systemd service for signal-cli daemon
+    local signal_cli_service="/etc/systemd/system/signal-cli.service"
+    
+    if [[ ! -f "$signal_cli_service" ]]; then
+        info "Creating signal-cli systemd service..."
+        
+        cat > "$signal_cli_service" << EOF
+[Unit]
+Description=signal-cli JSON-RPC daemon
+After=network.target
+
+[Service]
+Type=simple
+User=pisovereign
+Group=pisovereign
+ExecStart=/usr/bin/java -jar ${signal_cli_dir}/lib/signal-cli-${signal_cli_version}.jar --verbose daemon --socket ${signal_cli_socket}/socket
+Restart=on-failure
+RestartSec=10
+RuntimeDirectory=signal-cli
+RuntimeDirectoryMode=0755
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/run/signal-cli /var/lib/signal-cli
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        
+        # Create data directory
+        mkdir -p /var/lib/signal-cli
+        chown pisovereign:pisovereign /var/lib/signal-cli
+        
+        systemctl daemon-reload
+        success "signal-cli systemd service created"
+    else
+        success "signal-cli systemd service already exists"
+    fi
+    
+    echo
+    warn "Signal account registration is required!"
+    echo -e "${YELLOW}To register your phone number with Signal:${NC}"
+    echo "  1. Run: sudo -u pisovereign signal-cli -a +YOUR_PHONE_NUMBER register"
+    echo "  2. Enter the verification code: sudo -u pisovereign signal-cli -a +YOUR_PHONE_NUMBER verify CODE"
+    echo "  3. Enable the daemon: systemctl enable --now signal-cli"
+    echo
+    echo -e "${CYAN}For more details, see: https://github.com/AsamK/signal-cli${NC}"
+    echo
+}
+
 # =============================================================================
 # Native Build (Rust)
 # =============================================================================
@@ -1745,6 +1847,7 @@ main() {
     install_ollama
     install_whisper_cpp
     install_piper
+    install_signal_cli
     
     # User and directories (needed for both modes)
     setup_pisovereign_user
