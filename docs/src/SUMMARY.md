@@ -12,6 +12,7 @@
 - [Vault Setup](./user/vault-setup.md)
 - [Configuration Reference](./user/configuration.md)
 - [External Services](./user/external-services.md)
+- [Signal Setup](./user/signal-setup.md)
 - [Troubleshooting](./user/troubleshooting.md)
 
 ---

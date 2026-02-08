@@ -15,7 +15,9 @@ This document covers every configuration option available in `config.toml`.
   - [Database](#database)
   - [Cache](#cache)
 - [Integrations](#integrations)
+  - [Messenger Selection](#messenger-selection)
   - [WhatsApp Business](#whatsapp-business)
+  - [Signal Messenger](#signal-messenger)
   - [Speech Processing](#speech-processing)
   - [Weather](#weather)
   - [CalDAV Calendar](#caldav-calendar)
@@ -273,6 +275,21 @@ l1_max_entries = 10000
 
 ## Integrations
 
+### Messenger Selection
+
+PiSovereign supports one messenger at a time:
+
+```toml
+# Choose one: "whatsapp", "signal", or "none"
+messenger = "whatsapp"
+```
+
+| Value | Description |
+|-------|-------------|
+| `whatsapp` | Use WhatsApp Business API (webhooks) |
+| `signal` | Use Signal via signal-cli (polling) |
+| `none` | Disable messenger integration |
+
 ### WhatsApp Business
 
 ```toml
@@ -294,7 +311,40 @@ signature_required = true
 
 # Meta Graph API version
 api_version = "v18.0"
+
+# Phone numbers allowed to send messages (empty = allow all)
+# whitelist = ["+1234567890"]
 ```
+
+### Signal Messenger
+
+```toml
+[signal]
+# Your phone number registered with Signal (E.164 format)
+phone_number = "+1234567890"
+
+# Path to signal-cli JSON-RPC socket
+socket_path = "/var/run/signal-cli/socket"
+
+# Path to signal-cli data directory (optional)
+# data_path = "/var/lib/signal-cli"
+
+# Connection timeout in milliseconds
+timeout_ms = 30000
+
+# Phone numbers allowed to send messages (empty = allow all)
+# whitelist = ["+1234567890", "+0987654321"]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `phone_number` | String | - | Your Signal phone number (E.164) |
+| `socket_path` | String | `/var/run/signal-cli/socket` | signal-cli daemon socket |
+| `data_path` | String | - | signal-cli data directory |
+| `timeout_ms` | Integer | `30000` | Connection timeout |
+| `whitelist` | Array | `[]` | Allowed phone numbers |
+
+📖 See [Signal Setup Guide](./signal-setup.md) for installation instructions.
 
 ### Speech Processing
 
