@@ -10,9 +10,10 @@
 [![Documentation](https://img.shields.io/badge/docs-online-blue)](https://twohreichel.github.io/PiSovereign/)
 [![Rust](https://img.shields.io/badge/Rust-1.93+-orange?logo=rust)](https://www.rust-lang.org/)
 [![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-5-C51A4A?logo=raspberrypi)](https://www.raspberrypi.com/)
+[![macOS](https://img.shields.io/badge/macOS-Sonoma+-000000?logo=apple)](https://www.apple.com/macos/)
 [![AI](https://img.shields.io/badge/AI-Hailo--10H-blueviolet?logo=ai)](https://hailo.ai/)
 
-🤖 **Local, private AI assistant for Raspberry Pi 5 + Hailo-10H AI HAT+ 2**
+🤖 **Local, private AI assistant for Raspberry Pi 5 or macOS**
 
 Run your own AI assistant with 100% local inference—no cloud required. Control via WhatsApp, voice messages, calendar, and email integration.
 
@@ -20,7 +21,8 @@ Run your own AI assistant with 100% local inference—no cloud required. Control
 
 ## ✨ Features
 
-- **Local LLM Inference** on Hailo-10H NPU (26 TOPS)
+- **Local LLM Inference** on Hailo-10H NPU (26 TOPS) or Ollama with Metal
+- **Multi-Platform** – Raspberry Pi (production) or macOS (development)
 - **WhatsApp Control** – Send commands via message
 - **Voice Messages** – Local STT/TTS with cloud fallback
 - **Calendar & Email** – CalDAV + Proton Mail integration
@@ -32,6 +34,7 @@ Run your own AI assistant with 100% local inference—no cloud required. Control
 |-------|-------------|
 | [**Getting Started**](https://twohreichel.github.io/PiSovereign/user/getting-started.html) | 30-minute setup guide |
 | [**Raspberry Pi Setup**](https://twohreichel.github.io/PiSovereign/user/raspberry-pi-setup.html) | Complete hardware setup with Hailo |
+| [**macOS Setup**](https://twohreichel.github.io/PiSovereign/user/mac-setup.html) | Installation guide for Mac |
 | [**Configuration**](https://twohreichel.github.io/PiSovereign/user/configuration.html) | All config.toml options |
 | [**API Reference**](https://twohreichel.github.io/PiSovereign/api/) | Rustdoc API documentation |
 | [**Architecture**](https://twohreichel.github.io/PiSovereign/developer/architecture.html) | Clean Architecture overview |
