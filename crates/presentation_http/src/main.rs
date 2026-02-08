@@ -11,7 +11,7 @@ use application::{
     },
 };
 use infrastructure::{
-    ApiKeyHasher, AppConfig, HailoInferenceAdapter, SecurityValidator,
+    AppConfig, HailoInferenceAdapter, SecurityValidator,
     adapters::{
         CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig, ProtonEmailAdapter,
         WeatherAdapter,
@@ -24,12 +24,13 @@ use infrastructure::{
 };
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig, RequestIdLayer,
-    handlers::metrics::MetricsCollector, routes, spawn_cleanup_task, spawn_config_reload_handler,
-    state::AppState,
+    SecurityHeadersLayer, handlers::metrics::MetricsCollector, routes, spawn_cleanup_task,
+    spawn_config_reload_handler, state::AppState,
 };
 use tokio::{net::TcpListener, signal};
 use tower_http::{
     cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
     trace::TraceLayer,
 };
 use tracing::{error, info, warn};
@@ -122,6 +123,17 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Configure error response detail exposure based on environment
+    // In production, we hide implementation details to prevent information leakage
+    let is_production = matches!(
+        initial_config.environment,
+        Some(infrastructure::config::Environment::Production)
+    );
+    presentation_http::error::set_expose_internal_errors(!is_production);
+    if is_production {
+        info!("🔒 Production mode: error details will be sanitized");
+    }
+
     info!(
         host = %initial_config.server.host,
         port = %initial_config.server.port,
@@ -129,24 +141,17 @@ async fn main() -> anyhow::Result<()> {
         "Configuration loaded"
     );
 
-    // Security check: warn about plaintext API keys
-    if !initial_config.security.api_key_users.is_empty() {
-        let plaintext_count = ApiKeyHasher::detect_plaintext_keys(
-            initial_config
-                .security
-                .api_key_users
-                .keys()
-                .map(String::as_str),
+    // Security check: validate API keys are properly hashed
+    // In release builds with plaintext keys, startup is blocked by SecurityValidator above
+    // This provides an additional warning for development mode
+    let plaintext_count = initial_config.security.count_plaintext_keys();
+    if plaintext_count > 0 {
+        warn!(
+            count = plaintext_count,
+            "⚠️ SECURITY WARNING: {} API key(s) are not properly hashed with Argon2. \
+             Run 'pisovereign-cli migrate-keys' to convert them to secure hashes.",
+            plaintext_count
         );
-        if plaintext_count > 0 {
-            warn!(
-                count = plaintext_count,
-                "⚠️ SECURITY WARNING: {} API key(s) are stored in plaintext. \
-                 Consider hashing them using 'pisovereign-cli hash-api-key <key>' \
-                 or using a secrets manager like HashiCorp Vault.",
-                plaintext_count
-            );
-        }
     }
 
     // Initialize OpenTelemetry if configured
@@ -339,10 +344,11 @@ async fn main() -> anyhow::Result<()> {
             .allow_headers(Any)
     };
 
-    // Configure rate limiter
+    // Configure rate limiter with trusted proxy support
     let rate_limiter = RateLimiterLayer::new(&RateLimiterConfig {
         enabled: initial_config.security.rate_limit_enabled,
         requests_per_minute: initial_config.security.rate_limit_rpm,
+        trusted_proxies: initial_config.security.trusted_proxies.clone(),
     });
 
     // Spawn rate limiter cleanup task
@@ -353,20 +359,33 @@ async fn main() -> anyhow::Result<()> {
         Duration::from_secs(initial_config.security.rate_limit_cleanup_max_age_secs),
     );
 
-    // Configure API key auth with both single-key and multi-user support
-    let auth_layer = ApiKeyAuthLayer::with_config(
-        initial_config.security.api_key.clone(),
-        initial_config.security.api_key_users.clone(),
-    );
+    // Configure API key auth from hashed API keys
+    let auth_layer = if initial_config.security.api_keys.is_empty() {
+        ApiKeyAuthLayer::disabled()
+    } else {
+        ApiKeyAuthLayer::from_api_keys(initial_config.security.api_keys.clone())
+    };
 
     // Add middleware (order matters: first added = outermost)
     // Request ID layer is outermost to ensure all logs have the correlation ID
+    // Body limit is applied early to reject oversized requests fast
+    // Security headers is innermost to ensure they're always added
     let app = app
         .layer(RequestIdLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer)
+        .layer(RequestBodyLimitLayer::new(
+            initial_config.server.max_body_size_json_bytes,
+        ))
         .layer(rate_limiter)
-        .layer(auth_layer);
+        .layer(auth_layer)
+        .layer(SecurityHeadersLayer::new());
+
+    info!(
+        max_body_size_bytes = initial_config.server.max_body_size_json_bytes,
+        "📦 Request body size limit enabled"
+    );
+    info!("🔒 Security headers middleware enabled");
 
     // Start server
     let addr = format!(

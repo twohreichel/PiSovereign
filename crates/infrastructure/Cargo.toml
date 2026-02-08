@@ -54,6 +54,9 @@ metrics.workspace = true
 # Password hashing for API keys
 argon2 = "0.5"
 
+# Secret management with zeroization
+secrecy.workspace = true
+
 # Random number generation for jitter
 rand = "0.8"
 

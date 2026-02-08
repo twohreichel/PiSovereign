@@ -5,7 +5,9 @@
 #![allow(clippy::print_stdout)]
 
 mod backup;
+mod migrate_keys;
 
+use std::fs;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -153,6 +155,28 @@ enum Commands {
         /// Server URL
         #[arg(short, long, default_value = "http://localhost:3000")]
         url: String,
+    },
+
+    /// Migrate plaintext API keys to secure Argon2 hashes
+    ///
+    /// Reads a configuration file, finds all plaintext API keys in legacy formats
+    /// (api_key, api_key_users), and converts them to the new [[security.api_keys]]
+    /// format with Argon2id hashes.
+    ///
+    /// Example: pisovereign-cli migrate-keys --input config.toml --dry-run
+    /// Example: pisovereign-cli migrate-keys --input config.toml --output config.toml
+    MigrateKeys {
+        /// Path to input configuration file
+        #[arg(short, long)]
+        input: PathBuf,
+
+        /// Path to output configuration file (will overwrite if same as input)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Show what would be changed without writing output
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -388,6 +412,61 @@ async fn main() -> anyhow::Result<()> {
                 println!("❌ Unhealthy: {e}");
                 std::process::exit(1);
             },
+        },
+
+        Commands::MigrateKeys {
+            input,
+            output,
+            dry_run,
+        } => {
+            println!("🔄 Migrating API keys from: {}", input.display());
+
+            if !input.exists() {
+                println!("❌ Input file not found: {}", input.display());
+                std::process::exit(1);
+            }
+
+            match migrate_keys::migrate_config(&input, dry_run) {
+                Ok(result) => {
+                    println!();
+                    println!("📊 Migration Summary:");
+                    println!("   ✅ Migrated: {}", result.migrated);
+                    println!("   ⏭️  Already hashed: {}", result.already_hashed);
+                    println!("   ❌ Failed: {}", result.failed);
+
+                    if result.failed > 0 {
+                        println!();
+                        println!("⚠️  Some keys failed to migrate. Check the output above.");
+                        std::process::exit(1);
+                    }
+
+                    if !dry_run {
+                        let output_path = output.as_ref().unwrap_or(&input);
+                        match fs::write(output_path, &result.output) {
+                            Ok(()) => {
+                                println!();
+                                println!("✅ Configuration written to: {}", output_path.display());
+                            },
+                            Err(e) => {
+                                println!("❌ Failed to write output: {e}");
+                                std::process::exit(1);
+                            },
+                        }
+                    } else if result.migrated > 0 {
+                        println!();
+                        println!("📋 Preview of migrated configuration:");
+                        println!("────────────────────────────────────────");
+                        println!("{}", result.output);
+                        println!("────────────────────────────────────────");
+                        println!();
+                        println!("Run without --dry-run to apply changes.");
+                    }
+                },
+                Err(e) => {
+                    println!("❌ Migration failed: {e}");
+                    std::process::exit(1);
+                },
+            }
         },
     }
 

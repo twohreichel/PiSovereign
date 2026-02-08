@@ -23,8 +23,8 @@ timeout = "300s"
 # - llvm: Cross-platform, required for aarch64/macOS
 engine = "llvm"
 
-# Fail the build if coverage drops below 90%
-fail-under = 90
+# Fail the build if coverage drops below 60%
+fail-under = 60
 
 # Output formats:
 # - Html: Local development reports

@@ -1487,7 +1487,7 @@ mod workflow_tests {
         let (_, profile_store) = create_workflow_test_state_with_user_profile();
 
         let user_id = UserId::default();
-        let timezone = Timezone::from("Europe/Berlin");
+        let timezone = Timezone::try_new("Europe/Berlin").expect("valid tz");
         let location = GeoLocation::new(52.52, 13.405).unwrap(); // Berlin
         let profile = UserProfile::with_defaults(user_id, location, timezone);
 
@@ -1511,7 +1511,7 @@ mod workflow_tests {
         profile_store.save(&profile).await.unwrap();
 
         // Update timezone
-        let new_tz = Timezone::from("America/New_York");
+        let new_tz = Timezone::try_new("America/New_York").expect("valid tz");
         let updated = profile_store
             .update_timezone(&user_id, &new_tz)
             .await
@@ -1963,10 +1963,11 @@ mod security_validator_tests {
         let mut config = AppConfig::default();
         config.environment = Some(Environment::Production);
         config.server.allowed_origins = vec!["https://example.com".to_string()];
-        config.security.api_key_users.insert(
-            "sk-secure-key".to_string(),
-            "550e8400-e29b-41d4-a716-446655440000".to_string(),
-        );
+        // Use hashed API key in new format
+        config.security.api_keys = vec![infrastructure::ApiKeyEntry {
+            hash: "$argon2id$v=19$m=19456,t=2,p=1$test".to_string(),
+            user_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+        }];
         config.security.tls_verify_certs = true;
         config.security.rate_limit_enabled = true;
         config.database.run_migrations = false;
@@ -1999,7 +2000,11 @@ mod security_validator_tests {
     #[test]
     fn security_validator_warns_on_plaintext_secrets() {
         let mut config = AppConfig::default();
-        config.security.api_key = Some("sk-secret-production-key-12345".to_string());
+        // Add a plaintext key in the hash field (incorrect usage that should trigger warning)
+        config.security.api_keys = vec![infrastructure::ApiKeyEntry {
+            hash: "sk-secret-production-key-12345".to_string(), // Plaintext, not hashed
+            user_id: "test-user".to_string(),
+        }];
 
         let warnings = SecurityValidator::validate(&config);
 
@@ -2009,17 +2014,21 @@ mod security_validator_tests {
     }
 
     #[test]
-    fn security_validator_accepts_env_var_references() {
+    fn security_validator_accepts_hashed_keys() {
         let mut config = AppConfig::default();
-        config.security.api_key = Some("${API_KEY}".to_string());
+        // Use properly hashed API key
+        config.security.api_keys = vec![infrastructure::ApiKeyEntry {
+            hash: "$argon2id$v=19$m=19456,t=2,p=1$salt$hash".to_string(),
+            user_id: "test-user".to_string(),
+        }];
 
         let warnings = SecurityValidator::validate(&config);
 
-        // Should not warn about env var references
+        // Should not warn about hashed keys
         let has_plaintext_warning = warnings.iter().any(|w| w.code == "SEC003");
         assert!(
             !has_plaintext_warning,
-            "Should not warn about env var references"
+            "Should not warn about properly hashed keys"
         );
     }
 

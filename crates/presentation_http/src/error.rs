@@ -1,4 +1,7 @@
 //! API error handling
+//!
+//! Provides sanitized error responses that don't leak implementation details.
+//! In production mode, internal errors return generic messages without details.
 
 use application::ApplicationError;
 use axum::{
@@ -7,8 +10,88 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use utoipa::ToSchema;
+
+/// Global flag to control error detail exposure
+/// Set to false in production to prevent information leakage
+static EXPOSE_INTERNAL_ERRORS: AtomicBool = AtomicBool::new(true);
+
+/// Configure whether internal error details should be exposed in responses.
+///
+/// In production environments, this should be set to `false` to prevent
+/// leaking implementation details, stack traces, or sensitive information.
+///
+/// # Arguments
+///
+/// * `expose` - If `true`, internal error details will be included in responses.
+///   If `false`, only generic error messages will be returned.
+pub fn set_expose_internal_errors(expose: bool) {
+    EXPOSE_INTERNAL_ERRORS.store(expose, Ordering::SeqCst);
+}
+
+/// Check if internal error details should be exposed
+fn should_expose_details() -> bool {
+    EXPOSE_INTERNAL_ERRORS.load(Ordering::SeqCst)
+}
+
+/// Sanitize an error message to remove potentially sensitive information
+///
+/// This function removes:
+/// - File paths
+/// - IP addresses (except localhost)
+/// - Port numbers in URLs
+/// - Stack trace information
+/// - Database connection strings
+fn sanitize_error_message(msg: &str) -> String {
+    // In development mode, return the original message
+    if should_expose_details() {
+        return msg.to_string();
+    }
+
+    // List of patterns that indicate sensitive information
+    let sensitive_patterns = [
+        // File paths
+        "/home/",
+        "/Users/",
+        "/var/",
+        "/etc/",
+        "\\Users\\",
+        "C:\\",
+        // Database patterns
+        "postgres://",
+        "postgresql://",
+        "sqlite://",
+        "mysql://",
+        "mongodb://",
+        // Stack trace indicators
+        "at line",
+        "stack backtrace",
+        "panicked at",
+        " at ",
+        ".rs:",
+        // Connection details
+        "connection refused",
+        "ECONNREFUSED",
+        "timeout",
+    ];
+
+    // Check if the message contains any sensitive patterns
+    let msg_lower = msg.to_lowercase();
+    for pattern in &sensitive_patterns {
+        if msg_lower.contains(&pattern.to_lowercase()) {
+            return "An error occurred processing your request".to_string();
+        }
+    }
+
+    // Additional sanitization: remove anything that looks like a path or URL detail
+    if msg.contains("://") || msg.contains('/') && msg.len() > 50 {
+        return "An error occurred processing your request".to_string();
+    }
+
+    msg.to_string()
+}
 
 /// API error type
 #[derive(Debug, Error)]
@@ -47,29 +130,61 @@ pub struct ErrorResponse {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code, message, details) = match &self {
-            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone(), None),
+            Self::BadRequest(msg) => (
+                StatusCode::BAD_REQUEST,
+                "bad_request",
+                sanitize_error_message(msg),
+                None,
+            ),
             Self::Unauthorized(msg) => {
-                (StatusCode::UNAUTHORIZED, "unauthorized", msg.clone(), None)
+                // Unauthorized messages are intentionally generic to prevent user enumeration
+                let sanitized = if should_expose_details() {
+                    msg.clone()
+                } else {
+                    "Authentication required".to_string()
+                };
+                (StatusCode::UNAUTHORIZED, "unauthorized", sanitized, None)
             },
-            Self::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone(), None),
+            Self::NotFound(msg) => (
+                StatusCode::NOT_FOUND,
+                "not_found",
+                sanitize_error_message(msg),
+                None,
+            ),
             Self::RateLimited => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "rate_limited",
                 "Rate limit exceeded".to_string(),
                 None,
             ),
-            Self::ServiceUnavailable(msg) => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "service_unavailable",
-                msg.clone(),
-                None,
-            ),
-            Self::Internal(msg) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal_error",
-                "An internal error occurred".to_string(),
-                Some(msg.clone()),
-            ),
+            Self::ServiceUnavailable(msg) => {
+                // Service errors might leak backend details
+                let sanitized = if should_expose_details() {
+                    msg.clone()
+                } else {
+                    "Service temporarily unavailable".to_string()
+                };
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "service_unavailable",
+                    sanitized,
+                    None,
+                )
+            },
+            Self::Internal(msg) => {
+                // Internal errors should never leak details in production
+                let details = if should_expose_details() {
+                    Some(msg.clone())
+                } else {
+                    None
+                };
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "An internal error occurred".to_string(),
+                    details,
+                )
+            },
         };
 
         let body = ErrorResponse {
@@ -281,5 +396,72 @@ mod tests {
         let source = ApplicationError::CommandFailed("execution failed".to_string());
         let result: ApiError = source.into();
         assert!(matches!(result, ApiError::Internal(_)));
+    }
+
+    // Error sanitization tests
+
+    #[test]
+    fn sanitize_removes_file_paths_in_production() {
+        set_expose_internal_errors(false);
+        let msg = "Error loading config from /home/user/.config/app.toml";
+        let sanitized = sanitize_error_message(msg);
+        assert_eq!(sanitized, "An error occurred processing your request");
+        set_expose_internal_errors(true); // Reset for other tests
+    }
+
+    #[test]
+    fn sanitize_removes_database_urls_in_production() {
+        set_expose_internal_errors(false);
+        let msg = "Failed to connect to postgres://user:pass@localhost:5432/db";
+        let sanitized = sanitize_error_message(msg);
+        assert_eq!(sanitized, "An error occurred processing your request");
+        set_expose_internal_errors(true);
+    }
+
+    #[test]
+    fn sanitize_removes_stack_traces_in_production() {
+        set_expose_internal_errors(false);
+        let msg = "Panic at line 42 in module.rs";
+        let sanitized = sanitize_error_message(msg);
+        assert_eq!(sanitized, "An error occurred processing your request");
+        set_expose_internal_errors(true);
+    }
+
+    #[test]
+    fn sanitize_preserves_safe_messages() {
+        set_expose_internal_errors(false);
+        let msg = "Invalid email format";
+        let sanitized = sanitize_error_message(msg);
+        assert_eq!(sanitized, "Invalid email format");
+        set_expose_internal_errors(true);
+    }
+
+    #[test]
+    fn sanitize_exposes_details_in_development() {
+        set_expose_internal_errors(true);
+        let msg = "Error at /home/user/.config/app.toml line 42";
+        let sanitized = sanitize_error_message(msg);
+        assert_eq!(sanitized, msg);
+    }
+
+    #[test]
+    fn internal_error_hides_details_in_production() {
+        set_expose_internal_errors(false);
+        let err =
+            ApiError::Internal("Database connection failed at postgres://localhost".to_string());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        // The response body should not contain the details
+        set_expose_internal_errors(true);
+    }
+
+    #[test]
+    fn unauthorized_error_generic_in_production() {
+        set_expose_internal_errors(false);
+        let err = ApiError::Unauthorized("User admin@example.com not found".to_string());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        // The response should not reveal the specific user
+        set_expose_internal_errors(true);
     }
 }

@@ -16,6 +16,7 @@ use integration_whatsapp::{
     IncomingMessage, WebhookPayload, WhatsAppClient, WhatsAppClientConfig, extract_all_messages,
     verify_signature,
 };
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
 
@@ -118,9 +119,11 @@ pub async fn handle_webhook(
     let config = state.config.load();
 
     // Check if WhatsApp app_secret is configured for signature verification
-    let app_secret = match &config.whatsapp.app_secret {
-        Some(secret) if config.whatsapp.signature_required => secret.clone(),
-        Some(secret) => secret.clone(),
+    let app_secret_str: Option<String> = match &config.whatsapp.app_secret {
+        Some(secret) if config.whatsapp.signature_required => {
+            Some(secret.expose_secret().to_string())
+        },
+        Some(secret) => Some(secret.expose_secret().to_string()),
         None if config.whatsapp.signature_required => {
             warn!("WhatsApp webhook message received but app_secret not configured");
             return (
@@ -131,17 +134,17 @@ pub async fn handle_webhook(
             )
                 .into_response();
         },
-        None => String::new(), // Skip verification if not required and not configured
+        None => None, // Skip verification if not required and not configured
     };
 
     // Verify signature if required or if we have a secret
-    if config.whatsapp.signature_required || !app_secret.is_empty() {
+    if config.whatsapp.signature_required || app_secret_str.is_some() {
         let signature = headers
             .get("x-hub-signature-256")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
 
-        if !verify_signature(&body, signature, &app_secret) {
+        if !verify_signature(&body, signature, app_secret_str.as_deref().unwrap_or("")) {
             warn!("WhatsApp webhook signature verification failed");
             return (
                 StatusCode::UNAUTHORIZED,
@@ -561,9 +564,13 @@ fn create_whatsapp_client(
         .ok_or("WhatsApp phone_number_id not configured")?;
 
     let client_config = WhatsAppClientConfig {
-        access_token: access_token.clone(),
+        access_token: access_token.expose_secret().to_string(),
         phone_number_id: phone_number_id.clone(),
-        app_secret: config.app_secret.clone().unwrap_or_default(),
+        app_secret: config
+            .app_secret
+            .as_ref()
+            .map(|s| s.expose_secret().to_string())
+            .unwrap_or_default(),
         verify_token: config.verify_token.clone().unwrap_or_default(),
         signature_required: config.signature_required,
         api_version: config.api_version.clone(),
@@ -592,9 +599,13 @@ async fn send_whatsapp_response(
         .ok_or("WhatsApp phone_number_id not configured")?;
 
     let client_config = WhatsAppClientConfig {
-        access_token: access_token.clone(),
+        access_token: access_token.expose_secret().to_string(),
         phone_number_id: phone_number_id.clone(),
-        app_secret: config.app_secret.clone().unwrap_or_default(),
+        app_secret: config
+            .app_secret
+            .as_ref()
+            .map(|s| s.expose_secret().to_string())
+            .unwrap_or_default(),
         verify_token: config.verify_token.clone().unwrap_or_default(),
         signature_required: config.signature_required,
         api_version: config.api_version.clone(),
@@ -743,8 +754,10 @@ mod tests {
 
     #[test]
     fn create_whatsapp_client_fails_without_phone_number_id() {
+        use secrecy::SecretString;
+
         let config = infrastructure::WhatsAppConfig {
-            access_token: Some("test_token".to_string()),
+            access_token: Some(SecretString::from("test_token")),
             phone_number_id: None,
             ..Default::default()
         };
@@ -763,8 +776,10 @@ mod tests {
 
     #[tokio::test]
     async fn send_whatsapp_response_fails_without_phone_number_id() {
+        use secrecy::SecretString;
+
         let config = infrastructure::WhatsAppConfig {
-            access_token: Some("test_token".to_string()),
+            access_token: Some(SecretString::from("test_token")),
             phone_number_id: None,
             ..Default::default()
         };
@@ -775,19 +790,29 @@ mod tests {
 
     #[test]
     fn whatsapp_client_config_conversion() {
+        use secrecy::SecretString;
+
         let config = infrastructure::WhatsAppConfig {
-            access_token: Some("token123".to_string()),
+            access_token: Some(SecretString::from("token123")),
             phone_number_id: Some("phone123".to_string()),
-            app_secret: Some("secret".to_string()),
+            app_secret: Some(SecretString::from("secret")),
             verify_token: Some("verify".to_string()),
             signature_required: true,
             api_version: "v18.0".to_string(),
         };
 
         let client_config = WhatsAppClientConfig {
-            access_token: config.access_token.clone().unwrap(),
+            access_token: config
+                .access_token
+                .as_ref()
+                .map(|s| s.expose_secret().to_string())
+                .unwrap(),
             phone_number_id: config.phone_number_id.clone().unwrap(),
-            app_secret: config.app_secret.clone().unwrap_or_default(),
+            app_secret: config
+                .app_secret
+                .as_ref()
+                .map(|s| s.expose_secret().to_string())
+                .unwrap_or_default(),
             verify_token: config.verify_token.clone().unwrap_or_default(),
             signature_required: config.signature_required,
             api_version: config.api_version,

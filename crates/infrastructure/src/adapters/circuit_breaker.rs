@@ -9,6 +9,12 @@
 //! - **Open**: Service is down, requests fail fast without calling the service
 //! - **Half-Open**: Testing if the service has recovered
 //!
+//! # Persistence
+//!
+//! Circuit breaker state can be persisted to a file so that the state
+//! survives application restarts. Use `CircuitBreaker::with_persistence()`
+//! to enable this feature.
+//!
 //! # Example
 //!
 //! ```rust,ignore
@@ -22,10 +28,12 @@
 
 use std::{
     fmt,
-    time::{Duration, Instant},
+    path::{Path, PathBuf},
+    time::{Duration, Instant, SystemTime},
 };
 
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 
 /// Configuration for a circuit breaker
 #[derive(Debug, Clone)]
@@ -105,6 +113,76 @@ impl fmt::Display for CircuitState {
     }
 }
 
+/// Serializable state for persistence
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedCircuitState {
+    /// Name of the circuit breaker
+    name: String,
+    /// Current state
+    state: String,
+    /// Number of consecutive failures
+    failure_count: u32,
+    /// Number of consecutive successes
+    success_count: u32,
+    /// When the circuit was opened (Unix timestamp in seconds)
+    opened_at_secs: Option<u64>,
+}
+
+impl PersistedCircuitState {
+    /// Convert internal state to persistable format
+    fn from_internal(name: &str, state: &CircuitBreakerState) -> Self {
+        let opened_at_secs = state.opened_at_system.and_then(|t| {
+            t.duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_secs())
+        });
+
+        Self {
+            name: name.to_string(),
+            state: match state.state {
+                CircuitState::Closed => "closed".to_string(),
+                CircuitState::Open => "open".to_string(),
+                CircuitState::HalfOpen => "half_open".to_string(),
+            },
+            failure_count: state.failure_count,
+            success_count: state.success_count,
+            opened_at_secs,
+        }
+    }
+
+    /// Convert back to internal state
+    fn to_internal(&self) -> CircuitBreakerState {
+        let state = match self.state.as_str() {
+            "open" => CircuitState::Open,
+            "half_open" => CircuitState::HalfOpen,
+            _ => CircuitState::Closed,
+        };
+
+        let opened_at_system = self
+            .opened_at_secs
+            .map(|secs| SystemTime::UNIX_EPOCH + Duration::from_secs(secs));
+
+        // Calculate Instant from SystemTime if we have an opened_at
+        let opened_at = opened_at_system.and_then(|system_time| {
+            // Convert SystemTime to Instant by calculating elapsed time
+            system_time.elapsed().ok().map(|elapsed| {
+                // Instant::now() - elapsed gives us when it was opened
+                Instant::now()
+                    .checked_sub(elapsed)
+                    .unwrap_or_else(Instant::now)
+            })
+        });
+
+        CircuitBreakerState {
+            state,
+            failure_count: self.failure_count,
+            success_count: self.success_count,
+            opened_at,
+            opened_at_system,
+        }
+    }
+}
+
 /// Error returned when the circuit is open
 #[derive(Debug, Clone)]
 pub struct CircuitOpenError {
@@ -130,6 +208,8 @@ struct CircuitBreakerState {
     failure_count: u32,
     success_count: u32,
     opened_at: Option<Instant>,
+    /// SystemTime version for persistence (None when closed)
+    opened_at_system: Option<SystemTime>,
 }
 
 /// Circuit breaker wrapper for external service calls
@@ -140,6 +220,8 @@ pub struct CircuitBreaker {
     name: String,
     config: CircuitBreakerConfig,
     state: RwLock<CircuitBreakerState>,
+    /// Optional path to persist state
+    persistence_path: Option<PathBuf>,
 }
 
 impl fmt::Debug for CircuitBreaker {
@@ -147,6 +229,7 @@ impl fmt::Debug for CircuitBreaker {
         f.debug_struct("CircuitBreaker")
             .field("name", &self.name)
             .field("state", &self.state())
+            .field("persistence", &self.persistence_path)
             .finish_non_exhaustive()
     }
 }
@@ -157,11 +240,13 @@ impl Clone for CircuitBreaker {
         Self {
             name: self.name.clone(),
             config: self.config.clone(),
+            persistence_path: self.persistence_path.clone(),
             state: RwLock::new(CircuitBreakerState {
                 state: state.state,
                 failure_count: state.failure_count,
                 success_count: state.success_count,
                 opened_at: state.opened_at,
+                opened_at_system: state.opened_at_system,
             }),
         }
     }
@@ -180,12 +265,117 @@ impl CircuitBreaker {
         Self {
             name: name.into(),
             config,
+            persistence_path: None,
             state: RwLock::new(CircuitBreakerState {
                 state: CircuitState::Closed,
                 failure_count: 0,
                 success_count: 0,
                 opened_at: None,
+                opened_at_system: None,
             }),
+        }
+    }
+
+    /// Creates a new circuit breaker with state persistence
+    ///
+    /// The state will be loaded from the file if it exists, and saved
+    /// on every state transition.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the circuit breaker
+    /// * `config` - Circuit breaker configuration
+    /// * `path` - Path to the state file
+    #[must_use]
+    pub fn with_persistence(
+        name: impl Into<String>,
+        config: CircuitBreakerConfig,
+        path: impl AsRef<Path>,
+    ) -> Self {
+        let name = name.into();
+        let path = path.as_ref().to_path_buf();
+
+        // Try to load existing state
+        let initial_state = Self::load_state(&path, &name).unwrap_or_else(|e| {
+            tracing::debug!(
+                circuit = %name,
+                error = %e,
+                "No existing state found, starting fresh"
+            );
+            CircuitBreakerState {
+                state: CircuitState::Closed,
+                failure_count: 0,
+                success_count: 0,
+                opened_at: None,
+                opened_at_system: None,
+            }
+        });
+
+        tracing::info!(
+            circuit = %name,
+            state = %initial_state.state,
+            "Loaded circuit breaker state"
+        );
+
+        Self {
+            name,
+            config,
+            persistence_path: Some(path),
+            state: RwLock::new(initial_state),
+        }
+    }
+
+    /// Load state from file
+    fn load_state(path: &Path, name: &str) -> Result<CircuitBreakerState, std::io::Error> {
+        let content = std::fs::read_to_string(path)?;
+        let persisted: PersistedCircuitState = serde_json::from_str(&content)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        // Verify the name matches
+        if persisted.name != name {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "State file is for circuit '{}', expected '{}'",
+                    persisted.name, name
+                ),
+            ));
+        }
+
+        Ok(persisted.to_internal())
+    }
+
+    /// Save state to file
+    fn save_state(&self) {
+        if let Some(ref path) = self.persistence_path {
+            let state = self.state.read();
+            let persisted = PersistedCircuitState::from_internal(&self.name, &state);
+
+            match serde_json::to_string_pretty(&persisted) {
+                Ok(json) => {
+                    if let Err(e) = std::fs::write(path, json) {
+                        tracing::error!(
+                            circuit = %self.name,
+                            path = %path.display(),
+                            error = %e,
+                            "Failed to persist circuit breaker state"
+                        );
+                    } else {
+                        tracing::debug!(
+                            circuit = %self.name,
+                            state = %state.state,
+                            "Persisted circuit breaker state"
+                        );
+                    }
+                },
+                Err(e) => {
+                    tracing::error!(
+                        circuit = %self.name,
+                        error = %e,
+                        "Failed to serialize circuit breaker state"
+                    );
+                },
+            }
         }
     }
 
@@ -233,56 +423,76 @@ impl CircuitBreaker {
 
     /// Records a successful call
     fn on_success(&self) {
-        let mut state = self.state.write();
-        state.failure_count = 0;
+        let mut state_changed = false;
+        {
+            let mut state = self.state.write();
+            state.failure_count = 0;
 
-        match state.state {
-            CircuitState::HalfOpen => {
-                state.success_count += 1;
-                if state.success_count >= self.config.success_threshold {
-                    tracing::info!(
-                        service = %self.name,
-                        successes = state.success_count,
-                        "Circuit transitioning from HalfOpen to Closed"
-                    );
-                    state.state = CircuitState::Closed;
-                    state.success_count = 0;
-                    state.opened_at = None;
-                }
-            },
-            CircuitState::Closed | CircuitState::Open => {},
+            match state.state {
+                CircuitState::HalfOpen => {
+                    state.success_count += 1;
+                    if state.success_count >= self.config.success_threshold {
+                        tracing::info!(
+                            service = %self.name,
+                            successes = state.success_count,
+                            "Circuit transitioning from HalfOpen to Closed"
+                        );
+                        state.state = CircuitState::Closed;
+                        state.success_count = 0;
+                        state.opened_at = None;
+                        state.opened_at_system = None;
+                        state_changed = true;
+                    }
+                },
+                CircuitState::Closed | CircuitState::Open => {},
+            }
+        }
+
+        if state_changed {
+            self.save_state();
         }
     }
 
     /// Records a failed call
     fn on_failure(&self) {
-        let mut state = self.state.write();
-        state.failure_count += 1;
-        state.success_count = 0;
+        let mut state_changed = false;
+        {
+            let mut state = self.state.write();
+            state.failure_count += 1;
+            state.success_count = 0;
 
-        match state.state {
-            CircuitState::Closed => {
-                if state.failure_count >= self.config.failure_threshold {
+            match state.state {
+                CircuitState::Closed => {
+                    if state.failure_count >= self.config.failure_threshold {
+                        tracing::warn!(
+                            service = %self.name,
+                            failures = state.failure_count,
+                            "Circuit transitioning from Closed to Open"
+                        );
+                        state.state = CircuitState::Open;
+                        state.opened_at = Some(Instant::now());
+                        state.opened_at_system = Some(SystemTime::now());
+                        state.failure_count = 0;
+                        state_changed = true;
+                    }
+                },
+                CircuitState::HalfOpen => {
                     tracing::warn!(
                         service = %self.name,
-                        failures = state.failure_count,
-                        "Circuit transitioning from Closed to Open"
+                        "Circuit transitioning from HalfOpen to Open after failure"
                     );
                     state.state = CircuitState::Open;
                     state.opened_at = Some(Instant::now());
+                    state.opened_at_system = Some(SystemTime::now());
                     state.failure_count = 0;
-                }
-            },
-            CircuitState::HalfOpen => {
-                tracing::warn!(
-                    service = %self.name,
-                    "Circuit transitioning from HalfOpen to Open after failure"
-                );
-                state.state = CircuitState::Open;
-                state.opened_at = Some(Instant::now());
-                state.failure_count = 0;
-            },
-            CircuitState::Open => {},
+                    state_changed = true;
+                },
+                CircuitState::Open => {},
+            }
+        }
+
+        if state_changed {
+            self.save_state();
         }
     }
 
@@ -602,5 +812,88 @@ mod tests {
             cb.call_sync(|| Err(std::io::Error::other("test")));
         assert!(result.is_err());
         assert!(result.unwrap_err().is_service_error());
+    }
+
+    #[test]
+    fn persistence_saves_and_loads_state() {
+        // Create a temp file
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("cb_test_{}.json", std::process::id()));
+
+        // Create circuit breaker with persistence
+        let cb = CircuitBreaker::with_persistence(
+            "persistent-test",
+            CircuitBreakerConfig::custom(2, 1, 30),
+            &path,
+        );
+
+        // Initially closed
+        assert!(cb.is_closed());
+
+        // Trigger failures to open the circuit
+        let _: Result<(), _> = cb.call_sync(|| Err::<(), _>("fail1"));
+        let _: Result<(), _> = cb.call_sync(|| Err::<(), _>("fail2"));
+
+        // Circuit should be open
+        assert!(cb.is_open());
+
+        // State file should exist
+        assert!(path.exists(), "State file should be created");
+
+        // Read and verify state file content
+        let content = std::fs::read_to_string(&path).expect("read state file");
+        let persisted: PersistedCircuitState = serde_json::from_str(&content).expect("parse state");
+        assert_eq!(persisted.name, "persistent-test");
+        assert_eq!(persisted.state, "open");
+        assert!(persisted.opened_at_secs.is_some());
+
+        // Create a new circuit breaker from the same file
+        drop(cb);
+        let cb2 = CircuitBreaker::with_persistence(
+            "persistent-test",
+            CircuitBreakerConfig::custom(2, 1, 30),
+            &path,
+        );
+
+        // Should restore the open state
+        assert!(cb2.is_open());
+
+        // Clean up
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn persistence_clears_state_on_recovery() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("cb_test_recovery_{}.json", std::process::id()));
+
+        let cb = CircuitBreaker::with_persistence(
+            "recovery-test",
+            CircuitBreakerConfig::custom(2, 1, 1), // 1 second timeout
+            &path,
+        );
+
+        // Open the circuit
+        let _: Result<(), _> = cb.call_sync(|| Err::<(), _>("fail1"));
+        let _: Result<(), _> = cb.call_sync(|| Err::<(), _>("fail2"));
+        assert!(cb.is_open());
+
+        // Wait for half-open timeout
+        std::thread::sleep(Duration::from_secs(2));
+
+        // Check state (should transition to half-open)
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        // Successful call should close it
+        let _: Result<&str, _> = cb.call_sync(|| Ok::<_, &str>("success"));
+        assert!(cb.is_closed());
+
+        // Verify state was persisted as closed
+        let content = std::fs::read_to_string(&path).expect("read state file");
+        let persisted: PersistedCircuitState = serde_json::from_str(&content).expect("parse state");
+        assert_eq!(persisted.state, "closed");
+        assert!(persisted.opened_at_secs.is_none());
+
+        std::fs::remove_file(&path).ok();
     }
 }

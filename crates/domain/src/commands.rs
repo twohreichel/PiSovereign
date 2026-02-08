@@ -3,7 +3,7 @@
 use chrono::{NaiveDate, NaiveTime};
 use serde::{Deserialize, Serialize};
 
-use crate::value_objects::EmailAddress;
+use crate::value_objects::{EmailAddress, Priority, TaskStatus};
 
 /// All possible commands the agent can execute
 ///
@@ -32,6 +32,70 @@ pub enum AgentCommand {
         attendees: Option<Vec<EmailAddress>>,
         /// Optional location
         location: Option<String>,
+    },
+
+    /// Update an existing calendar event
+    UpdateCalendarEvent {
+        /// Event ID to update
+        event_id: String,
+        /// New event date (None = keep existing)
+        date: Option<NaiveDate>,
+        /// New event start time (None = keep existing)
+        time: Option<NaiveTime>,
+        /// New event title/summary (None = keep existing)
+        title: Option<String>,
+        /// New duration in minutes (None = keep existing)
+        duration_minutes: Option<u32>,
+        /// New attendees (None = keep existing)
+        attendees: Option<Vec<EmailAddress>>,
+        /// New location (None = keep existing)
+        location: Option<String>,
+    },
+
+    /// List tasks with optional filtering
+    ListTasks {
+        /// Filter by task status
+        status: Option<TaskStatus>,
+        /// Filter by priority
+        priority: Option<Priority>,
+    },
+
+    /// Create a new task
+    CreateTask {
+        /// Task title/summary
+        title: String,
+        /// Optional due date
+        due_date: Option<NaiveDate>,
+        /// Task priority (defaults to Low)
+        priority: Option<Priority>,
+        /// Optional description
+        description: Option<String>,
+    },
+
+    /// Mark a task as completed
+    CompleteTask {
+        /// Task ID to complete
+        task_id: String,
+    },
+
+    /// Update an existing task
+    UpdateTask {
+        /// Task ID to update
+        task_id: String,
+        /// New title (None = keep existing)
+        title: Option<String>,
+        /// New due date (Some(None) = clear, None = keep)
+        due_date: Option<Option<NaiveDate>>,
+        /// New priority (None = keep existing)
+        priority: Option<Priority>,
+        /// New description (Some(None) = clear, None = keep)
+        description: Option<Option<String>>,
+    },
+
+    /// Delete a task
+    DeleteTask {
+        /// Task ID to delete
+        task_id: String,
     },
 
     /// Get a summary of the inbox
@@ -117,6 +181,11 @@ impl AgentCommand {
             self,
             Self::SendEmail { .. }
                 | Self::CreateCalendarEvent { .. }
+                | Self::UpdateCalendarEvent { .. }
+                | Self::CreateTask { .. }
+                | Self::CompleteTask { .. }
+                | Self::UpdateTask { .. }
+                | Self::DeleteTask { .. }
                 | Self::System(SystemCommand::ReloadConfig | SystemCommand::SwitchModel { .. })
         )
     }
@@ -132,6 +201,46 @@ impl AgentCommand {
             },
             Self::CreateCalendarEvent { title, date, .. } => {
                 format!("Create event '{title}' on {date}")
+            },
+            Self::UpdateCalendarEvent {
+                event_id, title, ..
+            } => {
+                let title_str = title
+                    .as_deref()
+                    .map_or_else(|| "(no title change)".to_string(), |t| format!("'{t}'"));
+                format!("Update event {event_id} to {title_str}")
+            },
+            Self::ListTasks { status, priority } => {
+                let mut filters = Vec::new();
+                if let Some(s) = status {
+                    filters.push(format!("status={s}"));
+                }
+                if let Some(p) = priority {
+                    filters.push(format!("priority={p}"));
+                }
+                if filters.is_empty() {
+                    "List all tasks".to_string()
+                } else {
+                    format!("List tasks ({})", filters.join(", "))
+                }
+            },
+            Self::CreateTask {
+                title, due_date, ..
+            } => due_date.map_or_else(
+                || format!("Create task '{title}'"),
+                |d| format!("Create task '{title}' due {d}"),
+            ),
+            Self::CompleteTask { task_id } => {
+                format!("Complete task {task_id}")
+            },
+            Self::UpdateTask { task_id, title, .. } => {
+                let title_str = title
+                    .as_deref()
+                    .map_or_else(|| "(no title change)".to_string(), |t| format!("'{t}'"));
+                format!("Update task {task_id} to {title_str}")
+            },
+            Self::DeleteTask { task_id } => {
+                format!("Delete task {task_id}")
             },
             Self::SummarizeInbox { count, .. } => {
                 format!("Summarize inbox (last {} emails)", count.unwrap_or(10))

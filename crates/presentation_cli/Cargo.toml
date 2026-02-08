@@ -31,6 +31,7 @@ rust-s3.workspace = true
 chrono.workspace = true
 rusqlite.workspace = true
 utoipa = { version = "5", features = ["yaml"] }
+toml.workspace = true
 
 [dev-dependencies]
 tempfile = "3.15"

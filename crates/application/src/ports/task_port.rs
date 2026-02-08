@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ApplicationError;
 
+// Re-export TaskStatus from domain for convenience
+pub use domain::value_objects::TaskStatus;
+
 /// Task/todo item
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
@@ -34,45 +37,6 @@ pub struct Task {
     pub completed_at: Option<DateTime<Utc>>,
     /// Associated calendar/list name
     pub calendar: Option<String>,
-}
-
-/// Task status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskStatus {
-    /// Task needs action
-    NeedsAction,
-    /// Task is in progress
-    InProgress,
-    /// Task is completed
-    Completed,
-    /// Task is cancelled
-    Cancelled,
-}
-
-impl TaskStatus {
-    /// Check if the task is still active (not completed or cancelled)
-    #[must_use]
-    pub const fn is_active(&self) -> bool {
-        matches!(self, Self::NeedsAction | Self::InProgress)
-    }
-
-    /// Check if the task is done (completed or cancelled)
-    #[must_use]
-    pub const fn is_done(&self) -> bool {
-        matches!(self, Self::Completed | Self::Cancelled)
-    }
-}
-
-impl std::fmt::Display for TaskStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NeedsAction => write!(f, "Needs Action"),
-            Self::InProgress => write!(f, "In Progress"),
-            Self::Completed => write!(f, "Completed"),
-            Self::Cancelled => write!(f, "Cancelled"),
-        }
-    }
 }
 
 /// Parameters for creating a new task

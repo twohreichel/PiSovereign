@@ -241,43 +241,25 @@ impl SecurityValidator {
             WarningSeverity::Warning
         };
 
-        // Check for plaintext API keys that look like they might be real
-        if let Some(ref api_key) = config.security.api_key {
-            if !api_key.is_empty()
-                && !api_key.starts_with("${")
-                && !api_key.contains("your-")
-                && !api_key.contains("example")
-            {
-                warnings.push(SecurityWarning::new(
-                    severity,
-                    "SEC003",
-                    "API key appears to be stored in plaintext configuration",
-                    "Use environment variables (PISOVEREIGN_SECURITY_API_KEY) or hash with `pisovereign-cli hash-api-key`",
-                ));
-            }
+        // Check for plaintext API keys (not properly hashed with Argon2)
+        let plaintext_count = config.security.count_plaintext_keys();
+        if plaintext_count > 0 {
+            warnings.push(SecurityWarning::new(
+                severity,
+                "SEC003",
+                format!("{plaintext_count} API key(s) are not properly hashed with Argon2"),
+                "Run `pisovereign-cli migrate-keys` to convert plaintext keys to secure hashes",
+            ));
         }
 
-        // Check WhatsApp secrets
-        if let Some(ref token) = config.whatsapp.access_token {
-            if !token.is_empty() && !token.starts_with("${") && !token.contains("your-") {
-                warnings.push(SecurityWarning::new(
-                    severity,
-                    "SEC004",
-                    "WhatsApp access token appears to be stored in plaintext",
-                    "Use environment variables (PISOVEREIGN_WHATSAPP_ACCESS_TOKEN) for WhatsApp credentials",
-                ));
-            }
-        }
-
-        if let Some(ref secret) = config.whatsapp.app_secret {
-            if !secret.is_empty() && !secret.starts_with("${") && !secret.contains("your-") {
-                warnings.push(SecurityWarning::new(
-                    severity,
-                    "SEC005",
-                    "WhatsApp app secret appears to be stored in plaintext",
-                    "Use environment variables (PISOVEREIGN_WHATSAPP_APP_SECRET) for WhatsApp credentials",
-                ));
-            }
+        // Check WhatsApp secrets - SecretString handles zeroization but we still
+        // want to warn if they're configured (they can't be hashed, just protected)
+        if config.whatsapp.access_token.is_some() && is_production {
+            warnings.push(SecurityWarning::info(
+                "SEC004",
+                "WhatsApp access token is configured",
+                "Ensure token is loaded from environment variables for enhanced security",
+            ));
         }
     }
 
@@ -287,10 +269,9 @@ impl SecurityValidator {
         warnings: &mut Vec<SecurityWarning>,
     ) {
         // Check if no authentication is configured
-        let has_legacy_key = config.security.api_key.is_some();
-        let has_user_keys = !config.security.api_key_users.is_empty();
+        let has_api_keys = config.security.has_api_keys();
 
-        if !has_legacy_key && !has_user_keys {
+        if !has_api_keys {
             let severity = if is_production {
                 WarningSeverity::Warning
             } else {
@@ -301,16 +282,7 @@ impl SecurityValidator {
                 severity,
                 "SEC006",
                 "No API authentication configured",
-                "Configure api_key or api_key_users for API authentication",
-            ));
-        }
-
-        // Warn about using legacy single-key mode
-        if has_legacy_key && !has_user_keys {
-            warnings.push(SecurityWarning::info(
-                "SEC007",
-                "Using legacy single API key mode",
-                "Consider migrating to api_key_users for multi-user support",
+                "Configure security.api_keys for API authentication",
             ));
         }
     }
@@ -364,7 +336,11 @@ mod tests {
     fn validate_returns_empty_for_secure_config() {
         let mut config = create_test_config();
         config.server.allowed_origins = vec!["https://example.com".to_string()];
-        config.security.api_key = Some("test-key".to_string());
+        // Use hashed API key in new format
+        config.security.api_keys = vec![crate::ApiKeyEntry {
+            hash: "$argon2id$v=19$m=19456,t=2,p=1$test".to_string(),
+            user_id: "test-user".to_string(),
+        }];
 
         let warnings = SecurityValidator::validate(&config);
 
@@ -415,7 +391,10 @@ mod tests {
     #[test]
     fn validate_warns_on_plaintext_api_key() {
         let mut config = create_test_config();
-        config.security.api_key = Some("sk-real-secret-key-12345".to_string());
+        config.security.api_keys.push(crate::config::ApiKeyEntry {
+            hash: "plaintext-not-hashed".to_string(),
+            user_id: "user1".to_string(),
+        });
 
         let warnings = SecurityValidator::validate(&config);
 
@@ -426,7 +405,10 @@ mod tests {
     #[test]
     fn validate_critical_plaintext_api_key_in_production() {
         let mut config = create_production_config();
-        config.security.api_key = Some("sk-real-secret-key-12345".to_string());
+        config.security.api_keys.push(crate::config::ApiKeyEntry {
+            hash: "plaintext-not-hashed".to_string(),
+            user_id: "user1".to_string(),
+        });
 
         let warnings = SecurityValidator::validate(&config);
 
@@ -435,41 +417,12 @@ mod tests {
     }
 
     #[test]
-    fn validate_critical_plaintext_whatsapp_token_in_production() {
-        let mut config = create_production_config();
-        config.whatsapp.access_token = Some("EAABwzLixnjYBO...".to_string());
-
-        let warnings = SecurityValidator::validate(&config);
-
-        let warning = warnings.iter().find(|w| w.code == "SEC004").unwrap();
-        assert!(warning.is_critical());
-    }
-
-    #[test]
-    fn validate_critical_plaintext_whatsapp_secret_in_production() {
-        let mut config = create_production_config();
-        config.whatsapp.app_secret = Some("abc123def456".to_string());
-
-        let warnings = SecurityValidator::validate(&config);
-
-        let warning = warnings.iter().find(|w| w.code == "SEC005").unwrap();
-        assert!(warning.is_critical());
-    }
-
-    #[test]
-    fn validate_ignores_placeholder_api_key() {
+    fn validate_no_warning_for_hashed_api_key() {
         let mut config = create_test_config();
-        config.security.api_key = Some("your-secret-key".to_string());
-
-        let warnings = SecurityValidator::validate(&config);
-
-        assert!(!warnings.iter().any(|w| w.code == "SEC003"));
-    }
-
-    #[test]
-    fn validate_ignores_env_var_reference() {
-        let mut config = create_test_config();
-        config.security.api_key = Some("${API_KEY}".to_string());
+        config.security.api_keys.push(crate::config::ApiKeyEntry {
+            hash: "$argon2id$v=19$m=19456,t=2,p=1$abc$def".to_string(),
+            user_id: "user1".to_string(),
+        });
 
         let warnings = SecurityValidator::validate(&config);
 
@@ -486,13 +439,16 @@ mod tests {
     }
 
     #[test]
-    fn validate_warns_on_legacy_api_key() {
+    fn validate_no_warning_when_api_keys_configured() {
         let mut config = create_test_config();
-        config.security.api_key = Some("your-key".to_string());
+        config.security.api_keys.push(crate::config::ApiKeyEntry {
+            hash: "$argon2id$v=19$m=19456,t=2,p=1$abc$def".to_string(),
+            user_id: "user1".to_string(),
+        });
 
         let warnings = SecurityValidator::validate(&config);
 
-        assert!(warnings.iter().any(|w| w.code == "SEC007"));
+        assert!(!warnings.iter().any(|w| w.code == "SEC006"));
     }
 
     #[test]
@@ -542,7 +498,10 @@ mod tests {
     fn warnings_sorted_by_severity() {
         let mut config = create_production_config();
         config.security.tls_verify_certs = false;
-        config.security.api_key = Some("real-key".to_string());
+        config.security.api_keys.push(crate::config::ApiKeyEntry {
+            hash: "plaintext-key".to_string(),
+            user_id: "user1".to_string(),
+        });
 
         let warnings = SecurityValidator::validate(&config);
 
