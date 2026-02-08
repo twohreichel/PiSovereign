@@ -7,14 +7,15 @@ use std::{sync::Arc, time::Duration};
 use application::{
     AgentService, ApprovalService, ChatService, HealthService,
     ports::{
-        CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort, WeatherPort,
+        CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
+        MessengerPort, WeatherPort,
     },
 };
 use infrastructure::{
-    AppConfig, HailoInferenceAdapter, SecurityValidator,
+    AppConfig, MessengerSelection, OllamaInferenceAdapter, SecurityValidator,
     adapters::{
         CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig, ProtonEmailAdapter,
-        WeatherAdapter,
+        SignalMessengerAdapter, WeatherAdapter, WhatsAppMessengerAdapter,
     },
     persistence::{
         SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, SqliteDatabaseHealth,
@@ -22,11 +23,14 @@ use infrastructure::{
     },
     telemetry::{TelemetryConfig, init_telemetry},
 };
+use integration_signal::{SignalClient, SignalClientConfig};
+use integration_whatsapp::WhatsAppClientConfig;
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig, RequestIdLayer,
     SecurityHeadersLayer, handlers::metrics::MetricsCollector, routes, spawn_cleanup_task,
     spawn_config_reload_handler, state::AppState,
 };
+use secrecy::ExposeSecret;
 use tokio::{net::TcpListener, signal};
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -37,9 +41,9 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// System prompt for the AI assistant
-const SYSTEM_PROMPT: &str = "You are PiSovereign, a helpful AI assistant running on a \
-    Raspberry Pi 5 with Hailo-10H. You are friendly, precise, and help with everyday \
-    tasks like email, calendar, and information lookup.";
+const SYSTEM_PROMPT: &str = "You are PiSovereign, a helpful AI assistant. On Raspberry Pi \
+    you run on the Hailo-10H NPU, on Mac you use Metal GPU acceleration. You are friendly, \
+    precise, and help with everyday tasks like email, calendar, and information lookup.";
 
 /// Initialize the tracing subscriber based on configuration
 ///
@@ -187,7 +191,7 @@ async fn main() -> anyhow::Result<()> {
         spawn_config_reload_handler(ReloadableConfig::new(initial_config.clone()));
 
     // Initialize inference adapter with degraded mode wrapper
-    let hailo_adapter = HailoInferenceAdapter::new(initial_config.inference.clone())
+    let ollama_adapter = OllamaInferenceAdapter::new(initial_config.inference.clone())
         .map_err(|e| anyhow::anyhow!("Failed to initialize inference: {e}"))?;
 
     // Configure degraded mode from config or use defaults
@@ -203,7 +207,7 @@ async fn main() -> anyhow::Result<()> {
                 success_threshold: dm.success_threshold,
             });
 
-    let degraded_adapter = DegradedInferenceAdapter::new(Arc::new(hailo_adapter), degraded_config);
+    let degraded_adapter = DegradedInferenceAdapter::new(Arc::new(ollama_adapter), degraded_config);
     info!("🛡️ Degraded mode adapter initialized");
 
     let inference: Arc<dyn InferencePort> = Arc::new(degraded_adapter);
@@ -304,6 +308,90 @@ async fn main() -> anyhow::Result<()> {
     }
     info!("❤️ HealthService initialized with all available ports");
 
+    // Initialize messenger adapter based on configuration
+    let (messenger_adapter, signal_client): (
+        Option<Arc<dyn MessengerPort>>,
+        Option<Arc<SignalClient>>,
+    ) = match initial_config.messenger {
+        MessengerSelection::WhatsApp => {
+            // Initialize WhatsApp messenger adapter
+            if let (Some(access_token), Some(phone_number_id)) = (
+                initial_config.whatsapp.access_token.as_ref(),
+                initial_config.whatsapp.phone_number_id.as_ref(),
+            ) {
+                let client_config = WhatsAppClientConfig {
+                    access_token: access_token.expose_secret().to_string(),
+                    phone_number_id: phone_number_id.clone(),
+                    app_secret: initial_config
+                        .whatsapp
+                        .app_secret
+                        .as_ref()
+                        .map(|s| s.expose_secret().to_string())
+                        .unwrap_or_default(),
+                    verify_token: initial_config
+                        .whatsapp
+                        .verify_token
+                        .clone()
+                        .unwrap_or_default(),
+                    signature_required: initial_config.whatsapp.signature_required,
+                    api_version: initial_config.whatsapp.api_version.clone(),
+                };
+
+                match WhatsAppMessengerAdapter::with_whitelist(
+                    client_config,
+                    initial_config.whatsapp.whitelist.clone(),
+                ) {
+                    Ok(adapter) => {
+                        info!("📱 WhatsApp messenger adapter initialized");
+                        (Some(Arc::new(adapter) as Arc<dyn MessengerPort>), None)
+                    },
+                    Err(e) => {
+                        warn!(error = %e, "⚠️ Failed to initialize WhatsApp adapter");
+                        (None, None)
+                    },
+                }
+            } else {
+                warn!(
+                    "⚠️ WhatsApp selected but not fully configured (missing access_token or phone_number_id)"
+                );
+                (None, None)
+            }
+        },
+        MessengerSelection::Signal => {
+            // Initialize Signal messenger adapter
+            if initial_config.signal.phone_number.is_empty() {
+                warn!("⚠️ Signal selected but not configured (missing phone_number)");
+                (None, None)
+            } else {
+                let client_config = SignalClientConfig {
+                    phone_number: initial_config.signal.phone_number.clone(),
+                    socket_path: initial_config.signal.socket_path.clone(),
+                    data_path: initial_config.signal.data_path.clone(),
+                    timeout_ms: initial_config.signal.timeout_ms,
+                };
+
+                let signal_client = Arc::new(SignalClient::with_whitelist(
+                    client_config.clone(),
+                    initial_config.signal.whitelist.clone(),
+                ));
+
+                let adapter = SignalMessengerAdapter::with_whitelist(
+                    client_config,
+                    initial_config.signal.whitelist.clone(),
+                );
+                info!("📱 Signal messenger adapter initialized");
+                (
+                    Some(Arc::new(adapter) as Arc<dyn MessengerPort>),
+                    Some(signal_client),
+                )
+            }
+        },
+        MessengerSelection::None => {
+            info!("📵 No messenger integration configured");
+            (None, None)
+        },
+    };
+
     // Create app state with reloadable config
     let state = AppState {
         chat_service: Arc::new(chat_service),
@@ -313,6 +401,8 @@ async fn main() -> anyhow::Result<()> {
         voice_message_service: None, // VoiceMessageService not yet configured in main
         config: reloadable_config,
         metrics,
+        messenger_adapter,
+        signal_client,
     };
 
     // Build router

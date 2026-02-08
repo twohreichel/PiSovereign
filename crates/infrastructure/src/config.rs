@@ -2,6 +2,7 @@
 
 use ai_core::InferenceConfig;
 use ai_speech::SpeechConfig;
+use domain::MessengerSource;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -43,6 +44,49 @@ impl std::str::FromStr for Environment {
     }
 }
 
+/// Messenger platform selection
+///
+/// Determines which messaging platform is active for receiving and sending messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MessengerSelection {
+    /// Use WhatsApp Business API (default)
+    #[default]
+    WhatsApp,
+    /// Use Signal via signal-cli daemon
+    Signal,
+    /// Disable messenger integration
+    None,
+}
+
+impl MessengerSelection {
+    /// Check if a messenger is enabled
+    #[must_use]
+    pub const fn is_enabled(&self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// Convert to `MessengerSource` if enabled
+    #[must_use]
+    pub const fn to_source(&self) -> Option<MessengerSource> {
+        match self {
+            Self::WhatsApp => Some(MessengerSource::WhatsApp),
+            Self::Signal => Some(MessengerSource::Signal),
+            Self::None => None,
+        }
+    }
+}
+
+impl fmt::Display for MessengerSelection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WhatsApp => write!(f, "whatsapp"),
+            Self::Signal => write!(f, "signal"),
+            Self::None => write!(f, "none"),
+        }
+    }
+}
+
 /// Main application configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -52,6 +96,10 @@ pub struct AppConfig {
     /// security warnings will prevent startup unless PISOVEREIGN_ALLOW_INSECURE_CONFIG=true.
     #[serde(default)]
     pub environment: Option<Environment>,
+
+    /// Active messenger platform (whatsapp or signal)
+    #[serde(default)]
+    pub messenger: MessengerSelection,
 
     /// Server configuration
     #[serde(default)]
@@ -68,6 +116,10 @@ pub struct AppConfig {
     /// WhatsApp configuration
     #[serde(default)]
     pub whatsapp: WhatsAppConfig,
+
+    /// Signal configuration
+    #[serde(default)]
+    pub signal: SignalConfig,
 
     /// Database configuration
     #[serde(default)]
@@ -437,6 +489,10 @@ pub struct WhatsAppConfig {
     /// API version (default: v18.0)
     #[serde(default = "default_api_version")]
     pub api_version: String,
+
+    /// Phone numbers allowed to send messages (empty = allow all)
+    #[serde(default)]
+    pub whitelist: Vec<String>,
 }
 
 impl std::fmt::Debug for WhatsAppConfig {
@@ -454,6 +510,7 @@ impl std::fmt::Debug for WhatsAppConfig {
             .field("verify_token", &self.verify_token)
             .field("signature_required", &self.signature_required)
             .field("api_version", &self.api_version)
+            .field("whitelist", &format!("[{} entries]", self.whitelist.len()))
             .finish()
     }
 }
@@ -471,6 +528,7 @@ impl Default for WhatsAppConfig {
             verify_token: None,
             signature_required: true,
             api_version: default_api_version(),
+            whitelist: Vec::new(),
         }
     }
 }
@@ -486,6 +544,62 @@ impl WhatsAppConfig {
     #[must_use]
     pub fn app_secret_str(&self) -> Option<&str> {
         self.app_secret.as_ref().map(ExposeSecret::expose_secret)
+    }
+}
+
+/// Signal integration configuration
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SignalConfig {
+    /// Phone number registered with Signal (E.164 format, e.g., "+1234567890")
+    #[serde(default)]
+    pub phone_number: String,
+
+    /// Path to the signal-cli JSON-RPC socket
+    #[serde(default = "default_signal_socket_path")]
+    pub socket_path: String,
+
+    /// Path to signal-cli data directory (optional)
+    #[serde(default)]
+    pub data_path: Option<String>,
+
+    /// Connection timeout in milliseconds
+    #[serde(default = "default_signal_timeout")]
+    pub timeout_ms: u64,
+
+    /// Phone numbers allowed to send messages (empty = allow all)
+    #[serde(default)]
+    pub whitelist: Vec<String>,
+}
+
+fn default_signal_socket_path() -> String {
+    "/var/run/signal-cli/socket".to_string()
+}
+
+const fn default_signal_timeout() -> u64 {
+    30_000
+}
+
+impl std::fmt::Debug for SignalConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignalConfig")
+            .field("phone_number", &self.phone_number)
+            .field("socket_path", &self.socket_path)
+            .field("data_path", &self.data_path)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("whitelist", &format!("[{} entries]", self.whitelist.len()))
+            .finish()
+    }
+}
+
+impl Default for SignalConfig {
+    fn default() -> Self {
+        Self {
+            phone_number: String::new(),
+            socket_path: default_signal_socket_path(),
+            data_path: None,
+            timeout_ms: default_signal_timeout(),
+            whitelist: Vec::new(),
+        }
     }
 }
 
@@ -593,6 +707,83 @@ mod tests {
             "PRODUCTION".parse::<Environment>().unwrap(),
             Environment::Production
         );
+    }
+
+    // Messenger selection tests
+    #[test]
+    fn messenger_selection_default_is_whatsapp() {
+        let selection = MessengerSelection::default();
+        assert_eq!(selection, MessengerSelection::WhatsApp);
+    }
+
+    #[test]
+    fn messenger_selection_display() {
+        assert_eq!(format!("{}", MessengerSelection::WhatsApp), "whatsapp");
+        assert_eq!(format!("{}", MessengerSelection::Signal), "signal");
+        assert_eq!(format!("{}", MessengerSelection::None), "none");
+    }
+
+    #[test]
+    fn messenger_selection_is_enabled() {
+        assert!(MessengerSelection::WhatsApp.is_enabled());
+        assert!(MessengerSelection::Signal.is_enabled());
+        assert!(!MessengerSelection::None.is_enabled());
+    }
+
+    #[test]
+    fn messenger_selection_to_source() {
+        assert_eq!(
+            MessengerSelection::WhatsApp.to_source(),
+            Some(MessengerSource::WhatsApp)
+        );
+        assert_eq!(
+            MessengerSelection::Signal.to_source(),
+            Some(MessengerSource::Signal)
+        );
+        assert_eq!(MessengerSelection::None.to_source(), None);
+    }
+
+    #[test]
+    fn messenger_selection_serialize() {
+        assert_eq!(
+            serde_json::to_string(&MessengerSelection::WhatsApp).unwrap(),
+            "\"whatsapp\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessengerSelection::Signal).unwrap(),
+            "\"signal\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MessengerSelection::None).unwrap(),
+            "\"none\""
+        );
+    }
+
+    #[test]
+    fn messenger_selection_deserialize() {
+        assert_eq!(
+            serde_json::from_str::<MessengerSelection>("\"whatsapp\"").unwrap(),
+            MessengerSelection::WhatsApp
+        );
+        assert_eq!(
+            serde_json::from_str::<MessengerSelection>("\"signal\"").unwrap(),
+            MessengerSelection::Signal
+        );
+        assert_eq!(
+            serde_json::from_str::<MessengerSelection>("\"none\"").unwrap(),
+            MessengerSelection::None
+        );
+    }
+
+    // Signal config tests
+    #[test]
+    fn signal_config_default() {
+        let config = SignalConfig::default();
+        assert!(config.phone_number.is_empty());
+        assert_eq!(config.socket_path, "/var/run/signal-cli/socket");
+        assert!(config.data_path.is_none());
+        assert_eq!(config.timeout_ms, 30_000);
+        assert!(config.whitelist.is_empty());
     }
 
     #[test]

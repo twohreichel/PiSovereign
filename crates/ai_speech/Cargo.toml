@@ -42,6 +42,9 @@ mime = "0.3"
 # Temp files for local providers
 tempfile = "3.14"
 
+# Platform-specific directories
+dirs = "5.0"
+
 [dev-dependencies]
 tokio-test.workspace = true
 wiremock.workspace = true

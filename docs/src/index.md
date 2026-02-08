@@ -1,6 +1,6 @@
 # PiSovereign Documentation
 
-> 🤖 **Local, secure AI assistant platform for Raspberry Pi 5 + Hailo-10H AI HAT+ 2**
+> 🤖 **Local, secure AI assistant platform for Raspberry Pi 5 + Hailo-10H or macOS with Metal**
 
 Welcome to the official PiSovereign documentation. This guide covers everything from initial hardware setup to production deployment and ongoing operations.
 
@@ -16,7 +16,12 @@ Welcome to the official PiSovereign documentation. This guide covers everything 
 
 ## Introduction
 
-PiSovereign is a privacy-focused AI assistant platform designed to run entirely on your own hardware. Built for the Raspberry Pi 5 with the Hailo-10H AI HAT+ 2 neural processing unit, it delivers local LLM inference without relying on cloud services.
+PiSovereign is a privacy-focused AI assistant platform designed to run entirely on your own hardware. It supports two deployment targets:
+
+- **Raspberry Pi 5 + Hailo-10H**: Dedicated AI appliance with NPU acceleration
+- **macOS (Intel/Apple Silicon)**: Development or personal use with Metal GPU
+
+Both platforms use the same Ollama-compatible API, ensuring identical functionality.
 
 **Core Principles:**
 
@@ -31,7 +36,8 @@ PiSovereign is a privacy-focused AI assistant platform designed to run entirely 
 
 | Feature | Description |
 |---------|-------------|
-| 🧠 **Local LLM Inference** | Run Qwen2.5-1.5B or Llama3.2-1B on the Hailo-10H NPU |
+| 🧠 **Local LLM Inference** | Run Qwen2.5-1.5B on Hailo NPU or Ollama with Metal |
+| 🍎 **Multi-Platform** | Raspberry Pi (production) or macOS (development) |
 | 📱 **WhatsApp Control** | Send commands and receive responses via WhatsApp |
 | 🎤 **Voice Messages** | Speech-to-Text and Text-to-Speech (local or cloud) |
 | 📅 **Calendar Integration** | CalDAV support (Baïkal, Radicale, Nextcloud) |
@@ -50,6 +56,7 @@ PiSovereign is a privacy-focused AI assistant platform designed to run entirely 
 |----------|-------------|
 | [Getting Started](./user/getting-started.md) | First-time setup guide |
 | [Raspberry Pi Setup](./user/raspberry-pi-setup.md) | Complete hardware and OS configuration |
+| [macOS Setup](./user/mac-setup.md) | Installation guide for Mac |
 | [Vault Setup](./user/vault-setup.md) | HashiCorp Vault installation and integration |
 | [Configuration](./user/configuration.md) | All `config.toml` options explained |
 | [External Services](./user/external-services.md) | WhatsApp, Proton Mail, CalDAV setup |

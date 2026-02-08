@@ -13,6 +13,7 @@ mod draft_store;
 mod email_port;
 mod inference_port;
 mod message_gateway_port;
+mod messenger_port;
 mod model_registry_port;
 mod secret_store;
 mod speech_port;
@@ -35,6 +36,12 @@ pub use draft_store::MockDraftStorePort;
 pub use email_port::{EmailDraft, EmailError, EmailPort, EmailSummary};
 pub use inference_port::{InferencePort, InferenceResult, InferenceStream, StreamingChunk};
 pub use message_gateway_port::{IncomingMessage, MessageGatewayPort, OutgoingMessage};
+#[cfg(test)]
+pub use messenger_port::MockMessengerPort;
+pub use messenger_port::{
+    DownloadedAudio, IncomingAudioMessage, IncomingTextMessage, MessengerPort,
+    OutgoingAudioMessage, OutgoingTextMessage,
+};
 pub use model_registry_port::{ModelCapabilities, ModelCapability, ModelInfo, ModelRegistryPort};
 pub use secret_store::{SecretStoreExt, SecretStorePort};
 #[cfg(test)]

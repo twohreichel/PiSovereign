@@ -220,24 +220,61 @@ impl Default for HybridConfig {
 
 // Default functions for local configs
 
+/// Platform-specific default whisper executable
+#[cfg(target_os = "macos")]
 fn default_whisper_executable() -> PathBuf {
+    // macOS: Homebrew installs whisper.cpp as whisper-cli
+    PathBuf::from("whisper-cli")
+}
+
+/// Platform-specific default whisper executable
+#[cfg(not(target_os = "macos"))]
+fn default_whisper_executable() -> PathBuf {
+    // Linux: Built from source, typically installed as whisper-cpp
     PathBuf::from("whisper-cpp")
 }
 
+/// Platform-specific default path for whisper model
+#[cfg(target_os = "macos")]
 fn default_whisper_model() -> PathBuf {
-    // Common location on Raspberry Pi
+    // macOS: Use Application Support directory
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("whisper")
+        .join("models")
+        .join("ggml-base.bin")
+}
+
+/// Platform-specific default path for whisper model
+#[cfg(not(target_os = "macos"))]
+fn default_whisper_model() -> PathBuf {
+    // Linux (Raspberry Pi): Use /usr/local/share
     PathBuf::from("/usr/local/share/whisper/ggml-base.bin")
 }
 
 const fn default_threads() -> u32 {
-    4 // Good default for Raspberry Pi 5
+    4 // Good default for both Raspberry Pi 5 and Mac
 }
 
 fn default_piper_executable() -> PathBuf {
     PathBuf::from("piper")
 }
 
+/// Platform-specific default path for piper model
+#[cfg(target_os = "macos")]
 fn default_piper_model() -> PathBuf {
+    // macOS: Use Application Support directory
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("piper")
+        .join("voices")
+        .join("de_DE-thorsten-medium.onnx")
+}
+
+/// Platform-specific default path for piper model
+#[cfg(not(target_os = "macos"))]
+fn default_piper_model() -> PathBuf {
+    // Linux (Raspberry Pi): Use /usr/local/share
     PathBuf::from("/usr/local/share/piper/voices/de_DE-thorsten-medium.onnx")
 }
 
@@ -491,5 +528,57 @@ mod tests {
         assert!(!config.include_transcription);
         assert_eq!(config.response_format, ResponseFormatPreference::Text);
         assert!((config.speed - 1.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn default_whisper_model_path_is_valid() {
+        let path = default_whisper_model();
+        // Should end with the model filename
+        assert!(path.ends_with("ggml-base.bin"));
+        // Platform-specific checks
+        #[cfg(target_os = "macos")]
+        assert!(path.to_string_lossy().contains("whisper"));
+        #[cfg(not(target_os = "macos"))]
+        assert!(path.starts_with("/usr/local/share"));
+    }
+
+    #[test]
+    fn default_piper_model_path_is_valid() {
+        let path = default_piper_model();
+        // Should end with the model filename
+        assert!(path.ends_with("de_DE-thorsten-medium.onnx"));
+        // Platform-specific checks
+        #[cfg(target_os = "macos")]
+        assert!(path.to_string_lossy().contains("piper"));
+        #[cfg(not(target_os = "macos"))]
+        assert!(path.starts_with("/usr/local/share"));
+    }
+
+    #[test]
+    fn default_executables_are_just_names() {
+        // Executables should be just the binary name, not full paths
+        // so they can be found via PATH
+        let whisper = default_whisper_executable();
+        let piper = default_piper_executable();
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(whisper, PathBuf::from("whisper-cli"));
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(whisper, PathBuf::from("whisper-cpp"));
+        assert_eq!(piper, PathBuf::from("piper"));
+    }
+
+    #[test]
+    fn local_config_has_expected_defaults() {
+        let config = LocalSttConfig::default();
+        assert_eq!(config.executable_path, default_whisper_executable());
+        assert_eq!(config.threads, 4);
+    }
+
+    #[test]
+    fn local_tts_config_has_expected_defaults() {
+        let config = LocalTtsConfig::default();
+        assert_eq!(config.executable_path, default_piper_executable());
+        assert_eq!(config.default_voice, "de_DE-thorsten-medium");
     }
 }

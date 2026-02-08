@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
+use application::ports::MessengerPort;
 use application::{AgentService, ApprovalService, ChatService, HealthService, VoiceMessageService};
+use integration_signal::SignalClient;
 
 use crate::{config_reload::ReloadableConfig, handlers::metrics::MetricsCollector};
 
@@ -23,6 +25,10 @@ pub struct AppState {
     pub config: ReloadableConfig,
     /// Metrics collector
     pub metrics: Arc<MetricsCollector>,
+    /// Unified messenger adapter (WhatsApp or Signal)
+    pub messenger_adapter: Option<Arc<dyn MessengerPort>>,
+    /// Signal client for direct access (polling messages)
+    pub signal_client: Option<Arc<SignalClient>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -38,6 +44,8 @@ impl std::fmt::Debug for AppState {
             )
             .field("config", &self.config)
             .field("metrics", &"<MetricsCollector>")
+            .field("messenger_adapter", &self.messenger_adapter.is_some())
+            .field("signal_client", &self.signal_client.is_some())
             .finish()
     }
 }

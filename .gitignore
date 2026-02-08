@@ -12,3 +12,4 @@ config.local.toml
 .vscode/
 *.iml
 docs/book
+config.toml

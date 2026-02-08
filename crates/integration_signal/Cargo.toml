@@ -1,0 +1,24 @@
+[package]
+name = "integration_signal"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Signal messenger integration via signal-cli JSON-RPC"
+
+[lints]
+workspace = true
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "sync"] }
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true

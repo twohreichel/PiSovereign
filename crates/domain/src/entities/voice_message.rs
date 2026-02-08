@@ -4,16 +4,45 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::value_objects::ConversationId;
+use crate::value_objects::{ConversationId, MessengerSource};
 
 /// Source of a voice message
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VoiceMessageSource {
-    /// User sent a voice message via WhatsApp
-    WhatsAppUser,
+    /// User sent a voice message via a messenger platform
+    MessengerUser(MessengerSource),
     /// AI assistant generated a voice response
     AssistantResponse,
+}
+
+impl VoiceMessageSource {
+    /// Create a source for a WhatsApp user message
+    #[must_use]
+    pub const fn whatsapp_user() -> Self {
+        Self::MessengerUser(MessengerSource::WhatsApp)
+    }
+
+    /// Create a source for a Signal user message
+    #[must_use]
+    pub const fn signal_user() -> Self {
+        Self::MessengerUser(MessengerSource::Signal)
+    }
+
+    /// Check if this is a user message from any messenger
+    #[must_use]
+    pub const fn is_user_message(&self) -> bool {
+        matches!(self, Self::MessengerUser(_))
+    }
+
+    /// Get the messenger source if this is a user message
+    #[must_use]
+    pub const fn messenger(&self) -> Option<MessengerSource> {
+        match self {
+            Self::MessengerUser(source) => Some(*source),
+            Self::AssistantResponse => None,
+        }
+    }
 }
 
 /// Format of the audio data
@@ -165,18 +194,19 @@ pub struct VoiceMessage {
 }
 
 impl VoiceMessage {
-    /// Create a new incoming voice message
+    /// Create a new incoming voice message from a specific messenger
     #[must_use]
-    pub fn new_incoming(
+    pub fn new_incoming_from_messenger(
         conversation_id: ConversationId,
         audio_format: AudioFormat,
         size_bytes: usize,
+        source: MessengerSource,
     ) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
             conversation_id,
-            source: VoiceMessageSource::WhatsAppUser,
+            source: VoiceMessageSource::MessengerUser(source),
             audio_format,
             duration_ms: None,
             size_bytes,
@@ -189,6 +219,21 @@ impl VoiceMessage {
             external_id: None,
             error: None,
         }
+    }
+
+    /// Create a new incoming voice message (defaults to WhatsApp for backward compatibility)
+    #[must_use]
+    pub fn new_incoming(
+        conversation_id: ConversationId,
+        audio_format: AudioFormat,
+        size_bytes: usize,
+    ) -> Self {
+        Self::new_incoming_from_messenger(
+            conversation_id,
+            audio_format,
+            size_bytes,
+            MessengerSource::WhatsApp,
+        )
     }
 
     /// Create a new assistant voice response
@@ -297,7 +342,13 @@ impl VoiceMessage {
     /// Check if this is an incoming user message
     #[must_use]
     pub const fn is_user_message(&self) -> bool {
-        matches!(self.source, VoiceMessageSource::WhatsAppUser)
+        self.source.is_user_message()
+    }
+
+    /// Get the messenger source if this is a user message
+    #[must_use]
+    pub const fn messenger(&self) -> Option<MessengerSource> {
+        self.source.messenger()
     }
 
     /// Check if this is an assistant response
@@ -398,13 +449,29 @@ mod tests {
             let msg = VoiceMessage::new_incoming(conv_id, AudioFormat::Opus, 1024);
 
             assert_eq!(msg.conversation_id, conv_id);
-            assert_eq!(msg.source, VoiceMessageSource::WhatsAppUser);
+            assert_eq!(msg.source, VoiceMessageSource::whatsapp_user());
             assert_eq!(msg.audio_format, AudioFormat::Opus);
             assert_eq!(msg.size_bytes, 1024);
             assert_eq!(msg.status, VoiceMessageStatus::Received);
             assert!(msg.transcription.is_none());
             assert!(msg.is_user_message());
             assert!(!msg.is_assistant_response());
+            assert_eq!(msg.messenger(), Some(MessengerSource::WhatsApp));
+        }
+
+        #[test]
+        fn new_incoming_from_signal_creates_correctly() {
+            let conv_id = sample_conversation_id();
+            let msg = VoiceMessage::new_incoming_from_messenger(
+                conv_id,
+                AudioFormat::Opus,
+                1024,
+                MessengerSource::Signal,
+            );
+
+            assert_eq!(msg.source, VoiceMessageSource::signal_user());
+            assert!(msg.is_user_message());
+            assert_eq!(msg.messenger(), Some(MessengerSource::Signal));
         }
 
         #[test]
@@ -417,6 +484,7 @@ mod tests {
             assert_eq!(msg.status, VoiceMessageStatus::ResponseReady);
             assert!(msg.is_assistant_response());
             assert!(!msg.is_user_message());
+            assert_eq!(msg.messenger(), None);
         }
 
         #[test]

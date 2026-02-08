@@ -1,6 +1,15 @@
 # PiSovereign Configuration
 # ===========================
 # Complete configuration reference for all system components
+#
+# Platform Support:
+# -----------------
+# This configuration works on both:
+# - Raspberry Pi 5 + Hailo-10H AI HAT (using hailo-ollama)
+# - macOS (Intel/Apple Silicon) (using standard Ollama with Metal)
+#
+# The inference engine connects to any Ollama-compatible API.
+# Model paths for speech processing are auto-detected based on OS.
 
 # ====================
 # Environment Settings
@@ -34,11 +43,16 @@ log_format = "text"
 # ================================
 # AI Inference Engine Settings
 # ================================
+# Works with any Ollama-compatible backend:
+# - Raspberry Pi: Install hailo-ollama from Hailo SDK
+# - macOS: Install Ollama via `brew install ollama`
+# The API is the same for both platforms.
 [inference]
-# Base URL of the inference server (Ollama/hailo-ollama)
+# Base URL of the inference server
+# Default: http://localhost:11434 (same for both hailo-ollama and standard Ollama)
 base_url = "http://localhost:11434"
 # Default model to use for inference
-default_model = "qwen2.5-1.5b-instruct"
+default_model = "qwen2.5:1.5b"
 # Request timeout in milliseconds
 timeout_ms = 60000
 # Maximum tokens to generate
@@ -86,8 +100,16 @@ connection_timeout_secs = 30
 min_tls_version = "1.2"
 
 # ==============================
+# Messenger Platform Selection
+# ==============================
+# Choose which messaging platform to use: "whatsapp", "signal", or "none"
+# Only one messenger can be active at a time
+messenger = "whatsapp"
+
+# ==============================
 # WhatsApp Business Integration
 # ==============================
+# Configure if messenger = "whatsapp"
 [whatsapp]
 # Meta Graph API access token
 # access_token = "your-access-token"
@@ -101,13 +123,43 @@ min_tls_version = "1.2"
 signature_required = true
 # Meta Graph API version
 api_version = "v18.0"
+# Phone numbers allowed to send messages (empty = allow all)
+# whitelist = ["+1234567890", "+0987654321"]
+
+# ==============================
+# Signal Integration (via signal-cli)
+# ==============================
+# Configure if messenger = "signal"
+# Requires signal-cli running in JSON-RPC daemon mode
+[signal]
+# Your phone number registered with Signal (E.164 format)
+# phone_number = "+1234567890"
+# Path to signal-cli JSON-RPC socket
+socket_path = "/var/run/signal-cli/socket"
+# Path to signal-cli data directory (optional)
+# data_path = "/var/lib/signal-cli"
+# Connection timeout in milliseconds
+timeout_ms = 30000
+# Phone numbers allowed to send messages (empty = allow all)
+# whitelist = ["+1234567890", "+0987654321"]
 
 # ==============================
 # Speech Processing (Voice Messages)
 # ==============================
 # Enable voice message support (STT/TTS)
+#
+# Cloud provider (OpenAI):
+# - Works on all platforms
+# - Requires API key
+#
+# Local provider (whisper.cpp + Piper):
+# - Raspberry Pi: Models in /usr/local/share/{whisper,piper}/
+# - macOS: Models in ~/Library/Application Support/{whisper,piper}/
+# - Install whisper.cpp: brew install whisper-cpp (Mac) or build from source (Pi)
+# - Install Piper: Download from https://github.com/rhasspy/piper/releases
+#
 # [speech]
-# Speech provider: "openai" (default) or "local" (future)
+# Speech provider: "openai" (cloud) or "local" (whisper.cpp + Piper)
 # provider = "openai"
 # OpenAI API key for Whisper (STT) and TTS
 # openai_api_key = "sk-..."

@@ -204,6 +204,8 @@ fn create_benchmark_state() -> AppState {
         approval_service: None,
         health_service: None,
         voice_message_service: None,
+        messenger_adapter: None,
+        signal_client: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }

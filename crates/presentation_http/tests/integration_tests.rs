@@ -454,6 +454,8 @@ fn create_test_state_with_health_service(
         voice_message_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
+        messenger_adapter: None,
+        signal_client: None,
     }
 }
 
@@ -471,6 +473,8 @@ fn create_test_state() -> AppState {
         voice_message_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
+        messenger_adapter: None,
+        signal_client: None,
     }
 }
 
@@ -488,6 +492,8 @@ fn create_unhealthy_test_state() -> AppState {
         voice_message_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
+        messenger_adapter: None,
+        signal_client: None,
     }
 }
 
@@ -998,6 +1004,8 @@ mod degraded_mode_tests {
             voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
+            messenger_adapter: None,
+            signal_client: None,
         }
     }
 
@@ -1295,6 +1303,8 @@ mod workflow_tests {
             voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
+            messenger_adapter: None,
+            signal_client: None,
         };
 
         (state, draft_store)
@@ -1319,6 +1329,8 @@ mod workflow_tests {
             voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
+            messenger_adapter: None,
+            signal_client: None,
         };
 
         (state, user_profile_store)
@@ -1625,6 +1637,8 @@ mod workflow_tests {
             voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
+            messenger_adapter: None,
+            signal_client: None,
         };
 
         let router = create_router(state);
@@ -1694,6 +1708,8 @@ mod workflow_tests {
             voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
+            messenger_adapter: None,
+            signal_client: None,
         };
 
         let router = create_router(state);
@@ -1733,6 +1749,8 @@ mod workflow_tests {
             voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
+            messenger_adapter: None,
+            signal_client: None,
         };
 
         let router = create_router(state);
@@ -1899,6 +1917,8 @@ mod health_service_e2e_tests {
             voice_message_service: None,
             config: presentation_http::ReloadableConfig::new(AppConfig::default()),
             metrics: Arc::new(MetricsCollector::new()),
+            messenger_adapter: None,
+            signal_client: None,
         };
 
         let router = create_router(state);

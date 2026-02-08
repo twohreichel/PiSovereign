@@ -1,16 +1,18 @@
 # External Services Setup
 
-> 🔗 Configure WhatsApp, Proton Mail, CalDAV, OpenAI, and Brave Search integrations
+> 🔗 Configure WhatsApp, Signal, Proton Mail, CalDAV, OpenAI, and Brave Search integrations
 
 This guide covers setting up all external services that integrate with PiSovereign.
 
 ## Table of Contents
 
+- [Messenger Selection](#messenger-selection)
 - [WhatsApp Business](#whatsapp-business)
   - [Meta Business Account](#meta-business-account)
   - [WhatsApp App Setup](#whatsapp-app-setup)
   - [Webhook Configuration](#webhook-configuration)
   - [PiSovereign Configuration](#pisovereign-whatsapp-configuration)
+- [Signal Messenger](#signal-messenger)
 - [Proton Mail Bridge](#proton-mail-bridge)
   - [Bridge Installation](#bridge-installation)
   - [Bridge Configuration](#bridge-configuration)
@@ -28,6 +30,24 @@ This guide covers setting up all external services that integrate with PiSoverei
   - [API Key Generation](#brave-api-key-generation)
   - [PiSovereign Configuration](#pisovereign-websearch-configuration)
   - [DuckDuckGo Fallback](#duckduckgo-fallback)
+
+---
+
+## Messenger Selection
+
+PiSovereign supports one messenger at a time. Configure which messenger to use:
+
+```toml
+# In config.toml - choose one:
+messenger = "whatsapp"   # Use WhatsApp Business API
+messenger = "signal"     # Use Signal via signal-cli
+messenger = "none"       # Disable messenger integration
+```
+
+| Messenger | Use Case |
+|-----------|----------|
+| WhatsApp | Business integration, webhook-based, requires public URL |
+| Signal | Privacy-focused, polling-based, no public URL needed |
 
 ---
 
@@ -160,6 +180,36 @@ curl -X POST http://localhost:3000/v1/whatsapp/send \
     "message": "Hello from PiSovereign!"
   }'
 ```
+
+---
+
+## Signal Messenger
+
+Signal provides a privacy-focused alternative to WhatsApp using end-to-end encryption.
+
+### Key Features
+
+- **No Public URL Required**: Uses polling instead of webhooks
+- **End-to-End Encrypted**: All messages are encrypted
+- **Personal Account**: Uses your existing Signal account
+- **Voice Messages**: Supports voice message transcription
+
+### Quick Setup
+
+1. Install signal-cli (Java-based CLI for Signal)
+2. Register your phone number with Signal
+3. Start the signal-cli daemon
+4. Configure PiSovereign
+
+```toml
+messenger = "signal"
+
+[signal]
+phone_number = "+1234567890"
+socket_path = "/var/run/signal-cli/socket"
+```
+
+📖 **For detailed instructions, see [Signal Setup Guide](./signal-setup.md)**
 
 ---
 

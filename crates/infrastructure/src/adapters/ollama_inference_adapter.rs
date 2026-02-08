@@ -1,8 +1,12 @@
-//! Hailo inference adapter - Implements InferencePort using ai_core
+//! Ollama inference adapter - Implements InferencePort using ai_core
+//!
+//! Works with any Ollama-compatible backend:
+//! - Standard Ollama (macOS with Metal, Linux with CUDA)
+//! - hailo-ollama (Raspberry Pi with Hailo NPU)
 
 use std::time::Instant;
 
-use ai_core::{HailoInferenceEngine, InferenceConfig, InferenceEngine, InferenceRequest};
+use ai_core::{InferenceConfig, InferenceEngine, InferenceRequest, OllamaInferenceEngine};
 use application::{
     error::ApplicationError,
     ports::{InferencePort, InferenceResult, InferenceStream, StreamingChunk},
@@ -14,18 +18,18 @@ use tracing::{debug, info, instrument, warn};
 
 use super::{CircuitBreaker, CircuitBreakerConfig};
 
-/// Adapter for Hailo-10H inference
+/// Adapter for Ollama-compatible inference servers
 #[derive(Debug)]
-pub struct HailoInferenceAdapter {
-    engine: HailoInferenceEngine,
+pub struct OllamaInferenceAdapter {
+    engine: OllamaInferenceEngine,
     system_prompt: Option<String>,
     circuit_breaker: Option<CircuitBreaker>,
 }
 
-impl HailoInferenceAdapter {
+impl OllamaInferenceAdapter {
     /// Create a new adapter with the given configuration
     pub fn new(config: InferenceConfig) -> Result<Self, ApplicationError> {
-        let engine = HailoInferenceEngine::new(config)
+        let engine = OllamaInferenceEngine::new(config)
             .map_err(|e| ApplicationError::Inference(e.to_string()))?;
 
         Ok(Self {
@@ -35,7 +39,7 @@ impl HailoInferenceAdapter {
         })
     }
 
-    /// Create with default Hailo-10H configuration
+    /// Create with default Qwen configuration
     pub fn with_defaults() -> Result<Self, ApplicationError> {
         Self::new(InferenceConfig::hailo_qwen())
     }
@@ -50,14 +54,14 @@ impl HailoInferenceAdapter {
     /// Enable circuit breaker with default configuration
     #[must_use]
     pub fn with_circuit_breaker(mut self) -> Self {
-        self.circuit_breaker = Some(CircuitBreaker::new("hailo-inference"));
+        self.circuit_breaker = Some(CircuitBreaker::new("ollama-inference"));
         self
     }
 
     /// Enable circuit breaker with custom configuration
     #[must_use]
     pub fn with_circuit_breaker_config(mut self, config: CircuitBreakerConfig) -> Self {
-        self.circuit_breaker = Some(CircuitBreaker::with_config("hailo-inference", config));
+        self.circuit_breaker = Some(CircuitBreaker::with_config("ollama-inference", config));
         self
     }
 
@@ -66,7 +70,7 @@ impl HailoInferenceAdapter {
         match e {
             ai_core::InferenceError::RateLimited => ApplicationError::RateLimited,
             ai_core::InferenceError::ConnectionFailed(msg) => {
-                ApplicationError::ExternalService(format!("Hailo connection failed: {msg}"))
+                ApplicationError::ExternalService(format!("Ollama connection failed: {msg}"))
             },
             ai_core::InferenceError::Timeout(ms) => {
                 ApplicationError::ExternalService(format!("Inference timeout after {ms}ms"))
@@ -94,14 +98,14 @@ impl HailoInferenceAdapter {
 }
 
 #[async_trait]
-impl InferencePort for HailoInferenceAdapter {
+impl InferencePort for OllamaInferenceAdapter {
     #[instrument(skip(self, message), fields(message_len = message.len(), circuit = %self.circuit_state_desc()))]
     async fn generate(&self, message: &str) -> Result<InferenceResult, ApplicationError> {
         // Fast-fail if circuit is open
         if self.is_circuit_open() {
-            warn!("Hailo inference circuit breaker is open, failing fast");
+            warn!("Ollama inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                "Ollama inference service temporarily unavailable (circuit breaker open)"
                     .to_string(),
             ));
         }
@@ -123,7 +127,7 @@ impl InferencePort for HailoInferenceAdapter {
                     .map_err(|e| match e {
                         super::CircuitBreakerError::CircuitOpen(_) => {
                             ApplicationError::ExternalService(
-                                "Hailo inference service temporarily unavailable".to_string(),
+                                "Ollama inference service temporarily unavailable".to_string(),
                             )
                         },
                         super::CircuitBreakerError::ServiceError(e) => Self::map_error(e),
@@ -161,9 +165,9 @@ impl InferencePort for HailoInferenceAdapter {
     ) -> Result<InferenceResult, ApplicationError> {
         // Fast-fail if circuit is open
         if self.is_circuit_open() {
-            warn!("Hailo inference circuit breaker is open, failing fast");
+            warn!("Ollama inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                "Ollama inference service temporarily unavailable (circuit breaker open)"
                     .to_string(),
             ));
         }
@@ -207,7 +211,7 @@ impl InferencePort for HailoInferenceAdapter {
                     .map_err(|e| match e {
                         super::CircuitBreakerError::CircuitOpen(_) => {
                             ApplicationError::ExternalService(
-                                "Hailo inference service temporarily unavailable".to_string(),
+                                "Ollama inference service temporarily unavailable".to_string(),
                             )
                         },
                         super::CircuitBreakerError::ServiceError(e) => Self::map_error(e),
@@ -239,9 +243,9 @@ impl InferencePort for HailoInferenceAdapter {
     ) -> Result<InferenceResult, ApplicationError> {
         // Fast-fail if circuit is open
         if self.is_circuit_open() {
-            warn!("Hailo inference circuit breaker is open, failing fast");
+            warn!("Ollama inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                "Ollama inference service temporarily unavailable (circuit breaker open)"
                     .to_string(),
             ));
         }
@@ -259,7 +263,7 @@ impl InferencePort for HailoInferenceAdapter {
                     .map_err(|e| match e {
                         super::CircuitBreakerError::CircuitOpen(_) => {
                             ApplicationError::ExternalService(
-                                "Hailo inference service temporarily unavailable".to_string(),
+                                "Ollama inference service temporarily unavailable".to_string(),
                             )
                         },
                         super::CircuitBreakerError::ServiceError(e) => Self::map_error(e),
@@ -287,9 +291,9 @@ impl InferencePort for HailoInferenceAdapter {
     async fn generate_stream(&self, message: &str) -> Result<InferenceStream, ApplicationError> {
         // Fast-fail if circuit is open
         if self.is_circuit_open() {
-            warn!("Hailo inference circuit breaker is open, failing fast");
+            warn!("Ollama inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                "Ollama inference service temporarily unavailable (circuit breaker open)"
                     .to_string(),
             ));
         }
@@ -330,9 +334,9 @@ impl InferencePort for HailoInferenceAdapter {
     ) -> Result<InferenceStream, ApplicationError> {
         // Fast-fail if circuit is open
         if self.is_circuit_open() {
-            warn!("Hailo inference circuit breaker is open, failing fast");
+            warn!("Ollama inference circuit breaker is open, failing fast");
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                "Ollama inference service temporarily unavailable (circuit breaker open)"
                     .to_string(),
             ));
         }
@@ -362,7 +366,7 @@ impl InferencePort for HailoInferenceAdapter {
     async fn is_healthy(&self) -> bool {
         // If circuit breaker is open, report as unhealthy
         if self.is_circuit_open() {
-            debug!("Hailo inference unhealthy: circuit breaker open");
+            debug!("Ollama inference unhealthy: circuit breaker open");
             return false;
         }
         self.engine.health_check().await.unwrap_or(false)
@@ -377,7 +381,7 @@ impl InferencePort for HailoInferenceAdapter {
         // Fast-fail if circuit is open
         if self.is_circuit_open() {
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                "Ollama inference service temporarily unavailable (circuit breaker open)"
                     .to_string(),
             ));
         }
@@ -389,7 +393,7 @@ impl InferencePort for HailoInferenceAdapter {
         // Fast-fail if circuit is open
         if self.is_circuit_open() {
             return Err(ApplicationError::ExternalService(
-                "Hailo inference service temporarily unavailable (circuit breaker open)"
+                "Ollama inference service temporarily unavailable (circuit breaker open)"
                     .to_string(),
             ));
         }
@@ -419,8 +423,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hailo_inference_adapter_creation() {
-        // Note: This may fail if Hailo hardware is not available
+    fn ollama_inference_adapter_creation() {
+        // Note: This may fail if Ollama is not running
         // but tests the configuration path
         let config = InferenceConfig {
             default_model: "test-model".to_string(),
@@ -436,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn inference_config_hailo_qwen_defaults() {
+    fn inference_config_default_model() {
         let config = InferenceConfig::hailo_qwen();
         assert!(!config.default_model.is_empty());
         assert!(!config.base_url.is_empty());
@@ -445,14 +449,14 @@ mod tests {
     #[test]
     fn map_error_rate_limited() {
         let error = ai_core::InferenceError::RateLimited;
-        let mapped = HailoInferenceAdapter::map_error(error);
+        let mapped = OllamaInferenceAdapter::map_error(error);
         assert!(matches!(mapped, ApplicationError::RateLimited));
     }
 
     #[test]
     fn map_error_connection_failed() {
         let error = ai_core::InferenceError::ConnectionFailed("timeout".to_string());
-        let mapped = HailoInferenceAdapter::map_error(error);
+        let mapped = OllamaInferenceAdapter::map_error(error);
         let ApplicationError::ExternalService(msg) = mapped else {
             unreachable!("Expected ExternalService error");
         };
@@ -462,7 +466,7 @@ mod tests {
     #[test]
     fn map_error_timeout() {
         let error = ai_core::InferenceError::Timeout(5000);
-        let mapped = HailoInferenceAdapter::map_error(error);
+        let mapped = OllamaInferenceAdapter::map_error(error);
         let ApplicationError::ExternalService(msg) = mapped else {
             unreachable!("Expected ExternalService error");
         };
@@ -472,7 +476,7 @@ mod tests {
     #[test]
     fn map_error_other() {
         let error = ai_core::InferenceError::RequestFailed("bad".to_string());
-        let mapped = HailoInferenceAdapter::map_error(error);
+        let mapped = OllamaInferenceAdapter::map_error(error);
         let ApplicationError::Inference(msg) = mapped else {
             unreachable!("Expected Inference error");
         };
@@ -537,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn hailo_adapter_with_system_prompt_builder() {
+    fn ollama_adapter_with_system_prompt_builder() {
         // Test the builder pattern even without actual adapter
         let system_prompt = "You are a helpful assistant";
         assert!(!system_prompt.is_empty());
