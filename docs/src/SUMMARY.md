@@ -8,6 +8,7 @@
 
 - [Getting Started](./user/getting-started.md)
 - [Raspberry Pi Setup](./user/raspberry-pi-setup.md)
+- [macOS Setup](./user/mac-setup.md)
 - [Vault Setup](./user/vault-setup.md)
 - [Configuration Reference](./user/configuration.md)
 - [External Services](./user/external-services.md)
