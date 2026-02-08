@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1](https://github.com/twohreichel/PiSovereign/compare/v0.2.0...v0.2.1) (2026-02-08)
+
+
+### Bug Fixes
+
+* **ci:** enhance cross-compilation setup for ARM64 with OpenSSL support ([7102a14](https://github.com/twohreichel/PiSovereign/commit/7102a1416f1c5e72eada1c98e0bdc034df77e6d9))
+* **ci:** enhance cross-compilation setup for ARM64 with OpenSSL support ([3c9750a](https://github.com/twohreichel/PiSovereign/commit/3c9750adc87571e9c266f000ff83057c074516ae))
+
 ## [0.2.0](https://github.com/twohreichel/PiSovereign/compare/v0.1.0...v0.2.0) (2026-02-08)
 
 
