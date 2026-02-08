@@ -2408,8 +2408,10 @@ dependencies = [
  "futures",
  "integration_caldav",
  "integration_proton",
+ "integration_signal",
  "integration_weather",
  "integration_websearch",
+ "integration_whatsapp",
  "metrics",
  "mockall",
  "moka",
@@ -2482,6 +2484,22 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-native-tls",
+ "tokio-test",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "integration_signal"
+version = "0.2.2"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
  "tokio-test",
  "tracing",
  "uuid",
@@ -3602,6 +3620,7 @@ dependencies = [
  "domain",
  "futures",
  "infrastructure",
+ "integration_signal",
  "integration_whatsapp",
  "mockall",
  "secrecy",

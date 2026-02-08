@@ -799,6 +799,7 @@ mod tests {
             verify_token: Some("verify".to_string()),
             signature_required: true,
             api_version: "v18.0".to_string(),
+            whitelist: Vec::new(),
         };
 
         let client_config = WhatsAppClientConfig {

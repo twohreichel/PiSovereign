@@ -123,6 +123,8 @@ messenger = "whatsapp"
 signature_required = true
 # Meta Graph API version
 api_version = "v18.0"
+# Phone numbers allowed to send messages (empty = allow all)
+# whitelist = ["+1234567890", "+0987654321"]
 
 # ==============================
 # Signal Integration (via signal-cli)
@@ -138,6 +140,8 @@ socket_path = "/var/run/signal-cli/socket"
 # data_path = "/var/lib/signal-cli"
 # Connection timeout in milliseconds
 timeout_ms = 30000
+# Phone numbers allowed to send messages (empty = allow all)
+# whitelist = ["+1234567890", "+0987654321"]
 
 # ==============================
 # Speech Processing (Voice Messages)

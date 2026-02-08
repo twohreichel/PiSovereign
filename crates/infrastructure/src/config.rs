@@ -489,6 +489,10 @@ pub struct WhatsAppConfig {
     /// API version (default: v18.0)
     #[serde(default = "default_api_version")]
     pub api_version: String,
+
+    /// Phone numbers allowed to send messages (empty = allow all)
+    #[serde(default)]
+    pub whitelist: Vec<String>,
 }
 
 impl std::fmt::Debug for WhatsAppConfig {
@@ -506,6 +510,7 @@ impl std::fmt::Debug for WhatsAppConfig {
             .field("verify_token", &self.verify_token)
             .field("signature_required", &self.signature_required)
             .field("api_version", &self.api_version)
+            .field("whitelist", &format!("[{} entries]", self.whitelist.len()))
             .finish()
     }
 }
@@ -523,6 +528,7 @@ impl Default for WhatsAppConfig {
             verify_token: None,
             signature_required: true,
             api_version: default_api_version(),
+            whitelist: Vec::new(),
         }
     }
 }
@@ -546,7 +552,7 @@ impl WhatsAppConfig {
 pub struct SignalConfig {
     /// Phone number registered with Signal (E.164 format, e.g., "+1234567890")
     #[serde(default)]
-    pub phone_number: Option<String>,
+    pub phone_number: String,
 
     /// Path to the signal-cli JSON-RPC socket
     #[serde(default = "default_signal_socket_path")]
@@ -559,6 +565,10 @@ pub struct SignalConfig {
     /// Connection timeout in milliseconds
     #[serde(default = "default_signal_timeout")]
     pub timeout_ms: u64,
+
+    /// Phone numbers allowed to send messages (empty = allow all)
+    #[serde(default)]
+    pub whitelist: Vec<String>,
 }
 
 fn default_signal_socket_path() -> String {
@@ -576,6 +586,7 @@ impl std::fmt::Debug for SignalConfig {
             .field("socket_path", &self.socket_path)
             .field("data_path", &self.data_path)
             .field("timeout_ms", &self.timeout_ms)
+            .field("whitelist", &format!("[{} entries]", self.whitelist.len()))
             .finish()
     }
 }
@@ -583,10 +594,11 @@ impl std::fmt::Debug for SignalConfig {
 impl Default for SignalConfig {
     fn default() -> Self {
         Self {
-            phone_number: None,
+            phone_number: String::new(),
             socket_path: default_signal_socket_path(),
             data_path: None,
             timeout_ms: default_signal_timeout(),
+            whitelist: Vec::new(),
         }
     }
 }
