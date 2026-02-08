@@ -13,3 +13,4 @@ config.local.toml
 *.iml
 docs/book
 config.toml
+pisovereign.db*
