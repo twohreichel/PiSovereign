@@ -1,5 +1,10 @@
 # PiSovereign
 
+> [!WARNING]
+> **This project is in early beta and under active development.**
+> It is not production-ready, has not been thoroughly tested, and may contain bugs or incomplete features.
+> Use at your own risk. Breaking changes may occur without notice.
+
 [![Coverage](https://img.shields.io/codecov/c/github/twohreichel/PiSovereign?logo=codecov&label=coverage)](https://codecov.io/gh/twohreichel/PiSovereign)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-online-blue)](https://twohreichel.github.io/PiSovereign/)
