@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2](https://github.com/twohreichel/PiSovereign/compare/v0.2.1...v0.2.2) (2026-02-08)
+
+
+### Bug Fixes
+
+* **workflows:** update Docker image name format and add OpenSSL installation step ([0d661de](https://github.com/twohreichel/PiSovereign/commit/0d661de2c898361b4a2524e5b72db54f718d0d2b))
+
+
+### Documentation
+
+* add link to full documentation in README ([0d661de](https://github.com/twohreichel/PiSovereign/commit/0d661de2c898361b4a2524e5b72db54f718d0d2b))
+
 ## [0.2.1](https://github.com/twohreichel/PiSovereign/compare/v0.2.0...v0.2.1) (2026-02-08)
 
 
