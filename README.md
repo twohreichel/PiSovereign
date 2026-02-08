@@ -28,40 +28,69 @@ Run your own AI assistant with 100% local inference—no cloud required. Control
 - **Calendar & Email** – CalDAV + Proton Mail integration
 - **EU/GDPR Compliant** – All processing on your hardware
 
-## � Quick Start
+## 🚀 Quick Start
 
 Get up and running in minutes with our automated setup scripts.
 
 ### Raspberry Pi 5
 
 ```bash
+# Native build (recommended for production)
 curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-pi.sh | sudo bash
+
+# Or Docker deployment
+curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-pi.sh | sudo bash -s -- --docker
 ```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--native` | Build from source (default, optimized for ARM64) |
+| `--docker` | Use Docker Compose deployment |
+| `--branch <name>` | Use specific branch (default: main) |
+| `--skip-security` | Skip security hardening |
+| `--skip-build` | Skip compilation (use existing binaries) |
+| `-h, --help` | Show help message |
 
 **What it does:**
 - Installs Docker, Hailo SDK, whisper.cpp, and Piper TTS
+- **Native mode:** Installs Rust, builds optimized ARM64 binaries, sets up systemd service
+- **Docker mode:** Deploys via Docker Compose with TLS (Traefik)
 - Configures security hardening (SSH, UFW firewall, Fail2ban)
-- Sets up automatic system and AI model updates
+- Sets up automatic updates (rebuilds from source or pulls images)
 - Interactively configures your `config.toml`
-- Starts PiSovereign via Docker Compose with TLS (Traefik)
 
 ### macOS (Development)
 
 ```bash
+# Docker deployment (recommended for Mac)
 curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-mac.sh | bash
+
+# Or native build
+curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-mac.sh | bash -s -- --native
 ```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--docker` | Use Docker Compose (default on macOS) |
+| `--native` | Build from source for local development |
+| `--branch <name>` | Use specific branch (default: main) |
+| `--skip-build` | Skip compilation (use existing binaries) |
+| `-h, --help` | Show help message |
 
 **What it does:**
 - Installs Homebrew dependencies (Ollama, whisper-cpp, FFmpeg)
 - Downloads Piper TTS and German voice model
 - Pulls the `qwen2.5:1.5b` LLM
-- Sets up automatic daily updates via launchd
-- Starts local development environment
+- **Native mode:** Installs Rust, builds native binaries, sets up launchd service
+- **Docker mode:** Deploys via Docker Compose
+- Sets up automatic weekly updates via launchd
 
 > [!TIP]
 > For manual installation or customization, see the [Getting Started](https://twohreichel.github.io/PiSovereign/user/getting-started.html) guide.
 
-## �📚 Documentation
+## 📚 Documentation
 
 | Guide | Description |
 |-------|-------------|

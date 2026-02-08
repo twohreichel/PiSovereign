@@ -37,6 +37,16 @@ PISOVEREIGN_CONFIG_DIR="/etc/pisovereign"
 PISOVEREIGN_DATA_DIR="/var/lib/pisovereign"
 PISOVEREIGN_LOG_DIR="/var/log/pisovereign"
 
+# Deployment mode: "native" (default for Pi) or "docker"
+DEPLOY_MODE="${DEPLOY_MODE:-native}"
+
+# Git repository for source builds
+PISOVEREIGN_REPO="https://github.com/twohreichel/PiSovereign.git"
+PISOVEREIGN_BRANCH="${PISOVEREIGN_BRANCH:-main}"
+
+# Rust toolchain
+RUST_VERSION="1.83.0"
+
 WHISPER_MODEL_DIR="/usr/local/share/whisper"
 WHISPER_MODEL="ggml-base.bin"
 WHISPER_MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
@@ -65,6 +75,76 @@ success() { echo -e "${GREEN}[OK]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 step() { echo -e "\n${PURPLE}==>${NC} ${CYAN}$*${NC}"; }
+
+# =============================================================================
+# CLI Argument Parsing
+# =============================================================================
+
+show_help() {
+    cat << EOF
+PiSovereign Setup Script for Raspberry Pi
+
+Usage: $0 [OPTIONS]
+
+Options:
+    --native        Build from source and install native binaries (default)
+    --docker        Use Docker containers instead of native binaries
+    --branch NAME   Git branch to build from (default: main)
+    --skip-security Skip security hardening steps
+    --skip-build    Skip building (use pre-built binaries from GitHub releases)
+    -h, --help      Show this help message
+
+Examples:
+    sudo $0                     # Native build (recommended for Pi)
+    sudo $0 --docker            # Docker deployment
+    sudo $0 --branch develop    # Build from develop branch
+    sudo $0 --skip-security     # Skip SSH/firewall hardening
+
+Environment Variables:
+    DEPLOY_MODE         native or docker (default: native)
+    PISOVEREIGN_VERSION Version tag to install (default: latest)
+    PISOVEREIGN_BRANCH  Git branch for source builds (default: main)
+
+EOF
+    exit 0
+}
+
+parse_args() {
+    SKIP_SECURITY=false
+    SKIP_BUILD=false
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --native)
+                DEPLOY_MODE="native"
+                shift
+                ;;
+            --docker)
+                DEPLOY_MODE="docker"
+                shift
+                ;;
+            --branch)
+                PISOVEREIGN_BRANCH="$2"
+                shift 2
+                ;;
+            --skip-security)
+                SKIP_SECURITY=true
+                shift
+                ;;
+            --skip-build)
+                SKIP_BUILD=true
+                shift
+                ;;
+            -h|--help)
+                show_help
+                ;;
+            *)
+                error "Unknown option: $1"
+                show_help
+                ;;
+        esac
+    done
+}
 
 # =============================================================================
 # Utility Functions
@@ -361,6 +441,288 @@ install_piper() {
         success "Piper voice downloaded"
     else
         success "Piper voice already present"
+    fi
+}
+
+# =============================================================================
+# Native Build (Rust)
+# =============================================================================
+
+install_rust() {
+    step "Installing Rust toolchain"
+    
+    # Install as the pisovereign user or current user
+    local rust_user="${SUDO_USER:-root}"
+    local rust_home
+    
+    if [[ "$rust_user" == "root" ]]; then
+        rust_home="/root"
+    else
+        rust_home=$(eval echo "~$rust_user")
+    fi
+    
+    local cargo_bin="$rust_home/.cargo/bin"
+    
+    if [[ -f "$cargo_bin/cargo" ]]; then
+        local current_version
+        current_version=$("$cargo_bin/cargo" --version 2>/dev/null | awk '{print $2}' || echo "0")
+        success "Rust already installed (version $current_version)"
+        
+        # Update if needed
+        info "Updating Rust toolchain..."
+        sudo -u "$rust_user" "$cargo_bin/rustup" update stable || true
+    else
+        info "Installing Rust via rustup..."
+        
+        # Download and run rustup installer
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sudo -u "$rust_user" sh -s -- -y --default-toolchain stable --profile minimal
+        
+        success "Rust installed"
+    fi
+    
+    # Ensure cargo is in PATH for this script
+    export PATH="$cargo_bin:$PATH"
+    
+    # Verify installation
+    if command -v cargo &>/dev/null; then
+        success "Cargo available: $(cargo --version)"
+    else
+        error "Cargo not found in PATH after installation"
+        exit 1
+    fi
+}
+
+clone_or_update_repo() {
+    step "Fetching PiSovereign source code"
+    
+    local src_dir="$PISOVEREIGN_DIR/src"
+    
+    if [[ -d "$src_dir/.git" ]]; then
+        info "Updating existing repository..."
+        cd "$src_dir"
+        git fetch origin
+        git checkout "$PISOVEREIGN_BRANCH"
+        git pull origin "$PISOVEREIGN_BRANCH"
+        success "Repository updated to branch: $PISOVEREIGN_BRANCH"
+    else
+        info "Cloning repository..."
+        rm -rf "$src_dir"
+        mkdir -p "$src_dir"
+        git clone --branch "$PISOVEREIGN_BRANCH" --depth 1 "$PISOVEREIGN_REPO" "$src_dir"
+        success "Repository cloned (branch: $PISOVEREIGN_BRANCH)"
+    fi
+}
+
+build_pisovereign() {
+    step "Building PiSovereign from source"
+    
+    local src_dir="$PISOVEREIGN_DIR/src"
+    cd "$src_dir"
+    
+    info "This may take 10-30 minutes on Raspberry Pi..."
+    
+    # Set optimized build flags for ARM64
+    export RUSTFLAGS="-C target-cpu=native -C opt-level=3"
+    
+    # Build in release mode
+    info "Building release binaries..."
+    cargo build --release --bin pisovereign-server --bin pisovereign-cli 2>&1 | \
+        while IFS= read -r line; do
+            # Show only important lines
+            if [[ "$line" == *"Compiling"* ]] || [[ "$line" == *"Finished"* ]] || [[ "$line" == *"error"* ]]; then
+                echo "  $line"
+            fi
+        done
+    
+    if [[ -f "target/release/pisovereign-server" ]] && [[ -f "target/release/pisovereign-cli" ]]; then
+        success "Build completed successfully"
+    else
+        error "Build failed - binaries not found"
+        exit 1
+    fi
+}
+
+install_native_binaries() {
+    step "Installing native binaries"
+    
+    local src_dir="$PISOVEREIGN_DIR/src"
+    local bin_dir="/usr/local/bin"
+    
+    # Stop existing service if running
+    systemctl stop pisovereign.service 2>/dev/null || true
+    
+    # Install binaries
+    info "Installing pisovereign-server..."
+    install -m 755 "$src_dir/target/release/pisovereign-server" "$bin_dir/"
+    
+    info "Installing pisovereign-cli..."
+    install -m 755 "$src_dir/target/release/pisovereign-cli" "$bin_dir/"
+    
+    # Verify installation
+    if "$bin_dir/pisovereign-server" --version &>/dev/null; then
+        success "Binaries installed: $($bin_dir/pisovereign-server --version)"
+    else
+        # Try without --version flag
+        success "Binaries installed to $bin_dir"
+    fi
+    
+    # Set capabilities for binding to port 443 without root
+    setcap 'cap_net_bind_service=+ep' "$bin_dir/pisovereign-server" 2>/dev/null || true
+}
+
+download_prebuilt_binaries() {
+    step "Downloading pre-built binaries"
+    
+    local arch
+    arch=$(uname -m)
+    
+    if [[ "$arch" != "aarch64" ]]; then
+        error "Pre-built binaries only available for aarch64. Use --native to build from source."
+        exit 1
+    fi
+    
+    local release_url="https://github.com/twohreichel/PiSovereign/releases"
+    local version="$PISOVEREIGN_VERSION"
+    
+    if [[ "$version" == "latest" ]]; then
+        info "Fetching latest release version..."
+        version=$(curl -sL "$release_url/latest" | grep -oP 'tag/v\K[0-9.]+' | head -1) || true
+        if [[ -z "$version" ]]; then
+            error "Could not determine latest version. Use --native to build from source."
+            exit 1
+        fi
+        info "Latest version: $version"
+    fi
+    
+    local download_url="$release_url/download/v$version/pisovereign-linux-aarch64.tar.gz"
+    local tmp_file="/tmp/pisovereign-binaries.tar.gz"
+    
+    info "Downloading from: $download_url"
+    if ! curl -fsSL -o "$tmp_file" "$download_url"; then
+        error "Download failed. The release may not have pre-built binaries."
+        error "Use: sudo $0 --native  to build from source instead."
+        exit 1
+    fi
+    
+    # Extract binaries
+    tar -xzf "$tmp_file" -C /usr/local/bin/
+    rm -f "$tmp_file"
+    
+    chmod +x /usr/local/bin/pisovereign-server /usr/local/bin/pisovereign-cli
+    
+    success "Pre-built binaries installed"
+}
+
+setup_systemd_service() {
+    step "Setting up systemd service"
+    
+    # Create systemd service file
+    cat > /etc/systemd/system/pisovereign.service << 'EOF'
+[Unit]
+Description=PiSovereign AI Assistant
+Documentation=https://twohreichel.github.io/PiSovereign/
+After=network-online.target ollama.service
+Wants=network-online.target
+Requires=ollama.service
+
+[Service]
+Type=simple
+User=pisovereign
+Group=pisovereign
+WorkingDirectory=/var/lib/pisovereign
+
+# Environment
+Environment="PISOVEREIGN_CONFIG=/etc/pisovereign/config.toml"
+Environment="PISOVEREIGN_DATA_DIR=/var/lib/pisovereign"
+Environment="RUST_LOG=info,tower_http=info"
+
+# Binary
+ExecStart=/usr/local/bin/pisovereign-server
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+# Allow write to data and log directories
+ReadWritePaths=/var/lib/pisovereign /var/log/pisovereign
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=80%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pisovereign
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Create Ollama service dependency (if using system Ollama)
+    mkdir -p /etc/systemd/system/ollama.service.d/
+    cat > /etc/systemd/system/ollama.service.d/override.conf << 'EOF'
+[Service]
+# Ensure Ollama stays running
+Restart=always
+RestartSec=3
+EOF
+
+    # Reload systemd
+    systemctl daemon-reload
+    
+    # Enable service
+    systemctl enable pisovereign.service
+    
+    success "Systemd service configured"
+}
+
+start_native_service() {
+    step "Starting PiSovereign service"
+    
+    # Ensure Ollama is running first
+    if systemctl is-active --quiet ollama; then
+        success "Ollama service is running"
+    else
+        info "Starting Ollama service..."
+        systemctl start ollama
+        sleep 3
+    fi
+    
+    # Start PiSovereign
+    systemctl start pisovereign.service
+    
+    # Wait and check
+    sleep 3
+    
+    if systemctl is-active --quiet pisovereign; then
+        success "PiSovereign service started"
+        
+        # Show status
+        local status
+        status=$(systemctl status pisovereign.service --no-pager -l 2>&1 | head -10)
+        echo "$status"
+    else
+        error "Service failed to start"
+        journalctl -u pisovereign.service --no-pager -n 20
+        exit 1
     fi
 }
 
@@ -940,13 +1302,140 @@ start_services() {
 # Auto-Update System
 # =============================================================================
 
-setup_auto_update_service() {
-    step "Setting up automatic updates"
+setup_native_auto_update() {
+    step "Setting up automatic updates (native mode)"
     
-    # Create update script
-    cat > "$PISOVEREIGN_DIR/scripts/auto-update.sh" << 'EOF'
+    mkdir -p "$PISOVEREIGN_DIR/scripts"
+    
+    # Create update script for native deployment
+    cat > "$PISOVEREIGN_DIR/scripts/auto-update.sh" << 'UPDATEEOF'
 #!/usr/bin/env bash
-# PiSovereign Auto-Update Script
+# PiSovereign Auto-Update Script (Native Mode)
+
+set -euo pipefail
+
+LOG_FILE="/var/log/pisovereign/auto-update.log"
+PISOVEREIGN_DIR="/opt/pisovereign"
+SRC_DIR="$PISOVEREIGN_DIR/src"
+
+log() {
+    echo "[$(date -Iseconds)] $*" | tee -a "$LOG_FILE"
+}
+
+log "=== Starting auto-update (native mode) ==="
+
+# Update system packages
+log "Updating system packages..."
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
+
+# Check for PiSovereign updates
+log "Checking for PiSovereign updates..."
+cd "$SRC_DIR"
+
+# Fetch latest changes
+git fetch origin main
+
+# Check if there are updates
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/main)
+
+if [[ "$LOCAL" != "$REMOTE" ]]; then
+    log "New version available, updating..."
+    
+    # Pull latest changes
+    git pull origin main
+    
+    # Rebuild
+    log "Rebuilding PiSovereign..."
+    export RUSTFLAGS="-C target-cpu=native -C opt-level=3"
+    
+    if cargo build --release --bin pisovereign-server --bin pisovereign-cli 2>&1 | tee -a "$LOG_FILE"; then
+        # Stop service
+        systemctl stop pisovereign.service
+        
+        # Install new binaries
+        install -m 755 target/release/pisovereign-server /usr/local/bin/
+        install -m 755 target/release/pisovereign-cli /usr/local/bin/
+        
+        # Restart service
+        systemctl start pisovereign.service
+        
+        log "PiSovereign updated to $(git describe --tags --always)"
+    else
+        log "ERROR: Build failed, keeping current version"
+    fi
+else
+    log "PiSovereign is up to date"
+fi
+
+# Update LLM model
+log "Checking LLM model updates..."
+ollama pull qwen2.5:1.5b 2>&1 | grep -v "up to date" || true
+
+# Cleanup
+log "Cleaning up..."
+apt-get autoremove -y -qq
+apt-get autoclean -qq
+
+# Clean old Rust build artifacts (keep last 2 builds)
+cd "$SRC_DIR"
+cargo clean --release 2>/dev/null || true
+
+log "=== Auto-update completed ==="
+UPDATEEOF
+
+    chmod +x "$PISOVEREIGN_DIR/scripts/auto-update.sh"
+    
+    # Create systemd service
+    cat > /etc/systemd/system/pisovereign-update.service << 'EOF'
+[Unit]
+Description=PiSovereign Auto-Update (Native)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/pisovereign/scripts/auto-update.sh
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Create systemd timer
+    cat > /etc/systemd/system/pisovereign-update.timer << 'EOF'
+[Unit]
+Description=Run PiSovereign Auto-Update daily
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    # Enable timer
+    systemctl daemon-reload
+    systemctl enable pisovereign-update.timer
+    systemctl start pisovereign-update.timer
+    
+    success "Auto-update configured (daily at 03:00)"
+}
+
+setup_docker_auto_update() {
+    step "Setting up automatic updates (Docker mode)"
+    
+    mkdir -p "$PISOVEREIGN_DIR/scripts"
+    
+    # Create update script for Docker deployment
+    cat > "$PISOVEREIGN_DIR/scripts/auto-update.sh" << 'UPDATEEOF'
+#!/usr/bin/env bash
+# PiSovereign Auto-Update Script (Docker Mode)
 
 set -euo pipefail
 
@@ -978,7 +1467,7 @@ fi
 
 # Update LLM model
 log "Checking LLM model updates..."
-ollama pull "$OLLAMA_MODEL" 2>&1 | grep -v "up to date" || true
+ollama pull qwen2.5:1.5b 2>&1 | grep -v "up to date" || true
 
 # Cleanup
 log "Cleaning up..."
@@ -987,22 +1476,20 @@ apt-get autoremove -y -qq
 apt-get autoclean -qq
 
 log "Auto-update completed"
-EOF
+UPDATEEOF
 
     chmod +x "$PISOVEREIGN_DIR/scripts/auto-update.sh"
-    mkdir -p "$PISOVEREIGN_DIR/scripts"
-    mv "$PISOVEREIGN_DIR/scripts/auto-update.sh" "$PISOVEREIGN_DIR/scripts/auto-update.sh" 2>/dev/null || true
     
     # Create systemd service
-    cat > /etc/systemd/system/pisovereign-update.service << EOF
+    cat > /etc/systemd/system/pisovereign-update.service << 'EOF'
 [Unit]
-Description=PiSovereign Auto-Update
+Description=PiSovereign Auto-Update (Docker)
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=$PISOVEREIGN_DIR/scripts/auto-update.sh
+ExecStart=/opt/pisovereign/scripts/auto-update.sh
 User=root
 StandardOutput=journal
 StandardError=journal
@@ -1035,7 +1522,26 @@ EOF
 
 # Create logrotate configuration
 setup_logrotate() {
-    cat > /etc/logrotate.d/pisovereign << 'EOF'
+    if [[ "$DEPLOY_MODE" == "native" ]]; then
+        # Native mode - restart service to reopen log files
+        cat > /etc/logrotate.d/pisovereign << 'EOF'
+/var/log/pisovereign/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 pisovereign pisovereign
+    sharedscripts
+    postrotate
+        systemctl reload pisovereign.service 2>/dev/null || systemctl restart pisovereign.service 2>/dev/null || true
+    endscript
+}
+EOF
+    else
+        # Docker mode - send signal to container
+        cat > /etc/logrotate.d/pisovereign << 'EOF'
 /var/log/pisovereign/*.log {
     daily
     missingok
@@ -1050,6 +1556,7 @@ setup_logrotate() {
     endscript
 }
 EOF
+    fi
     
     success "Log rotation configured"
 }
@@ -1063,12 +1570,14 @@ verify_installation() {
     
     local errors=0
     
-    # Check Docker
-    if docker info &>/dev/null; then
-        success "Docker: OK"
-    else
-        error "Docker: FAILED"
-        ((errors++))
+    # Check Docker (only in Docker mode)
+    if [[ "$DEPLOY_MODE" == "docker" ]]; then
+        if docker info &>/dev/null; then
+            success "Docker: OK"
+        else
+            error "Docker: FAILED"
+            ((errors++))
+        fi
     fi
     
     # Check Ollama
@@ -1095,12 +1604,22 @@ verify_installation() {
         ((errors++))
     fi
     
-    # Check PiSovereign
+    # Check PiSovereign service/container
+    if [[ "$DEPLOY_MODE" == "native" ]]; then
+        if systemctl is-active --quiet pisovereign.service; then
+            success "PiSovereign service: OK"
+        else
+            error "PiSovereign service: FAILED"
+            ((errors++))
+        fi
+    fi
+    
+    # Check PiSovereign API
+    sleep 2  # Give service time to start
     if curl -sf http://localhost:3000/health &>/dev/null; then
-        success "PiSovereign: OK"
+        success "PiSovereign API: OK"
     else
-        error "PiSovereign: FAILED"
-        ((errors++))
+        warn "PiSovereign API: Not responding yet (may still be starting)"
     fi
     
     # Check auto-update timer
@@ -1108,6 +1627,16 @@ verify_installation() {
         success "Auto-update timer: OK"
     else
         warn "Auto-update timer: NOT ACTIVE"
+    fi
+    
+    # Check binaries in native mode
+    if [[ "$DEPLOY_MODE" == "native" ]]; then
+        if [[ -x /usr/local/bin/pisovereign-server ]]; then
+            success "Binaries installed: OK"
+        else
+            error "Binaries: NOT FOUND"
+            ((errors++))
+        fi
     fi
     
     return $errors
@@ -1123,6 +1652,8 @@ print_summary() {
     echo -e "${GREEN}============================================${NC}"
     echo -e "${GREEN}    PiSovereign Installation Complete!     ${NC}"
     echo -e "${GREEN}============================================${NC}"
+    echo
+    echo -e "${CYAN}Deployment Mode:${NC} $DEPLOY_MODE"
     echo
     echo -e "${CYAN}Configuration:${NC}"
     echo "  Config file:    $PISOVEREIGN_CONFIG_DIR/config.toml"
@@ -1140,8 +1671,16 @@ print_summary() {
     
     echo
     echo -e "${CYAN}Management:${NC}"
-    echo "  View logs:      docker compose -f $PISOVEREIGN_DIR/docker-compose.yml logs -f"
-    echo "  Restart:        docker compose -f $PISOVEREIGN_DIR/docker-compose.yml restart"
+    
+    if [[ "$DEPLOY_MODE" == "native" ]]; then
+        echo "  View logs:      journalctl -u pisovereign -f"
+        echo "  Restart:        systemctl restart pisovereign"
+        echo "  Status:         systemctl status pisovereign"
+    else
+        echo "  View logs:      docker compose -f $PISOVEREIGN_DIR/docker-compose.yml logs -f"
+        echo "  Restart:        docker compose -f $PISOVEREIGN_DIR/docker-compose.yml restart"
+    fi
+    
     echo "  Update now:     $PISOVEREIGN_DIR/scripts/auto-update.sh"
     echo "  Update timer:   systemctl status pisovereign-update.timer"
     echo
@@ -1154,7 +1693,12 @@ print_summary() {
     echo "  1. Configure SSH keys if you enabled SSH hardening"
     echo "  2. Test the API: curl http://localhost:3000/health"
     echo "  3. Set up WhatsApp webhook if using WhatsApp integration"
-    echo "  4. Review logs: docker compose logs -f"
+    
+    if [[ "$DEPLOY_MODE" == "native" ]]; then
+        echo "  4. Review logs: journalctl -u pisovereign -f"
+    else
+        echo "  4. Review logs: docker compose logs -f"
+    fi
     echo
 }
 
@@ -1163,6 +1707,9 @@ print_summary() {
 # =============================================================================
 
 main() {
+    # Parse command line arguments first
+    parse_args "$@"
+    
     echo
     echo -e "${PURPLE}╔═══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${PURPLE}║         PiSovereign Setup Script for Raspberry Pi         ║${NC}"
@@ -1173,8 +1720,18 @@ main() {
     check_platform
     
     echo
+    info "Deployment mode: ${CYAN}$DEPLOY_MODE${NC}"
     info "This script will install and configure PiSovereign on your Raspberry Pi."
-    info "It will install Docker, Ollama, whisper.cpp, Piper, and apply security hardening."
+    
+    if [[ "$DEPLOY_MODE" == "native" ]]; then
+        info "Native build will compile from source (~20-30 min on Pi 5)"
+    else
+        info "Docker mode will pull container images (~5-10 min)"
+    fi
+    
+    if [[ "$SKIP_SECURITY" == "true" ]]; then
+        warn "Security hardening will be SKIPPED"
+    fi
     echo
     
     if ! prompt_yes_no "Continue with installation?"; then
@@ -1182,32 +1739,53 @@ main() {
         exit 0
     fi
     
-    # Installation
+    # Installation - base packages
     install_base_packages
-    install_docker
     install_hailo_sdk
     install_ollama
     install_whisper_cpp
     install_piper
     
-    # Security
+    # User and directories (needed for both modes)
     setup_pisovereign_user
-    setup_ssh_hardening
-    setup_firewall
-    setup_fail2ban
-    setup_kernel_hardening
-    setup_auto_updates
+    
+    # Security hardening (optional)
+    if [[ "$SKIP_SECURITY" != "true" ]]; then
+        setup_ssh_hardening
+        setup_firewall
+        setup_fail2ban
+        setup_kernel_hardening
+        setup_auto_updates
+    else
+        warn "Skipping security hardening as requested"
+    fi
     
     # Configuration
     configure_toml
     
-    # Deployment
-    setup_docker_compose
-    start_services
+    # Deployment - based on mode
+    if [[ "$DEPLOY_MODE" == "native" ]]; then
+        # Native build deployment
+        if [[ "$SKIP_BUILD" == "true" ]]; then
+            download_prebuilt_binaries
+        else
+            install_rust
+            clone_or_update_repo
+            build_pisovereign
+            install_native_binaries
+        fi
+        setup_systemd_service
+        start_native_service
+        setup_native_auto_update
+    else
+        # Docker deployment
+        install_docker
+        setup_docker_compose
+        start_services
+        setup_docker_auto_update
+    fi
     
-    # Auto-update
-    mkdir -p "$PISOVEREIGN_DIR/scripts"
-    setup_auto_update_service
+    # Logrotate for both modes
     setup_logrotate
     
     # Verification
