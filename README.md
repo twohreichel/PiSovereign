@@ -19,14 +19,6 @@ Run your own AI assistant with 100% local inference—no cloud required. Control
 - **Calendar & Email** – CalDAV + Proton Mail integration
 - **EU/GDPR Compliant** – All processing on your hardware
 
-## 🚀 Quick Start
-
-\`\`\`bash
-git clone https://github.com/twohreichel/PiSovereign.git && cd PiSovereign
-cargo build --release
-./target/release/pisovereign-server
-\`\`\`
-
 ## 📚 Documentation
 
 | Guide | Description |
