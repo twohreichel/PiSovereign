@@ -592,6 +592,8 @@ EOF
 
 configure_toml() {
     step "Configuring PiSovereign"
+
+    cp "$PISOVEREIGN_DIR/config.toml.example" "$PISOVEREIGN_CONFIG_DIR/config.toml" 2>/dev/null || true
     
     echo
     info "Please provide the following configuration values."

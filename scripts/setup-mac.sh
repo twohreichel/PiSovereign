@@ -356,6 +356,8 @@ install_piper() {
 
 configure_toml() {
     step "Configuring PiSovereign"
+
+    cp "$PISOVEREIGN_DIR/config.toml.example" "$PISOVEREIGN_CONFIG_DIR/config.toml" 2>/dev/null || true
     
     mkdir -p "$PISOVEREIGN_CONFIG_DIR"
     
