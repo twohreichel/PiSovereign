@@ -12,7 +12,14 @@
       "include-component-in-tag": false,
       "include-v-in-tag": true,
       "pull-request-title-pattern": "chore(release): release ${version}",
-      "pull-request-header": ":robot: Release PiSovereign"
+      "pull-request-header": ":robot: Release PiSovereign",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        }
+      ]
     }
   },
   "changelog-sections": [
