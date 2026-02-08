@@ -16,6 +16,8 @@
 
 Run your own AI assistant with 100% local inference—no cloud required. Control via WhatsApp, voice messages, calendar, and email integration.
 
+**📖 [Full Documentation](https://twohreichel.github.io/PiSovereign/)**
+
 ## ✨ Features
 
 - **Local LLM Inference** on Hailo-10H NPU (26 TOPS)
