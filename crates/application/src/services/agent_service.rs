@@ -972,9 +972,9 @@ impl AgentService {
 
         if tasks.is_empty() {
             let filter_desc = match (status, priority) {
-                (Some(s), Some(p)) => format!(" matching status '{}' and priority '{}'", s, p),
-                (Some(s), None) => format!(" with status '{}'", s),
-                (None, Some(p)) => format!(" with priority '{}'", p),
+                (Some(s), Some(p)) => format!(" matching status '{s}' and priority '{p}'"),
+                (Some(s), None) => format!(" with status '{s}'"),
+                (None, Some(p)) => format!(" with priority '{p}'"),
                 (None, None) => String::new(),
             };
             response.push_str(&format!("No tasks found{filter_desc}.\n"));
