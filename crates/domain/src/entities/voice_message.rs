@@ -228,7 +228,12 @@ impl VoiceMessage {
         audio_format: AudioFormat,
         size_bytes: usize,
     ) -> Self {
-        Self::new_incoming_from_messenger(conversation_id, audio_format, size_bytes, MessengerSource::WhatsApp)
+        Self::new_incoming_from_messenger(
+            conversation_id,
+            audio_format,
+            size_bytes,
+            MessengerSource::WhatsApp,
+        )
     }
 
     /// Create a new assistant voice response

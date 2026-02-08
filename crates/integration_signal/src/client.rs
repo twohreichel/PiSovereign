@@ -4,8 +4,8 @@
 //! over a Unix domain socket.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -14,8 +14,8 @@ use tracing::{debug, error, instrument, warn};
 
 use crate::error::SignalError;
 use crate::types::{
-    Attachment, Envelope, JsonRpcRequest, JsonRpcResponse, ReceiveParams, ReceiptType,
-    SendParams, SendReceiptParams, SendResult, SignalClientConfig,
+    Attachment, Envelope, JsonRpcRequest, JsonRpcResponse, ReceiptType, ReceiveParams, SendParams,
+    SendReceiptParams, SendResult, SignalClientConfig,
 };
 
 /// Client for communicating with signal-cli JSON-RPC daemon
@@ -93,11 +93,11 @@ impl SignalClient {
             Ok(_) => {
                 debug!("Signal daemon is available");
                 true
-            }
+            },
             Err(e) => {
                 warn!(error = %e, "Failed to connect to signal daemon");
                 false
-            }
+            },
         }
     }
 
@@ -121,8 +121,7 @@ impl SignalClient {
         reply_timestamp: i64,
         reply_author: &str,
     ) -> Result<SendResult, SignalError> {
-        let params = SendParams::text(recipient, message)
-            .with_reply(reply_timestamp, reply_author);
+        let params = SendParams::text(recipient, message).with_reply(reply_timestamp, reply_author);
         self.call_method("send", params).await
     }
 
@@ -200,9 +199,9 @@ impl SignalClient {
             return Err(SignalError::signal_cli(error.code, error.message));
         }
 
-        response.result.ok_or_else(|| {
-            SignalError::protocol("Response contained neither result nor error")
-        })
+        response
+            .result
+            .ok_or_else(|| SignalError::protocol("Response contained neither result nor error"))
     }
 
     /// Send a raw JSON-RPC request and receive response
@@ -219,7 +218,10 @@ impl SignalClient {
             });
         }
 
-        let conn = conn_guard.as_mut().expect("connection just created");
+        // unwrap is safe: we just created the connection above if it was None
+        let Some(conn) = conn_guard.as_mut() else {
+            return Err(SignalError::protocol("Connection state error"));
+        };
 
         // Send request (with newline delimiter)
         conn.writer.write_all(request.as_bytes()).await?;
@@ -260,14 +262,13 @@ mod tests {
     use super::*;
 
     fn test_config() -> SignalClientConfig {
-        SignalClientConfig::new("+1234567890")
-            .with_socket_path("/tmp/test-signal.sock")
+        SignalClientConfig::new("+1234567890").with_socket_path("/tmp/test-signal.sock")
     }
 
     #[test]
     fn new_creates_client() {
         let config = test_config();
-        let client = SignalClient::new(config.clone());
+        let client = SignalClient::new(config);
         assert_eq!(client.phone_number(), "+1234567890");
     }
 

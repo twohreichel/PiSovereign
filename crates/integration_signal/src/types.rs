@@ -446,22 +446,19 @@ mod tests {
 
         #[test]
         fn with_socket_path_sets_path() {
-            let config = SignalClientConfig::new("+1234567890")
-                .with_socket_path("/custom/socket");
+            let config = SignalClientConfig::new("+1234567890").with_socket_path("/custom/socket");
             assert_eq!(config.socket_path, "/custom/socket");
         }
 
         #[test]
         fn with_data_path_sets_path() {
-            let config = SignalClientConfig::new("+1234567890")
-                .with_data_path("/custom/data");
+            let config = SignalClientConfig::new("+1234567890").with_data_path("/custom/data");
             assert_eq!(config.data_path, Some("/custom/data".to_string()));
         }
 
         #[test]
         fn with_timeout_sets_timeout() {
-            let config = SignalClientConfig::new("+1234567890")
-                .with_timeout_ms(5000);
+            let config = SignalClientConfig::new("+1234567890").with_timeout_ms(5000);
             assert_eq!(config.timeout_ms, 5000);
         }
 
@@ -524,8 +521,7 @@ mod tests {
 
         #[test]
         fn with_reply_sets_quote_fields() {
-            let params = SendParams::text("+1234567890", "Reply")
-                .with_reply(12345, "+0987654321");
+            let params = SendParams::text("+1234567890", "Reply").with_reply(12345, "+0987654321");
             assert_eq!(params.quote_timestamp, Some(12345));
             assert_eq!(params.quote_author, Some("+0987654321".to_string()));
         }

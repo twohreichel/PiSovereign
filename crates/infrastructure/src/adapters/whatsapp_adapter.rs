@@ -51,7 +51,7 @@ impl WhatsAppMessengerAdapter {
 
     /// Get a reference to the underlying client for advanced operations
     #[must_use]
-    pub fn client(&self) -> &WhatsAppClient {
+    pub const fn client(&self) -> &WhatsAppClient {
         &self.client
     }
 }
@@ -107,7 +107,9 @@ impl MessengerPort for WhatsAppMessengerAdapter {
             .client
             .upload_media(message.audio_data, &message.mime_type, &filename)
             .await
-            .map_err(|e| ApplicationError::ExternalService(format!("WhatsApp upload failed: {e}")))?;
+            .map_err(|e| {
+                ApplicationError::ExternalService(format!("WhatsApp upload failed: {e}"))
+            })?;
 
         debug!(media_id = %upload_response.id, "Audio uploaded to WhatsApp");
 
@@ -141,7 +143,7 @@ impl MessengerPort for WhatsAppMessengerAdapter {
             .map_err(|e| match e {
                 WhatsAppError::MediaNotFound(id) => {
                     ApplicationError::NotFound(format!("Media not found: {id}"))
-                }
+                },
                 e => ApplicationError::ExternalService(format!("WhatsApp download failed: {e}")),
             })?;
 

@@ -56,7 +56,7 @@ impl SignalMessengerAdapter {
 
     /// Get a reference to the underlying client
     #[must_use]
-    pub fn client(&self) -> &SignalClient {
+    pub const fn client(&self) -> &SignalClient {
         &self.client
     }
 
@@ -122,24 +122,21 @@ impl MessengerPort for SignalMessengerAdapter {
     async fn send_text(&self, message: OutgoingTextMessage) -> Result<String, ApplicationError> {
         let result = if let Some(ref reply_to) = message.reply_to {
             // Try to parse the reply_to as a timestamp (Signal uses timestamps as message IDs)
-            match reply_to.parse::<i64>() {
-                Ok(timestamp) => {
-                    self.client
-                        .send_text_reply(
-                            message.recipient.as_str(),
-                            &message.text,
-                            timestamp,
-                            message.recipient.as_str(), // Reply author is the recipient
-                        )
-                        .await
-                }
-                Err(_) => {
-                    // If not a valid timestamp, send without reply
-                    warn!(reply_to = %reply_to, "Invalid reply_to timestamp, sending without reply");
-                    self.client
-                        .send_text(message.recipient.as_str(), &message.text)
-                        .await
-                }
+            if let Ok(timestamp) = reply_to.parse::<i64>() {
+                self.client
+                    .send_text_reply(
+                        message.recipient.as_str(),
+                        &message.text,
+                        timestamp,
+                        message.recipient.as_str(), // Reply author is the recipient
+                    )
+                    .await
+            } else {
+                // If not a valid timestamp, send without reply
+                warn!(reply_to = %reply_to, "Invalid reply_to timestamp, sending without reply");
+                self.client
+                    .send_text(message.recipient.as_str(), &message.text)
+                    .await
             }
         } else {
             self.client
@@ -150,9 +147,13 @@ impl MessengerPort for SignalMessengerAdapter {
         let send_result = result.map_err(|e| match e {
             SignalError::NotRegistered(account) => {
                 ApplicationError::Configuration(format!("Signal account not registered: {account}"))
-            }
-            SignalError::SendFailed(msg) => ApplicationError::ExternalService(format!("Signal send failed: {msg}")),
-            SignalError::Connection(msg) => ApplicationError::ExternalService(format!("Signal connection failed: {msg}")),
+            },
+            SignalError::SendFailed(msg) => {
+                ApplicationError::ExternalService(format!("Signal send failed: {msg}"))
+            },
+            SignalError::Connection(msg) => {
+                ApplicationError::ExternalService(format!("Signal connection failed: {msg}"))
+            },
             e => ApplicationError::ExternalService(format!("Signal error: {e}")),
         })?;
 
@@ -165,7 +166,9 @@ impl MessengerPort for SignalMessengerAdapter {
     #[instrument(skip(self, message), fields(recipient = %message.recipient, audio_size = message.audio_data.len()))]
     async fn send_audio(&self, message: OutgoingAudioMessage) -> Result<String, ApplicationError> {
         // Write audio data to temp file
-        let temp_path = self.write_temp_audio(&message.audio_data, &message.mime_type).await?;
+        let temp_path = self
+            .write_temp_audio(&message.audio_data, &message.mime_type)
+            .await?;
         debug!(temp_path = %temp_path, "Audio written to temp file");
 
         // Send the audio
@@ -178,7 +181,9 @@ impl MessengerPort for SignalMessengerAdapter {
         self.cleanup_temp_file(&temp_path).await;
 
         let send_result = result.map_err(|e| match e {
-            SignalError::Media(msg) => ApplicationError::ExternalService(format!("Signal media error: {msg}")),
+            SignalError::Media(msg) => {
+                ApplicationError::ExternalService(format!("Signal media error: {msg}"))
+            },
             e => ApplicationError::ExternalService(format!("Signal error: {e}")),
         })?;
 
@@ -191,23 +196,22 @@ impl MessengerPort for SignalMessengerAdapter {
     async fn download_audio(&self, media_id: &str) -> Result<DownloadedAudio, ApplicationError> {
         // Signal stores attachments locally. The media_id is actually a file path.
         let path = Path::new(media_id);
-        
+
         if !path.exists() {
             return Err(ApplicationError::NotFound(format!(
                 "Signal attachment not found: {media_id}"
             )));
         }
 
-        let data = fs::read(path)
-            .await
-            .map_err(|e| ApplicationError::ExternalService(format!("Failed to read attachment: {e}")))?;
+        let data = fs::read(path).await.map_err(|e| {
+            ApplicationError::ExternalService(format!("Failed to read attachment: {e}"))
+        })?;
 
         // Try to determine MIME type from extension
         let mime_type = path
             .extension()
             .and_then(|ext| ext.to_str())
-            .map(extension_to_mime)
-            .unwrap_or("application/octet-stream")
+            .map_or("application/octet-stream", extension_to_mime)
             .to_string();
 
         debug!(size = data.len(), mime_type = %mime_type, "Audio downloaded from Signal");
@@ -225,10 +229,10 @@ impl MessengerPort for SignalMessengerAdapter {
         // We need the sender's phone number to send a read receipt
         // For now, we'll just log it since we don't have the sender context here
         debug!(timestamp = timestamp, "Signal read receipt requested");
-        
+
         // In a real implementation, you'd need to track the sender:
         // self.client.send_read_receipt(sender, vec![timestamp]).await
-        
+
         Ok(())
     }
 }

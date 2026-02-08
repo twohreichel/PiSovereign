@@ -4,12 +4,7 @@
 //! Signal uses a polling model rather than webhooks.
 
 use application::ports::SynthesisResult;
-use axum::{
-    Json,
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-};
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use domain::entities::AudioFormat;
 use domain::value_objects::ConversationId;
 use integration_signal::Attachment;
@@ -26,7 +21,7 @@ pub struct PollQuery {
     pub timeout: u64,
 }
 
-fn default_timeout() -> u64 {
+const fn default_timeout() -> u64 {
     1
 }
 
@@ -220,23 +215,17 @@ pub async fn poll_messages(
 
     // We need access to the underlying SignalClient for receiving messages
     // This is done through the SignalMessengerAdapter
-    let signal_adapter = match state
-        .signal_client
-        .as_ref()
-    {
-        Some(client) => client,
-        None => {
-            error!("Signal client not available in state");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(PollResponse {
-                    processed: 0,
-                    messages: vec![],
-                    available: true,
-                }),
-            )
-                .into_response();
-        }
+    let Some(signal_adapter) = state.signal_client.as_ref() else {
+        error!("Signal client not available in state");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(PollResponse {
+                processed: 0,
+                messages: vec![],
+                available: true,
+            }),
+        )
+            .into_response();
     };
 
     // Poll for messages
@@ -252,7 +241,7 @@ pub async fn poll_messages(
                 })),
             )
                 .into_response();
-        }
+        },
     };
 
     if envelopes.is_empty() {
@@ -292,28 +281,17 @@ pub async fn poll_messages(
 
             // Handle text messages
             if let Some(ref body) = data_message.body {
-                let response = handle_text_message(
-                    &state,
-                    signal_adapter,
-                    sender,
-                    timestamp,
-                    body,
-                )
-                .await;
+                let response =
+                    handle_text_message(&state, signal_adapter, sender, timestamp, body).await;
                 responses.push(response);
             }
 
             // Handle audio attachments
             for attachment in &data_message.attachments {
                 if attachment.content_type.starts_with("audio/") {
-                    let response = handle_audio_message(
-                        &state,
-                        signal_adapter,
-                        sender,
-                        timestamp,
-                        attachment,
-                    )
-                    .await;
+                    let response =
+                        handle_audio_message(&state, signal_adapter, sender, timestamp, attachment)
+                            .await;
                     responses.push(response);
                 }
             }
@@ -389,7 +367,7 @@ async fn handle_text_message(
                 response: Some(response_text),
                 response_type: Some("text".to_string()),
             }
-        }
+        },
         Err(e) => {
             error!(
                 error = %e,
@@ -404,7 +382,7 @@ async fn handle_text_message(
                 response: Some(format!("Processing failed: {e}")),
                 response_type: Some("text".to_string()),
             }
-        }
+        },
     }
 }
 
@@ -470,7 +448,7 @@ async fn handle_audio_message(
                 response: Some(format!("Failed to read audio: {e}")),
                 response_type: None,
             };
-        }
+        },
     };
 
     info!(
@@ -519,11 +497,14 @@ async fn handle_audio_message(
                             .send_text(from, &voice_result.response_text)
                             .await;
                         "text".to_string()
-                    }
+                    },
                 }
             } else {
                 // Send text response
-                if let Err(e) = signal_client.send_text(from, &voice_result.response_text).await {
+                if let Err(e) = signal_client
+                    .send_text(from, &voice_result.response_text)
+                    .await
+                {
                     error!(error = %e, "Failed to send text response");
                 }
                 "text".to_string()
@@ -536,7 +517,7 @@ async fn handle_audio_message(
                 response: Some(voice_result.response_text),
                 response_type: Some(response_type),
             }
-        }
+        },
         Err(e) => {
             error!(
                 error = %e,
@@ -560,7 +541,7 @@ async fn handle_audio_message(
                 response: Some(format!("Voice processing failed: {e}")),
                 response_type: None,
             }
-        }
+        },
     }
 }
 
@@ -576,7 +557,7 @@ async fn send_audio_response(
         .await
         .map_err(|e| format!("Failed to create temp dir: {e}"))?;
 
-    let ext = format_extension(&audio_response.format);
+    let ext = format_extension(audio_response.format);
     let filename = format!("{}.{}", uuid::Uuid::new_v4(), ext);
     let temp_path = temp_dir.join(&filename);
 
@@ -639,7 +620,7 @@ fn parse_audio_format(mime_type: &str) -> AudioFormat {
 }
 
 /// Get file extension for audio format
-fn format_extension(format: &AudioFormat) -> &'static str {
+const fn format_extension(format: AudioFormat) -> &'static str {
     match format {
         AudioFormat::Opus => "opus",
         AudioFormat::Ogg => "ogg",
@@ -651,6 +632,7 @@ fn format_extension(format: &AudioFormat) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::hash::{DefaultHasher, Hash, Hasher};
 
     #[test]
     fn conversation_id_deterministic() {
@@ -673,7 +655,6 @@ mod tests {
         let signal_id = conversation_id_from_phone("+491234567890");
 
         // Simulate WhatsApp's conversation ID generation
-        use std::hash::{DefaultHasher, Hash, Hasher};
         let mut hasher = DefaultHasher::new();
         "whatsapp".hash(&mut hasher);
         "+491234567890".hash(&mut hasher);
@@ -693,7 +674,10 @@ mod tests {
 
     #[test]
     fn parse_audio_format_opus() {
-        assert_eq!(parse_audio_format("audio/ogg; codecs=opus"), AudioFormat::Opus);
+        assert_eq!(
+            parse_audio_format("audio/ogg; codecs=opus"),
+            AudioFormat::Opus
+        );
         assert_eq!(parse_audio_format("audio/opus"), AudioFormat::Opus);
     }
 
@@ -716,15 +700,18 @@ mod tests {
     #[test]
     fn parse_audio_format_unknown_defaults_to_ogg() {
         assert_eq!(parse_audio_format("audio/unknown"), AudioFormat::Ogg);
-        assert_eq!(parse_audio_format("application/octet-stream"), AudioFormat::Ogg);
+        assert_eq!(
+            parse_audio_format("application/octet-stream"),
+            AudioFormat::Ogg
+        );
     }
 
     #[test]
     fn format_extension_returns_correct_extensions() {
-        assert_eq!(format_extension(&AudioFormat::Opus), "opus");
-        assert_eq!(format_extension(&AudioFormat::Ogg), "ogg");
-        assert_eq!(format_extension(&AudioFormat::Mp3), "mp3");
-        assert_eq!(format_extension(&AudioFormat::Wav), "wav");
+        assert_eq!(format_extension(AudioFormat::Opus), "opus");
+        assert_eq!(format_extension(AudioFormat::Ogg), "ogg");
+        assert_eq!(format_extension(AudioFormat::Mp3), "mp3");
+        assert_eq!(format_extension(AudioFormat::Wav), "wav");
     }
 
     #[test]

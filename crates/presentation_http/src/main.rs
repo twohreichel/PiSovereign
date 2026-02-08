@@ -328,7 +328,11 @@ async fn main() -> anyhow::Result<()> {
                         .as_ref()
                         .map(|s| s.expose_secret().to_string())
                         .unwrap_or_default(),
-                    verify_token: initial_config.whatsapp.verify_token.clone().unwrap_or_default(),
+                    verify_token: initial_config
+                        .whatsapp
+                        .verify_token
+                        .clone()
+                        .unwrap_or_default(),
                     signature_required: initial_config.whatsapp.signature_required,
                     api_version: initial_config.whatsapp.api_version.clone(),
                 };
@@ -340,20 +344,25 @@ async fn main() -> anyhow::Result<()> {
                     Ok(adapter) => {
                         info!("📱 WhatsApp messenger adapter initialized");
                         (Some(Arc::new(adapter) as Arc<dyn MessengerPort>), None)
-                    }
+                    },
                     Err(e) => {
                         warn!(error = %e, "⚠️ Failed to initialize WhatsApp adapter");
                         (None, None)
-                    }
+                    },
                 }
             } else {
-                warn!("⚠️ WhatsApp selected but not fully configured (missing access_token or phone_number_id)");
+                warn!(
+                    "⚠️ WhatsApp selected but not fully configured (missing access_token or phone_number_id)"
+                );
                 (None, None)
             }
-        }
+        },
         MessengerSelection::Signal => {
             // Initialize Signal messenger adapter
-            if !initial_config.signal.phone_number.is_empty() {
+            if initial_config.signal.phone_number.is_empty() {
+                warn!("⚠️ Signal selected but not configured (missing phone_number)");
+                (None, None)
+            } else {
                 let client_config = SignalClientConfig {
                     phone_number: initial_config.signal.phone_number.clone(),
                     socket_path: initial_config.signal.socket_path.clone(),
@@ -375,15 +384,12 @@ async fn main() -> anyhow::Result<()> {
                     Some(Arc::new(adapter) as Arc<dyn MessengerPort>),
                     Some(signal_client),
                 )
-            } else {
-                warn!("⚠️ Signal selected but not configured (missing phone_number)");
-                (None, None)
             }
-        }
+        },
         MessengerSelection::None => {
             info!("📵 No messenger integration configured");
             (None, None)
-        }
+        },
     };
 
     // Create app state with reloadable config

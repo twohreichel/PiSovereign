@@ -48,9 +48,9 @@ mod types;
 pub use client::SignalClient;
 pub use error::SignalError;
 pub use types::{
-    Attachment, DataMessage, Envelope, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
-    Quote, ReceiptType, ReceiveParams, SendParams, SendReceiptParams, SendResult,
-    SendResultItem, SignalClientConfig, SyncMessage, TypingMessage,
+    Attachment, DataMessage, Envelope, JsonRpcError, JsonRpcRequest, JsonRpcResponse, Quote,
+    ReceiptType, ReceiveParams, SendParams, SendReceiptParams, SendResult, SendResultItem,
+    SignalClientConfig, SyncMessage, TypingMessage,
 };
 
 #[cfg(test)]

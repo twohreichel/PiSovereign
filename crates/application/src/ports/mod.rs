@@ -36,6 +36,12 @@ pub use draft_store::MockDraftStorePort;
 pub use email_port::{EmailDraft, EmailError, EmailPort, EmailSummary};
 pub use inference_port::{InferencePort, InferenceResult, InferenceStream, StreamingChunk};
 pub use message_gateway_port::{IncomingMessage, MessageGatewayPort, OutgoingMessage};
+#[cfg(test)]
+pub use messenger_port::MockMessengerPort;
+pub use messenger_port::{
+    DownloadedAudio, IncomingAudioMessage, IncomingTextMessage, MessengerPort,
+    OutgoingAudioMessage, OutgoingTextMessage,
+};
 pub use model_registry_port::{ModelCapabilities, ModelCapability, ModelInfo, ModelRegistryPort};
 pub use secret_store::{SecretStoreExt, SecretStorePort};
 #[cfg(test)]
@@ -51,9 +57,3 @@ pub use weather_port::{CurrentWeather, DailyForecast, WeatherCondition, WeatherP
 #[cfg(test)]
 pub use websearch_port::MockWebSearchPort;
 pub use websearch_port::{SafeSearchLevel, SearchOptions, WebSearchPort};
-#[cfg(test)]
-pub use messenger_port::MockMessengerPort;
-pub use messenger_port::{
-    DownloadedAudio, IncomingAudioMessage, IncomingTextMessage, MessengerPort, OutgoingAudioMessage,
-    OutgoingTextMessage,
-};

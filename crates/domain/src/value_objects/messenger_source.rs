@@ -4,10 +4,11 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Supported messaging platforms
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MessengerSource {
     /// Meta's WhatsApp Business API
+    #[default]
     WhatsApp,
     /// Signal via signal-cli
     Signal,
@@ -46,12 +47,6 @@ impl MessengerSource {
 impl fmt::Display for MessengerSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.display_name())
-    }
-}
-
-impl Default for MessengerSource {
-    fn default() -> Self {
-        Self::WhatsApp
     }
 }
 
