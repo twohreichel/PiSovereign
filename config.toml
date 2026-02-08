@@ -52,7 +52,7 @@ log_format = "text"
 # Default: http://localhost:11434 (same for both hailo-ollama and standard Ollama)
 base_url = "http://localhost:11434"
 # Default model to use for inference
-default_model = "qwen2.5-1.5b-instruct"
+default_model = "qwen2.5:1.5b"
 # Request timeout in milliseconds
 timeout_ms = 60000
 # Maximum tokens to generate

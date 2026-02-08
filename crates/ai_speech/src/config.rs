@@ -220,7 +220,17 @@ impl Default for HybridConfig {
 
 // Default functions for local configs
 
+/// Platform-specific default whisper executable
+#[cfg(target_os = "macos")]
 fn default_whisper_executable() -> PathBuf {
+    // macOS: Homebrew installs whisper.cpp as whisper-cli
+    PathBuf::from("whisper-cli")
+}
+
+/// Platform-specific default whisper executable
+#[cfg(not(target_os = "macos"))]
+fn default_whisper_executable() -> PathBuf {
+    // Linux: Built from source, typically installed as whisper-cpp
     PathBuf::from("whisper-cpp")
 }
 

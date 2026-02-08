@@ -42,7 +42,7 @@ PIPER_DIR="${HOME}/Library/Application Support/piper/voices"
 PIPER_VOICE="de_DE-thorsten-medium"
 PIPER_VOICE_URL="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/de/de_DE/thorsten/medium"
 
-OLLAMA_MODEL="qwen2.5-1.5b-instruct"
+OLLAMA_MODEL="qwen2.5:1.5b"
 
 LAUNCH_AGENTS_DIR="${HOME}/Library/LaunchAgents"
 
@@ -277,7 +277,7 @@ install_ollama() {
 install_whisper_cpp() {
     step "Installing whisper.cpp"
     
-    if command_exists whisper-cpp; then
+    if command_exists whisper-cli; then
         success "whisper.cpp already installed"
     else
         info "Installing whisper.cpp via Homebrew..."
@@ -427,7 +427,7 @@ configure_toml() {
 
 write_config_toml() {
     local whisper_cmd
-    whisper_cmd=$(command -v whisper-cpp || echo "/opt/homebrew/bin/whisper-cpp")
+    whisper_cmd=$(command -v whisper-cli || echo "/opt/homebrew/bin/whisper-cli")
     
     local piper_cmd
     piper_cmd=$(command -v piper || echo "/usr/local/bin/piper")
@@ -701,7 +701,7 @@ brew update && brew upgrade
 
 # Update Ollama model
 log "Checking LLM model updates..."
-ollama pull qwen2.5-1.5b-instruct 2>&1 | tail -1
+ollama pull "$OLLAMA_MODEL" 2>&1 | tail -1
 
 # Update Docker images
 log "Updating Docker images..."
@@ -793,7 +793,7 @@ verify_installation() {
     fi
     
     # Check whisper.cpp
-    if command_exists whisper-cpp; then
+    if command_exists whisper-cli; then
         success "whisper.cpp: OK"
     else
         error "whisper.cpp: FAILED"
@@ -864,7 +864,7 @@ print_summary() {
     echo "  brew services list                                # Check Homebrew services"
     echo
     echo -e "${CYAN}Test Speech Processing:${NC}"
-    echo "  whisper-cpp -m \"$WHISPER_MODEL_DIR/$WHISPER_MODEL\" -f audio.wav"
+    echo "  whisper-cli -m \"$WHISPER_MODEL_DIR/$WHISPER_MODEL\" -f audio.wav"
     echo "  echo 'Hallo Welt' | piper --model \"$PIPER_DIR/${PIPER_VOICE}.onnx\" --output_file test.wav"
     echo
     echo -e "${CYAN}Documentation:${NC} https://twohreichel.github.io/PiSovereign/"

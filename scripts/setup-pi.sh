@@ -46,7 +46,7 @@ PIPER_VERSION="2023.11.14-2"
 PIPER_VOICE="de_DE-thorsten-medium"
 PIPER_VOICE_URL="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/de/de_DE/thorsten/medium"
 
-OLLAMA_MODEL="qwen2.5-1.5b-instruct"
+OLLAMA_MODEL="qwen2.5:1.5b"
 
 # =============================================================================
 # Colors and Output
@@ -976,7 +976,7 @@ fi
 
 # Update LLM model
 log "Checking LLM model updates..."
-ollama pull qwen2.5-1.5b-instruct 2>&1 | grep -v "up to date" || true
+ollama pull "$OLLAMA_MODEL" 2>&1 | grep -v "up to date" || true
 
 # Cleanup
 log "Cleaning up..."

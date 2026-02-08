@@ -54,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/script
 **What it does:**
 - Installs Homebrew dependencies (Ollama, whisper-cpp, FFmpeg)
 - Downloads Piper TTS and German voice model
-- Pulls the `qwen2.5-1.5b-instruct` LLM
+- Pulls the `qwen2.5:1.5b` LLM
 - Sets up automatic daily updates via launchd
 - Starts local development environment
 
