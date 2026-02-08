@@ -779,10 +779,11 @@ mod tests {
     #[test]
     fn signal_config_default() {
         let config = SignalConfig::default();
-        assert!(config.phone_number.is_none());
+        assert!(config.phone_number.is_empty());
         assert_eq!(config.socket_path, "/var/run/signal-cli/socket");
         assert!(config.data_path.is_none());
         assert_eq!(config.timeout_ms, 30_000);
+        assert!(config.whitelist.is_empty());
     }
 
     #[test]

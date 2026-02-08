@@ -561,6 +561,9 @@ mod tests {
         let whisper = default_whisper_executable();
         let piper = default_piper_executable();
 
+        #[cfg(target_os = "macos")]
+        assert_eq!(whisper, PathBuf::from("whisper-cli"));
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(whisper, PathBuf::from("whisper-cpp"));
         assert_eq!(piper, PathBuf::from("piper"));
     }
