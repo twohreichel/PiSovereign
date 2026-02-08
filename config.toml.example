@@ -100,8 +100,16 @@ connection_timeout_secs = 30
 min_tls_version = "1.2"
 
 # ==============================
+# Messenger Platform Selection
+# ==============================
+# Choose which messaging platform to use: "whatsapp", "signal", or "none"
+# Only one messenger can be active at a time
+messenger = "whatsapp"
+
+# ==============================
 # WhatsApp Business Integration
 # ==============================
+# Configure if messenger = "whatsapp"
 [whatsapp]
 # Meta Graph API access token
 # access_token = "your-access-token"
@@ -115,6 +123,21 @@ min_tls_version = "1.2"
 signature_required = true
 # Meta Graph API version
 api_version = "v18.0"
+
+# ==============================
+# Signal Integration (via signal-cli)
+# ==============================
+# Configure if messenger = "signal"
+# Requires signal-cli running in JSON-RPC daemon mode
+[signal]
+# Your phone number registered with Signal (E.164 format)
+# phone_number = "+1234567890"
+# Path to signal-cli JSON-RPC socket
+socket_path = "/var/run/signal-cli/socket"
+# Path to signal-cli data directory (optional)
+# data_path = "/var/lib/signal-cli"
+# Connection timeout in milliseconds
+timeout_ms = 30000
 
 # ==============================
 # Speech Processing (Voice Messages)
