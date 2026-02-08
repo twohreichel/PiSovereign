@@ -1,7 +1,6 @@
 # PiSovereign
 
-[![CI](https://img.shields.io/github/actions/workflow/status/twohreichel/PiSovereign/ci.yml?branch=main&label=CI&logo=github)](https://github.com/twohreichel/PiSovereign/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/twohreichel/PiSovereign/graph/badge.svg)](https://codecov.io/gh/twohreichel/PiSovereign)
+[![Coverage](https://img.shields.io/codecov/c/github/twohreichel/PiSovereign?logo=codecov&label=coverage)](https://codecov.io/gh/twohreichel/PiSovereign)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-online-blue)](https://twohreichel.github.io/PiSovereign/)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange?logo=rust)](https://www.rust-lang.org/)
