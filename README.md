@@ -1,5 +1,10 @@
 # PiSovereign
 
+> [!WARNING]
+> **This project is in early beta and under active development.**
+> It is not production-ready, has not been thoroughly tested, and may contain bugs or incomplete features.
+> Use at your own risk. Breaking changes may occur without notice.
+
 [![Coverage](https://img.shields.io/codecov/c/github/twohreichel/PiSovereign?logo=codecov&label=coverage)](https://codecov.io/gh/twohreichel/PiSovereign)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-online-blue)](https://twohreichel.github.io/PiSovereign/)
@@ -18,14 +23,6 @@ Run your own AI assistant with 100% local inference—no cloud required. Control
 - **Voice Messages** – Local STT/TTS with cloud fallback
 - **Calendar & Email** – CalDAV + Proton Mail integration
 - **EU/GDPR Compliant** – All processing on your hardware
-
-## 🚀 Quick Start
-
-\`\`\`bash
-git clone https://github.com/twohreichel/PiSovereign.git && cd PiSovereign
-cargo build --release
-./target/release/pisovereign-server
-\`\`\`
 
 ## 📚 Documentation
 
