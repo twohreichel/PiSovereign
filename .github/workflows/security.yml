@@ -42,6 +42,11 @@ permissions:
   contents: read
   security-events: write
 
+# Cancel in-progress runs for the same workflow/ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUSTUP_TOOLCHAIN: "1.93.0"
@@ -56,11 +61,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.0"
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
@@ -102,6 +112,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@cargo-deny
@@ -138,11 +153,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.0"
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-sbom
         run: cargo install cargo-sbom --locked
@@ -150,7 +170,7 @@ jobs:
       - name: Generate SBOM (CycloneDX)
         run: |
           cargo sbom \
-            --output-format cyclonedx_json_1_4 \
+            --output-format cyclone_dx_json_1_6 \
             > sbom-cyclonedx.json
 
       - name: Generate SBOM (SPDX)
@@ -173,7 +193,7 @@ jobs:
           echo "## 📦 SBOM Generated" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Software Bill of Materials has been generated in the following formats:" >> $GITHUB_STEP_SUMMARY
-          echo "- CycloneDX 1.4 (JSON)" >> $GITHUB_STEP_SUMMARY
+          echo "- CycloneDX 1.6 (JSON)" >> $GITHUB_STEP_SUMMARY
           echo "- SPDX 2.3 (JSON)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           DEPS=$(jq '.components | length' sbom-cyclonedx.json 2>/dev/null || echo "N/A")
