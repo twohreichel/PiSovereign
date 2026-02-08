@@ -12,3 +12,4 @@ config.local.toml
 .idea/
 .vscode/
 *.iml
+docs/book
