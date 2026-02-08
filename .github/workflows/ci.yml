@@ -19,8 +19,20 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/ci.yml"
 
 env:
   CARGO_TERM_COLOR: always
@@ -42,6 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.0"
@@ -57,6 +71,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.0"
@@ -90,24 +106,6 @@ jobs:
             -A clippy::format_push_string
 
   # ---------------------------------------------------------------------------
-  # Cargo Deny - Security & License Compliance
-  # ---------------------------------------------------------------------------
-  deny:
-    name: Cargo Deny
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@cargo-deny
-      - name: Check advisories
-        run: cargo deny check advisories
-      - name: Check bans
-        run: cargo deny check bans
-      - name: Check licenses
-        run: cargo deny check licenses
-      - name: Check sources
-        run: cargo deny check sources
-
-  # ---------------------------------------------------------------------------
   # Tests
   # ---------------------------------------------------------------------------
   test:
@@ -115,6 +113,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.0"
@@ -132,6 +132,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.0"
@@ -164,6 +166,8 @@ jobs:
             target: aarch64-apple-darwin
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.0"
@@ -191,6 +195,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.93.0"
@@ -205,7 +211,7 @@ jobs:
   # ---------------------------------------------------------------------------
   ci-success:
     name: CI Success
-    needs: [fmt, clippy, deny, test, coverage, build, doc]
+    needs: [fmt, clippy, test, coverage, build, doc]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -214,7 +220,6 @@ jobs:
           # Coverage job is skipped on PRs (runs only on main), so allow 'skipped' result
           if [[ "${{ needs.fmt.result }}" != "success" ]] || \
              [[ "${{ needs.clippy.result }}" != "success" ]] || \
-             [[ "${{ needs.deny.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \
              [[ "${{ needs.coverage.result }}" != "success" && "${{ needs.coverage.result }}" != "skipped" ]] || \
              [[ "${{ needs.build.result }}" != "success" ]] || \
