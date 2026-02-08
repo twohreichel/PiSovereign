@@ -28,7 +28,40 @@ Run your own AI assistant with 100% local inference—no cloud required. Control
 - **Calendar & Email** – CalDAV + Proton Mail integration
 - **EU/GDPR Compliant** – All processing on your hardware
 
-## 📚 Documentation
+## � Quick Start
+
+Get up and running in minutes with our automated setup scripts.
+
+### Raspberry Pi 5
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-pi.sh | sudo bash
+```
+
+**What it does:**
+- Installs Docker, Hailo SDK, whisper.cpp, and Piper TTS
+- Configures security hardening (SSH, UFW firewall, Fail2ban)
+- Sets up automatic system and AI model updates
+- Interactively configures your `config.toml`
+- Starts PiSovereign via Docker Compose with TLS (Traefik)
+
+### macOS (Development)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-mac.sh | bash
+```
+
+**What it does:**
+- Installs Homebrew dependencies (Ollama, whisper-cpp, FFmpeg)
+- Downloads Piper TTS and German voice model
+- Pulls the `qwen2.5-1.5b-instruct` LLM
+- Sets up automatic daily updates via launchd
+- Starts local development environment
+
+> [!TIP]
+> For manual installation or customization, see the [Getting Started](https://twohreichel.github.io/PiSovereign/user/getting-started.html) guide.
+
+## �📚 Documentation
 
 | Guide | Description |
 |-------|-------------|
