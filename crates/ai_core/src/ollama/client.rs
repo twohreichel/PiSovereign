@@ -1,4 +1,8 @@
-//! Hailo-Ollama client implementation
+//! Ollama-compatible inference client implementation
+//!
+//! Works with any Ollama-compatible server including:
+//! - Standard Ollama (macOS with Metal, Linux with CUDA)
+//! - hailo-ollama (Raspberry Pi with Hailo NPU)
 
 use std::time::Duration;
 
@@ -15,8 +19,12 @@ use crate::{
     ports::{InferenceEngine, InferenceRequest, InferenceResponse, StreamingResponse, TokenUsage},
 };
 
-/// Hailo-10H inference engine using hailo-ollama
-pub struct HailoInferenceEngine {
+/// Ollama-compatible inference engine
+///
+/// Connects to any server implementing the Ollama chat API.
+/// On Raspberry Pi with Hailo NPU, use hailo-ollama.
+/// On macOS or standard Linux, use regular Ollama.
+pub struct OllamaInferenceEngine {
     client: Client,
     config: InferenceConfig,
     /// Current model name (can be switched at runtime)
@@ -25,17 +33,17 @@ pub struct HailoInferenceEngine {
 
 // Manual Debug impl to read from RwLock without exposing internals
 #[allow(clippy::missing_fields_in_debug)]
-impl std::fmt::Debug for HailoInferenceEngine {
+impl std::fmt::Debug for OllamaInferenceEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HailoInferenceEngine")
+        f.debug_struct("OllamaInferenceEngine")
             .field("config", &self.config)
             .field("current_model", &*self.current_model.read())
             .finish()
     }
 }
 
-impl HailoInferenceEngine {
-    /// Create a new Hailo inference engine
+impl OllamaInferenceEngine {
+    /// Create a new Ollama inference engine
     pub fn new(config: InferenceConfig) -> Result<Self, InferenceError> {
         let client = Client::builder()
             .timeout(Duration::from_millis(config.timeout_ms))
@@ -45,7 +53,7 @@ impl HailoInferenceEngine {
         info!(
             base_url = %config.base_url,
             model = %config.default_model,
-            "Initialized Hailo inference engine"
+            "Initialized Ollama inference engine"
         );
 
         let current_model = RwLock::new(config.default_model.clone());
@@ -57,7 +65,7 @@ impl HailoInferenceEngine {
         })
     }
 
-    /// Create with default configuration for Hailo-10H
+    /// Create with default configuration
     pub fn with_defaults() -> Result<Self, InferenceError> {
         Self::new(InferenceConfig::hailo_qwen())
     }
@@ -143,7 +151,7 @@ struct OllamaModel {
 }
 
 #[async_trait]
-impl InferenceEngine for HailoInferenceEngine {
+impl InferenceEngine for OllamaInferenceEngine {
     #[instrument(skip(self, request), fields(model = %self.resolve_model(&request)))]
     async fn generate(
         &self,
@@ -169,7 +177,7 @@ impl InferenceEngine for HailoInferenceEngine {
             }),
         };
 
-        debug!("Sending request to hailo-ollama");
+        debug!("Sending request to Ollama server");
 
         let response = self
             .client
@@ -246,7 +254,7 @@ impl InferenceEngine for HailoInferenceEngine {
             }),
         };
 
-        debug!("Starting streaming request to hailo-ollama");
+        debug!("Starting streaming request to Ollama server");
 
         let response = self
             .client
@@ -320,7 +328,7 @@ mod tests {
     #[test]
     fn config_creates_correct_urls() {
         let config = InferenceConfig::default();
-        let engine = HailoInferenceEngine::new(config).unwrap();
+        let engine = OllamaInferenceEngine::new(config).unwrap();
 
         assert_eq!(engine.api_url("chat"), "http://localhost:11434/api/chat");
         assert_eq!(engine.api_url("/tags"), "http://localhost:11434/api/tags");
@@ -328,14 +336,14 @@ mod tests {
 
     #[test]
     fn default_model_is_qwen() {
-        let engine = HailoInferenceEngine::with_defaults().unwrap();
+        let engine = OllamaInferenceEngine::with_defaults().unwrap();
         assert_eq!(engine.default_model(), "qwen2.5-1.5b-instruct");
     }
 
     #[test]
     fn resolve_model_uses_request_model_when_provided() {
         let config = InferenceConfig::default();
-        let engine = HailoInferenceEngine::new(config).unwrap();
+        let engine = OllamaInferenceEngine::new(config).unwrap();
 
         let request = InferenceRequest::simple("test").with_model("custom-model");
         assert_eq!(engine.resolve_model(&request), "custom-model");
@@ -344,7 +352,7 @@ mod tests {
     #[test]
     fn resolve_model_uses_default_when_no_request_model() {
         let config = InferenceConfig::default();
-        let engine = HailoInferenceEngine::new(config).unwrap();
+        let engine = OllamaInferenceEngine::new(config).unwrap();
 
         let request = InferenceRequest::simple("test");
         assert_eq!(engine.resolve_model(&request), "qwen2.5-1.5b-instruct");
@@ -385,9 +393,9 @@ mod tests {
 
     #[test]
     fn engine_has_debug() {
-        let engine = HailoInferenceEngine::with_defaults().unwrap();
+        let engine = OllamaInferenceEngine::with_defaults().unwrap();
         let debug = format!("{engine:?}");
-        assert!(debug.contains("HailoInferenceEngine"));
+        assert!(debug.contains("OllamaInferenceEngine"));
     }
 
     #[test]

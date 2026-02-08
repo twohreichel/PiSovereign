@@ -1,4 +1,4 @@
-//! Streaming response handling for Hailo-Ollama
+//! Streaming response handling for Ollama-compatible servers
 
 use futures::stream::{self, StreamExt};
 use reqwest::Response;

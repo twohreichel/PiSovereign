@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "ai_core"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "domain",
@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "ai_speech"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -153,7 +153,7 @@ checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
 name = "application"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "chrono-tz 0.10.4",
@@ -2370,7 +2370,7 @@ dependencies = [
 
 [[package]]
 name = "infrastructure"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "ai_core",
  "ai_speech",
@@ -2422,7 +2422,7 @@ dependencies = [
 
 [[package]]
 name = "integration_caldav"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "application",
  "async-trait",
@@ -2441,7 +2441,7 @@ dependencies = [
 
 [[package]]
 name = "integration_proton"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "application",
  "async-trait",
@@ -2467,7 +2467,7 @@ dependencies = [
 
 [[package]]
 name = "integration_weather"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2485,7 +2485,7 @@ dependencies = [
 
 [[package]]
 name = "integration_websearch"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2504,7 +2504,7 @@ dependencies = [
 
 [[package]]
 name = "integration_whatsapp"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "application",
  "async-trait",
@@ -3533,7 +3533,7 @@ dependencies = [
 
 [[package]]
 name = "presentation_cli"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "ai_core",
  "anyhow",
@@ -3559,7 +3559,7 @@ dependencies = [
 
 [[package]]
 name = "presentation_http"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "ai_core",
  "anyhow",

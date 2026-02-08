@@ -11,7 +11,7 @@ use application::{
     },
 };
 use infrastructure::{
-    AppConfig, HailoInferenceAdapter, SecurityValidator,
+    AppConfig, OllamaInferenceAdapter, SecurityValidator,
     adapters::{
         CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig, ProtonEmailAdapter,
         WeatherAdapter,
@@ -37,9 +37,9 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// System prompt for the AI assistant
-const SYSTEM_PROMPT: &str = "You are PiSovereign, a helpful AI assistant running on a \
-    Raspberry Pi 5 with Hailo-10H. You are friendly, precise, and help with everyday \
-    tasks like email, calendar, and information lookup.";
+const SYSTEM_PROMPT: &str = "You are PiSovereign, a helpful AI assistant. On Raspberry Pi \
+    you run on the Hailo-10H NPU, on Mac you use Metal GPU acceleration. You are friendly, \
+    precise, and help with everyday tasks like email, calendar, and information lookup.";
 
 /// Initialize the tracing subscriber based on configuration
 ///
@@ -187,7 +187,7 @@ async fn main() -> anyhow::Result<()> {
         spawn_config_reload_handler(ReloadableConfig::new(initial_config.clone()));
 
     // Initialize inference adapter with degraded mode wrapper
-    let hailo_adapter = HailoInferenceAdapter::new(initial_config.inference.clone())
+    let ollama_adapter = OllamaInferenceAdapter::new(initial_config.inference.clone())
         .map_err(|e| anyhow::anyhow!("Failed to initialize inference: {e}"))?;
 
     // Configure degraded mode from config or use defaults
@@ -203,7 +203,7 @@ async fn main() -> anyhow::Result<()> {
                 success_threshold: dm.success_threshold,
             });
 
-    let degraded_adapter = DegradedInferenceAdapter::new(Arc::new(hailo_adapter), degraded_config);
+    let degraded_adapter = DegradedInferenceAdapter::new(Arc::new(ollama_adapter), degraded_config);
     info!("🛡️ Degraded mode adapter initialized");
 
     let inference: Arc<dyn InferencePort> = Arc::new(degraded_adapter);

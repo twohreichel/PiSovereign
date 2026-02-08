@@ -1,4 +1,4 @@
-//! Model registry adapter - Implements ModelRegistryPort using Hailo Ollama API
+//! Model registry adapter - Implements ModelRegistryPort using Ollama API
 
 use application::error::ApplicationError;
 use application::ports::{ModelCapabilities, ModelInfo, ModelRegistryPort};
@@ -12,9 +12,9 @@ use tracing::{debug, instrument};
 
 use super::{CircuitBreaker, CircuitBreakerConfig};
 
-/// Configuration for the Hailo model registry
+/// Configuration for the Ollama model registry
 #[derive(Debug, Clone)]
-pub struct HailoModelRegistryConfig {
+pub struct OllamaModelRegistryConfig {
     /// Base URL for the Ollama-compatible API
     pub base_url: String,
     /// Request timeout
@@ -23,7 +23,7 @@ pub struct HailoModelRegistryConfig {
     pub cache_ttl: Duration,
 }
 
-impl Default for HailoModelRegistryConfig {
+impl Default for OllamaModelRegistryConfig {
     fn default() -> Self {
         Self {
             base_url: "http://localhost:11434".to_string(),
@@ -39,17 +39,17 @@ struct ModelCache {
     fetched_at: Instant,
 }
 
-/// Adapter for model registry using Hailo Ollama API
-pub struct HailoModelRegistryAdapter {
+/// Adapter for model registry using Ollama API
+pub struct OllamaModelRegistryAdapter {
     client: Client,
-    config: HailoModelRegistryConfig,
+    config: OllamaModelRegistryConfig,
     cache: Arc<RwLock<Option<ModelCache>>>,
     circuit_breaker: Option<CircuitBreaker>,
 }
 
-impl std::fmt::Debug for HailoModelRegistryAdapter {
+impl std::fmt::Debug for OllamaModelRegistryAdapter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HailoModelRegistryAdapter")
+        f.debug_struct("OllamaModelRegistryAdapter")
             .field("base_url", &self.config.base_url)
             .field(
                 "circuit_breaker",
@@ -59,14 +59,14 @@ impl std::fmt::Debug for HailoModelRegistryAdapter {
     }
 }
 
-impl HailoModelRegistryAdapter {
+impl OllamaModelRegistryAdapter {
     /// Create a new adapter with default configuration
     ///
     /// # Errors
     ///
     /// Returns an error if the HTTP client fails to initialize.
     pub fn new() -> Result<Self, ApplicationError> {
-        Self::with_config(HailoModelRegistryConfig::default())
+        Self::with_config(OllamaModelRegistryConfig::default())
     }
 
     /// Create with custom configuration
@@ -74,7 +74,7 @@ impl HailoModelRegistryAdapter {
     /// # Errors
     ///
     /// Returns an error if the HTTP client fails to initialize.
-    pub fn with_config(config: HailoModelRegistryConfig) -> Result<Self, ApplicationError> {
+    pub fn with_config(config: OllamaModelRegistryConfig) -> Result<Self, ApplicationError> {
         let client = Client::builder()
             .timeout(config.timeout)
             .build()
@@ -107,7 +107,7 @@ impl HailoModelRegistryAdapter {
         if let Some(ref cb) = self.circuit_breaker {
             if cb.is_open() {
                 return Err(ApplicationError::ExternalService(
-                    "Hailo model registry circuit breaker is open".into(),
+                    "Ollama model registry circuit breaker is open".into(),
                 ));
             }
         }
@@ -246,7 +246,7 @@ impl HailoModelRegistryAdapter {
 }
 
 #[async_trait]
-impl ModelRegistryPort for HailoModelRegistryAdapter {
+impl ModelRegistryPort for OllamaModelRegistryAdapter {
     #[instrument(skip(self))]
     async fn list_models(&self) -> Result<Vec<ModelInfo>, ApplicationError> {
         self.check_circuit()?;
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn config_default() {
-        let config = HailoModelRegistryConfig::default();
+        let config = OllamaModelRegistryConfig::default();
         assert_eq!(config.base_url, "http://localhost:11434");
         assert_eq!(config.timeout, Duration::from_secs(10));
         assert_eq!(config.cache_ttl, Duration::from_secs(300));
@@ -317,13 +317,13 @@ mod tests {
 
     #[test]
     fn new_creates_adapter() {
-        let adapter = HailoModelRegistryAdapter::new();
+        let adapter = OllamaModelRegistryAdapter::new();
         assert!(adapter.is_ok());
     }
 
     #[test]
     fn with_circuit_breaker() {
-        let adapter = HailoModelRegistryAdapter::new()
+        let adapter = OllamaModelRegistryAdapter::new()
             .unwrap()
             .with_circuit_breaker();
         assert!(adapter.circuit_breaker.is_some());
@@ -331,47 +331,47 @@ mod tests {
 
     #[test]
     fn debug_impl() {
-        let adapter = HailoModelRegistryAdapter::new().unwrap();
+        let adapter = OllamaModelRegistryAdapter::new().unwrap();
         let debug_str = format!("{adapter:?}");
-        assert!(debug_str.contains("HailoModelRegistryAdapter"));
+        assert!(debug_str.contains("OllamaModelRegistryAdapter"));
         assert!(debug_str.contains("localhost:11434"));
     }
 
     #[test]
     fn parse_model_name_with_variant() {
-        let (name, variant) = HailoModelRegistryAdapter::parse_model_name("llama3:8b");
+        let (name, variant) = OllamaModelRegistryAdapter::parse_model_name("llama3:8b");
         assert_eq!(name, "Llama3");
         assert_eq!(variant, Some("8B".to_string()));
     }
 
     #[test]
     fn parse_model_name_without_variant() {
-        let (name, variant) = HailoModelRegistryAdapter::parse_model_name("mistral");
+        let (name, variant) = OllamaModelRegistryAdapter::parse_model_name("mistral");
         assert_eq!(name, "Mistral");
         assert!(variant.is_none());
     }
 
     #[test]
     fn estimate_context_llama3() {
-        let ctx = HailoModelRegistryAdapter::estimate_context_length("llama3:8b");
+        let ctx = OllamaModelRegistryAdapter::estimate_context_length("llama3:8b");
         assert_eq!(ctx, 8_192);
     }
 
     #[test]
     fn estimate_context_mistral() {
-        let ctx = HailoModelRegistryAdapter::estimate_context_length("mistral:7b");
+        let ctx = OllamaModelRegistryAdapter::estimate_context_length("mistral:7b");
         assert_eq!(ctx, 32_768);
     }
 
     #[test]
     fn estimate_context_explicit() {
-        let ctx = HailoModelRegistryAdapter::estimate_context_length("model-128k");
+        let ctx = OllamaModelRegistryAdapter::estimate_context_length("model-128k");
         assert_eq!(ctx, 131_072);
     }
 
     #[test]
     fn estimate_context_default() {
-        let ctx = HailoModelRegistryAdapter::estimate_context_length("unknown-model");
+        let ctx = OllamaModelRegistryAdapter::estimate_context_length("unknown-model");
         assert_eq!(ctx, 4_096);
     }
 
@@ -383,7 +383,7 @@ mod tests {
             owned_by: "library".to_string(),
         };
 
-        let model = HailoModelRegistryAdapter::convert_model(&api_model);
+        let model = OllamaModelRegistryAdapter::convert_model(&api_model);
         assert_eq!(model.id, "llama3:8b");
         assert_eq!(model.name, "Llama3");
         assert_eq!(model.variant, Some("8B".to_string()));
@@ -401,7 +401,7 @@ mod tests {
             owned_by: "library".to_string(),
         };
 
-        let model = HailoModelRegistryAdapter::convert_model(&api_model);
+        let model = OllamaModelRegistryAdapter::convert_model(&api_model);
         assert!(model.capabilities.embeddings);
     }
 
@@ -413,13 +413,13 @@ mod tests {
             owned_by: "library".to_string(),
         };
 
-        let model = HailoModelRegistryAdapter::convert_model(&api_model);
+        let model = OllamaModelRegistryAdapter::convert_model(&api_model);
         assert!(model.capabilities.code);
     }
 
     #[test]
     fn trait_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<HailoModelRegistryAdapter>();
+        assert_send_sync::<OllamaModelRegistryAdapter>();
     }
 }
