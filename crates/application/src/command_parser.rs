@@ -444,7 +444,7 @@ impl CommandParser {
     }
 
     /// Convert parsed intent to AgentCommand
-    #[allow(clippy::unused_self)]
+    #[allow(clippy::unused_self, clippy::too_many_lines)]
     fn intent_to_command(
         &self,
         parsed: ParsedIntent,

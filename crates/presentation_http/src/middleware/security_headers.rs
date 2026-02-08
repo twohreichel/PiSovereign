@@ -41,7 +41,7 @@ pub struct SecurityHeadersLayer;
 impl SecurityHeadersLayer {
     /// Create a new security headers layer
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }

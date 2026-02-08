@@ -349,7 +349,7 @@ impl CircuitBreaker {
     fn save_state(&self) {
         if let Some(ref path) = self.persistence_path {
             let state = self.state.read();
-            let persisted = PersistedCircuitState::from_internal(&self.name, &*state);
+            let persisted = PersistedCircuitState::from_internal(&self.name, &state);
 
             match serde_json::to_string_pretty(&persisted) {
                 Ok(json) => {

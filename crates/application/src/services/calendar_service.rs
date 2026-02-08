@@ -182,19 +182,22 @@ impl CalendarService {
         let title = new_title.unwrap_or(&existing.title);
 
         // Handle date/time - if new values provided, use them; otherwise parse from existing
+        // Default fallback time (9:00 AM)
+        const DEFAULT_HOUR: u32 = 9;
         let (start, end) = if new_date.is_some() || new_time.is_some() {
             // Need to reconstruct start/end
             let date = new_date.unwrap_or_else(|| {
                 // Parse date from existing start (RFC3339 format)
-                chrono::DateTime::parse_from_rfc3339(&existing.start)
-                    .map(|dt| dt.naive_local().date())
-                    .unwrap_or_else(|_| chrono::Local::now().date_naive())
+                chrono::DateTime::parse_from_rfc3339(&existing.start).map_or_else(
+                    |_| chrono::Local::now().date_naive(),
+                    |dt| dt.naive_local().date(),
+                )
             });
 
+            let default_time = NaiveTime::from_hms_opt(DEFAULT_HOUR, 0, 0).unwrap_or_default();
             let time = new_time.unwrap_or_else(|| {
                 chrono::DateTime::parse_from_rfc3339(&existing.start)
-                    .map(|dt| dt.naive_local().time())
-                    .unwrap_or_else(|_| NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"))
+                    .map_or_else(|_| default_time, |dt| dt.naive_local().time())
             });
 
             let duration = new_duration_minutes.unwrap_or_else(|| {

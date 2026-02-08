@@ -146,14 +146,14 @@ impl AudioData {
 
     /// Create audio data with duration
     #[must_use]
-    pub fn with_duration(mut self, duration_ms: u64) -> Self {
+    pub const fn with_duration(mut self, duration_ms: u64) -> Self {
         self.duration_ms = Some(duration_ms);
         self
     }
 
     /// Create audio data with sample rate
     #[must_use]
-    pub fn with_sample_rate(mut self, sample_rate: u32) -> Self {
+    pub const fn with_sample_rate(mut self, sample_rate: u32) -> Self {
         self.sample_rate = Some(sample_rate);
         self
     }

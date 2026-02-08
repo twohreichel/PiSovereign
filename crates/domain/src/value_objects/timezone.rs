@@ -96,8 +96,9 @@ impl Timezone {
     ///
     /// This always succeeds because we validated on construction.
     #[must_use]
+    #[allow(clippy::expect_used)]
     pub fn as_chrono_tz(&self) -> chrono_tz::Tz {
-        // Safe because we validated on construction
+        // Safe: we validated on construction, so this cannot fail
         chrono_tz::Tz::from_str(&self.0).expect("timezone was validated on construction")
     }
 

@@ -102,12 +102,11 @@ impl ApiKeyStore {
             match self.hasher.verify(api_key, &entry.hash) {
                 Ok(true) => {
                     debug!("API key verified successfully");
-                    return Some(entry.user_id.clone());
+                    return Some(entry.user_id);
                 },
-                Ok(false) => continue,
+                Ok(false) => {},
                 Err(e) => {
                     warn!(error = %e, "Error verifying API key hash");
-                    continue;
                 },
             }
         }

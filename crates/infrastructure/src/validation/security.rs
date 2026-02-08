@@ -247,7 +247,7 @@ impl SecurityValidator {
             warnings.push(SecurityWarning::new(
                 severity,
                 "SEC003",
-                &format!("{plaintext_count} API key(s) are not properly hashed with Argon2"),
+                format!("{plaintext_count} API key(s) are not properly hashed with Argon2"),
                 "Run `pisovereign-cli migrate-keys` to convert plaintext keys to secure hashes",
             ));
         }

@@ -24,15 +24,15 @@ use thiserror::Error;
 pub enum MigrationError {
     /// Failed to read input file
     #[error("Failed to read input file: {0}")]
-    ReadError(#[from] std::io::Error),
+    Read(#[from] std::io::Error),
 
     /// Failed to parse TOML
     #[error("Failed to parse TOML: {0}")]
-    ParseError(#[from] toml::de::Error),
+    Parse(#[from] toml::de::Error),
 
     /// Failed to serialize TOML
     #[error("Failed to serialize TOML: {0}")]
-    SerializeError(#[from] toml::ser::Error),
+    Serialize(#[from] toml::ser::Error),
 }
 
 /// Result of the migration process
@@ -324,10 +324,10 @@ base_url = "http://localhost:11434"
 
     #[test]
     fn handle_empty_security_section() {
-        let config = r#"
+        let config = r"
 [security]
 rate_limit_enabled = true
-"#;
+";
         let file = create_temp_config(config);
         let result = migrate_config(file.path(), true).unwrap();
 

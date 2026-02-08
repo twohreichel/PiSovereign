@@ -26,7 +26,7 @@ static EXPOSE_INTERNAL_ERRORS: AtomicBool = AtomicBool::new(true);
 /// # Arguments
 ///
 /// * `expose` - If `true`, internal error details will be included in responses.
-///              If `false`, only generic error messages will be returned.
+///   If `false`, only generic error messages will be returned.
 pub fn set_expose_internal_errors(expose: bool) {
     EXPOSE_INTERNAL_ERRORS.store(expose, Ordering::SeqCst);
 }

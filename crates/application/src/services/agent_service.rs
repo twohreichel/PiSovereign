@@ -959,7 +959,7 @@ impl AgentService {
         let query = crate::ports::TaskQuery {
             status: status.copied(),
             priority: priority.copied(),
-            include_completed: status.map_or(false, |s| s.is_done()),
+            include_completed: status.is_some_and(domain::TaskStatus::is_done),
             ..Default::default()
         };
 
@@ -993,7 +993,7 @@ impl AgentService {
                     domain::Priority::Low => "🟢",
                 };
 
-                let is_overdue = task.due_date.map_or(false, |d| d < today);
+                let is_overdue = task.due_date.is_some_and(|d| d < today);
                 let overdue_marker = if is_overdue { " ⚠️ OVERDUE" } else { "" };
                 let due_str = task
                     .due_date
