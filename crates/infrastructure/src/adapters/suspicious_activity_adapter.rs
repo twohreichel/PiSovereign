@@ -46,7 +46,11 @@ impl InMemorySuspiciousActivityTracker {
     /// Check if the IP should be blocked based on current violations
     #[allow(clippy::cast_possible_truncation)] // Violation count won't exceed u32::MAX
     #[allow(clippy::cast_possible_wrap)] // Duration seconds won't overflow
-    fn should_block(&self, violations: &[ViolationRecord], new_violation: &ViolationRecord) -> bool {
+    fn should_block(
+        &self,
+        violations: &[ViolationRecord],
+        new_violation: &ViolationRecord,
+    ) -> bool {
         // Auto-block on critical threats
         if self.config.auto_block_on_critical && new_violation.threat_level == ThreatLevel::Critical
         {
@@ -54,8 +58,8 @@ impl InMemorySuspiciousActivityTracker {
         }
 
         // Count violations in the current window
-        let window_start = Utc::now()
-            - chrono::Duration::seconds(self.config.violation_window_secs as i64);
+        let window_start =
+            Utc::now() - chrono::Duration::seconds(self.config.violation_window_secs as i64);
         let violations_in_window = violations
             .iter()
             .filter(|v| v.timestamp >= window_start)
@@ -131,8 +135,11 @@ impl SuspiciousActivityPort for InMemorySuspiciousActivityTracker {
             Some(entry) => {
                 let window_start =
                     now - chrono::Duration::seconds(self.config.violation_window_secs as i64);
-                let violations_in_window =
-                    entry.violations.iter().filter(|v| v.timestamp >= window_start).count() as u32;
+                let violations_in_window = entry
+                    .violations
+                    .iter()
+                    .filter(|v| v.timestamp >= window_start)
+                    .count() as u32;
 
                 let is_blocked = entry.blocked_until.is_some_and(|exp| exp > now);
                 let block_expires_at = entry.blocked_until.filter(|exp| *exp > now);
@@ -146,7 +153,7 @@ impl SuspiciousActivityPort for InMemorySuspiciousActivityTracker {
                     first_violation_at: entry.violations.first().map(|v| v.timestamp),
                     last_violation_at: entry.violations.last().map(|v| v.timestamp),
                 }
-            }
+            },
             None => ViolationSummary::default(),
         }
     }

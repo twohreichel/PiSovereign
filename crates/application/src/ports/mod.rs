@@ -38,16 +38,16 @@ pub use draft_store::DraftStorePort;
 #[cfg(test)]
 pub use draft_store::MockDraftStorePort;
 pub use email_port::{EmailDraft, EmailError, EmailPort, EmailSummary};
-pub use embedding_port::{EmbeddingModelInfo, EmbeddingPort};
 #[cfg(test)]
 pub use embedding_port::MockEmbeddingPort;
-pub use encryption_port::{EncryptionPort, NoOpEncryption};
+pub use embedding_port::{EmbeddingModelInfo, EmbeddingPort};
 #[cfg(test)]
 pub use encryption_port::MockEncryptionPort;
+pub use encryption_port::{EncryptionPort, NoOpEncryption};
 pub use inference_port::{InferencePort, InferenceResult, InferenceStream, StreamingChunk};
-pub use memory_store::{MemoryStats, MemoryStore, SimilarMemory};
 #[cfg(test)]
 pub use memory_store::MockMemoryStore;
+pub use memory_store::{MemoryStats, MemoryStore, SimilarMemory};
 pub use message_gateway_port::{IncomingMessage, MessageGatewayPort, OutgoingMessage};
 #[cfg(test)]
 pub use messenger_port::MockMessengerPort;

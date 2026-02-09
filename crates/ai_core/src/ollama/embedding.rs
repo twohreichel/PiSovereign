@@ -155,7 +155,7 @@ impl OllamaEmbeddingEngine {
 
         let response = self
             .client
-            .post(&self.embed_url())
+            .post(self.embed_url())
             .json(&request)
             .send()
             .await
@@ -180,14 +180,14 @@ impl OllamaEmbeddingEngine {
 
         // Extract embedding from the response
         let embedding = match result.embeddings {
-            Some(embeddings) if !embeddings.is_empty() => embeddings.into_iter().next().unwrap(),
+            Some(mut embeddings) if !embeddings.is_empty() => embeddings.swap_remove(0),
             _ => match result.embedding {
                 Some(embedding) => embedding,
                 None => {
                     return Err(InferenceError::InvalidResponse(
                         "No embedding in response".to_string(),
                     ));
-                }
+                },
             },
         };
 
@@ -215,7 +215,7 @@ impl OllamaEmbeddingEngine {
 
         let response = self
             .client
-            .post(&self.embed_url())
+            .post(self.embed_url())
             .json(&request)
             .send()
             .await

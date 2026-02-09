@@ -290,7 +290,7 @@ where
 
         // Extract client IP early so it's available even if rate limiting is disabled
         let client_ip = extract_client_ip(&req, &trusted_proxies);
-        
+
         // Insert client IP into request extensions for downstream handlers
         req.extensions_mut().insert(ClientIp(client_ip));
 

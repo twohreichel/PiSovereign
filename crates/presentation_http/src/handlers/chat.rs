@@ -104,7 +104,9 @@ async fn check_prompt_security(
         let analysis = sanitizer.analyze(message);
 
         // Record analysis timing metrics
-        state.metrics.record_prompt_analysis(analysis.analysis_duration_us);
+        state
+            .metrics
+            .record_prompt_analysis(analysis.analysis_duration_us);
 
         // Record metrics for all detected threats
         for threat in &analysis.threats {
@@ -131,12 +133,16 @@ async fn check_prompt_security(
         if !analysis.threats.is_empty() {
             // Record violation for tracking
             if let (Some(tracker), Some(ip)) = (&state.suspicious_activity_tracker, client_ip) {
-                let highest_level = analysis
-                    .highest_threat_level()
-                    .unwrap_or(ThreatLevel::Low);
+                let highest_level = analysis.highest_threat_level().unwrap_or(ThreatLevel::Low);
 
                 let violation = ViolationRecord::new(
-                    format!("{:?}", analysis.threat_categories().first().unwrap_or(&domain::entities::ThreatCategory::PromptInjection)),
+                    format!(
+                        "{:?}",
+                        analysis
+                            .threat_categories()
+                            .first()
+                            .unwrap_or(&domain::entities::ThreatCategory::PromptInjection)
+                    ),
                     highest_level,
                 );
                 tracker.record_violation(ip, violation).await;

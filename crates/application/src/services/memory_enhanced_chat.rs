@@ -247,47 +247,42 @@ where
 
         // Create a memory from the Q&A pair
         let content = format!("Q: {question}\nA: {answer}");
-        let summary = self.create_summary(question, answer);
+        let summary = Self::create_summary(question, answer);
 
-        let memory = Memory::new(
-            user_id.clone(),
-            content,
-            summary,
-            MemoryType::Context,
-        )
-        .with_importance(self.config.default_importance);
+        let memory = Memory::new(*user_id, content, summary, MemoryType::Context)
+            .with_importance(self.config.default_importance);
 
         match self.memory_service.store(memory).await {
             Ok(mem) => {
                 debug!(memory_id = %mem.id, "Learned from interaction");
-            }
+            },
             Err(e) => {
                 warn!(error = %e, "Failed to store interaction memory");
                 // Don't fail the chat just because learning failed
-            }
+            },
         }
 
         Ok(())
     }
 
     /// Create a summary for the Q&A interaction
-    fn create_summary(&self, question: &str, answer: &str) -> String {
+    fn create_summary(question: &str, answer: &str) -> String {
         // Use first part of question + answer snippet as summary
-        let max_q_len = 100;
-        let max_a_len = 50;
-        
-        let q_part = if question.len() <= max_q_len {
+        let max_question_len = 100;
+        let max_answer_len = 50;
+
+        let q_part = if question.len() <= max_question_len {
             question.to_string()
         } else {
-            format!("{}...", &question[..max_q_len - 3])
+            format!("{}...", &question[..max_question_len - 3])
         };
-        
-        let a_part = if answer.len() <= max_a_len {
+
+        let a_part = if answer.len() <= max_answer_len {
             answer.to_string()
         } else {
-            format!("{}...", &answer[..max_a_len - 3])
+            format!("{}...", &answer[..max_answer_len - 3])
         };
-        
+
         format!("Q: {q_part} → {a_part}")
     }
 
@@ -299,7 +294,7 @@ where
         importance: f32,
     ) -> Result<Memory, ApplicationError> {
         self.memory_service
-            .store_fact(user_id.clone(), fact, importance)
+            .store_fact(*user_id, fact, importance)
             .await
     }
 
@@ -311,7 +306,7 @@ where
         importance: f32,
     ) -> Result<Memory, ApplicationError> {
         self.memory_service
-            .store_preference(user_id.clone(), preference, importance)
+            .store_preference(*user_id, preference, importance)
             .await
     }
 
@@ -323,7 +318,7 @@ where
         importance: f32,
     ) -> Result<Memory, ApplicationError> {
         self.memory_service
-            .store_correction(user_id.clone(), correction, importance)
+            .store_correction(*user_id, correction, importance)
             .await
     }
 

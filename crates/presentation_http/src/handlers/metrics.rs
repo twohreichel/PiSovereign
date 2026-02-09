@@ -414,23 +414,26 @@ impl MetricsCollector {
     pub fn record_security_threat(&self, category: &str) {
         match category {
             "prompt_injection" => {
-                self.prompt_injection_attempts.fetch_add(1, Ordering::Relaxed);
-            }
+                self.prompt_injection_attempts
+                    .fetch_add(1, Ordering::Relaxed);
+            },
             "jailbreak_attempt" => {
                 self.jailbreak_attempts.fetch_add(1, Ordering::Relaxed);
-            }
+            },
             "system_prompt_leak" => {
-                self.system_prompt_leak_attempts.fetch_add(1, Ordering::Relaxed);
-            }
+                self.system_prompt_leak_attempts
+                    .fetch_add(1, Ordering::Relaxed);
+            },
             _ => {
                 self.other_security_threats.fetch_add(1, Ordering::Relaxed);
-            }
+            },
         }
     }
 
     /// Record a blocked request due to security
     pub fn record_security_block(&self) {
-        self.security_blocked_requests.fetch_add(1, Ordering::Relaxed);
+        self.security_blocked_requests
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record an IP being blocked

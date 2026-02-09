@@ -470,7 +470,9 @@ impl PromptSecurityConfig {
 
     /// Convert to the suspicious activity config
     #[must_use]
-    pub const fn to_suspicious_activity_config(&self) -> application::ports::SuspiciousActivityConfig {
+    pub const fn to_suspicious_activity_config(
+        &self,
+    ) -> application::ports::SuspiciousActivityConfig {
         application::ports::SuspiciousActivityConfig {
             max_violations_before_block: self.max_violations_before_block,
             violation_window_secs: self.violation_window_secs,
@@ -1816,6 +1818,7 @@ impl HealthAppConfig {
 ///
 /// Enables storage of AI interactions, facts, and context for RAG-based
 /// retrieval and self-improvement.
+#[allow(clippy::struct_excessive_bools)] // Configuration needs multiple boolean flags
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryAppConfig {
     /// Enable memory storage (default: true)
@@ -1910,7 +1913,7 @@ impl Default for EmbeddingAppConfig {
 impl MemoryAppConfig {
     /// Convert to MemoryServiceConfig
     #[must_use]
-    pub fn to_memory_service_config(&self) -> application::MemoryServiceConfig {
+    pub const fn to_memory_service_config(&self) -> application::MemoryServiceConfig {
         application::MemoryServiceConfig {
             rag_limit: self.rag_limit,
             rag_threshold: self.rag_threshold,
@@ -1923,7 +1926,10 @@ impl MemoryAppConfig {
 
     /// Convert to MemoryEnhancedChatConfig
     #[must_use]
-    pub fn to_enhanced_chat_config(&self, system_prompt: Option<String>) -> application::MemoryEnhancedChatConfig {
+    pub const fn to_enhanced_chat_config(
+        &self,
+        system_prompt: Option<String>,
+    ) -> application::MemoryEnhancedChatConfig {
         application::MemoryEnhancedChatConfig {
             enable_rag: self.enable_rag,
             enable_learning: self.enable_learning,
@@ -1946,23 +1952,23 @@ impl MemoryAppConfig {
 }
 
 // Default value functions for memory config
-fn default_rag_limit() -> usize {
+const fn default_rag_limit() -> usize {
     5
 }
 
-fn default_rag_threshold() -> f32 {
+const fn default_rag_threshold() -> f32 {
     0.5
 }
 
-fn default_merge_threshold() -> f32 {
+const fn default_merge_threshold() -> f32 {
     0.85
 }
 
-fn default_min_importance() -> f32 {
+const fn default_min_importance() -> f32 {
     0.1
 }
 
-fn default_decay_factor() -> f32 {
+const fn default_decay_factor() -> f32 {
     0.95
 }
 
@@ -1974,10 +1980,10 @@ fn default_embedding_model() -> String {
     "nomic-embed-text".to_string()
 }
 
-fn default_embedding_dimension() -> usize {
+const fn default_embedding_dimension() -> usize {
     384
 }
 
-fn default_embedding_timeout() -> u64 {
+const fn default_embedding_timeout() -> u64 {
     30000
 }

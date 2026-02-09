@@ -35,9 +35,8 @@ pub trait EncryptionPort: Send + Sync {
     ///
     /// Convenience method for decrypting string content.
     async fn decrypt_string(&self, ciphertext: &str) -> Result<String, ApplicationError> {
-        let decoded = base64_decode(ciphertext).map_err(|e| {
-            ApplicationError::Internal(format!("Failed to decode base64: {e}"))
-        })?;
+        let decoded = base64_decode(ciphertext)
+            .map_err(|e| ApplicationError::Internal(format!("Failed to decode base64: {e}")))?;
         let decrypted = self.decrypt(&decoded).await?;
         String::from_utf8(decrypted).map_err(|e| {
             ApplicationError::Internal(format!("Decrypted data is not valid UTF-8: {e}"))
@@ -61,6 +60,7 @@ fn base64_encode(data: &[u8]) -> String {
 }
 
 /// Base64 decode string to bytes
+#[allow(clippy::cast_possible_truncation)] // Intentional truncation in base64 decoding
 fn base64_decode(data: &str) -> Result<Vec<u8>, Base64DecodeError> {
     let mut output = Vec::with_capacity(data.len() * 3 / 4);
     let mut buffer = 0u32;
@@ -115,7 +115,7 @@ struct Base64Encoder<'a> {
 }
 
 impl<'a> Base64Encoder<'a> {
-    fn new(output: &'a mut String) -> Self {
+    const fn new(output: &'a mut String) -> Self {
         Self {
             output,
             buffer: 0,
@@ -123,6 +123,7 @@ impl<'a> Base64Encoder<'a> {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)] // Intentional truncation in base64 encoding
     fn finish(mut self) {
         if self.bits > 0 {
             self.buffer <<= 6 - self.bits;
@@ -143,6 +144,7 @@ impl<'a> Base64Encoder<'a> {
 }
 
 impl std::io::Write for Base64Encoder<'_> {
+    #[allow(clippy::cast_possible_truncation)] // Intentional truncation in base64 encoding
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         for &byte in buf {
             self.buffer = (self.buffer << 8) | u32::from(byte);

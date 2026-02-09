@@ -113,7 +113,12 @@ where
 {
     /// Create a new memory service
     #[must_use]
-    pub fn new(store: Arc<S>, embedding: Arc<E>, encryption: Arc<C>, config: MemoryServiceConfig) -> Self {
+    pub const fn new(
+        store: Arc<S>,
+        embedding: Arc<E>,
+        encryption: Arc<C>,
+        config: MemoryServiceConfig,
+    ) -> Self {
         Self {
             store,
             embedding,
@@ -227,10 +232,7 @@ where
             results.push(sim);
         }
 
-        debug!(
-            count = results.len(),
-            "Retrieved context for RAG"
-        );
+        debug!(count = results.len(), "Retrieved context for RAG");
 
         Ok(results)
     }
@@ -248,7 +250,8 @@ where
             content.to_string(),
             summarize(content),
             MemoryType::Fact,
-        ).with_importance(importance);
+        )
+        .with_importance(importance);
         self.store(memory).await
     }
 
@@ -265,7 +268,8 @@ where
             content.to_string(),
             summarize(content),
             MemoryType::Preference,
-        ).with_importance(importance);
+        )
+        .with_importance(importance);
         self.store(memory).await
     }
 
@@ -282,7 +286,8 @@ where
             content.to_string(),
             summarize(content),
             MemoryType::Correction,
-        ).with_importance(importance);
+        )
+        .with_importance(importance);
         self.store(memory).await
     }
 
@@ -299,7 +304,8 @@ where
             content.to_string(),
             summarize(content),
             MemoryType::ToolResult,
-        ).with_importance(importance);
+        )
+        .with_importance(importance);
         self.store(memory).await
     }
 
@@ -541,7 +547,8 @@ mod tests {
             "Paris is the capital of France".to_string(),
             "Paris is the capital of France".to_string(),
             MemoryType::Fact,
-        ).with_importance(0.8);
+        )
+        .with_importance(0.8);
         let similar = vec![SimilarMemory {
             memory,
             similarity: 0.95,

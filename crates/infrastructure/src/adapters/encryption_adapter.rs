@@ -51,9 +51,8 @@ impl ChaChaEncryptionAdapter {
             )));
         }
 
-        let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| {
-            ApplicationError::Configuration(format!("Invalid encryption key: {e}"))
-        })?;
+        let cipher = XChaCha20Poly1305::new_from_slice(key)
+            .map_err(|e| ApplicationError::Configuration(format!("Invalid encryption key: {e}")))?;
 
         debug!("Initialized ChaCha20Poly1305 encryption adapter");
 
@@ -109,10 +108,7 @@ impl EncryptionPort for ChaChaEncryptionAdapter {
         result.extend_from_slice(&nonce);
         result.extend_from_slice(&ciphertext);
 
-        debug!(
-            ciphertext_len = result.len(),
-            "Successfully encrypted data"
-        );
+        debug!(ciphertext_len = result.len(), "Successfully encrypted data");
 
         Ok(result)
     }

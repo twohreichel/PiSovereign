@@ -13,7 +13,6 @@ mod voice_message;
 mod web_search;
 
 pub use approval_request::{ApprovalError, ApprovalRequest, ApprovalStatus};
-pub use memory::{Memory, MemoryQuery, MemoryType};
 pub use audit_entry::{AuditBuilder, AuditEntry, AuditEventType};
 pub use briefing::{
     CalendarBrief, CalendarItem, EmailBrief, MorningBriefing, TaskBrief, TaskItem, WeatherSummary,
@@ -21,9 +20,8 @@ pub use briefing::{
 pub use chat_message::{ChatMessage, MessageMetadata, MessageRole};
 pub use conversation::Conversation;
 pub use email_draft::{DEFAULT_DRAFT_TTL_DAYS, PersistedEmailDraft};
-pub use prompt_security::{
-    PromptAnalysisResult, SecurityThreat, ThreatCategory, ThreatLevel,
-};
+pub use memory::{Memory, MemoryQuery, MemoryType};
+pub use prompt_security::{PromptAnalysisResult, SecurityThreat, ThreatCategory, ThreatLevel};
 pub use user_profile::UserProfile;
 pub use voice_message::{AudioFormat, VoiceMessage, VoiceMessageSource, VoiceMessageStatus};
 pub use web_search::{SearchResult, WebSearchResponse};

@@ -269,6 +269,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)] // Exact comparison intended for predefined constants
     fn threat_level_scores() {
         assert_eq!(ThreatLevel::Low.score(), 0.25);
         assert_eq!(ThreatLevel::Medium.score(), 0.5);
@@ -316,8 +317,14 @@ mod tests {
 
     #[test]
     fn threat_category_display() {
-        assert_eq!(ThreatCategory::PromptInjection.to_string(), "prompt_injection");
-        assert_eq!(ThreatCategory::SystemPromptLeak.to_string(), "system_prompt_leak");
+        assert_eq!(
+            ThreatCategory::PromptInjection.to_string(),
+            "prompt_injection"
+        );
+        assert_eq!(
+            ThreatCategory::SystemPromptLeak.to_string(),
+            "system_prompt_leak"
+        );
     }
 
     #[test]
@@ -382,8 +389,18 @@ mod tests {
     #[test]
     fn analysis_result_with_threats() {
         let threats = vec![
-            SecurityThreat::new(ThreatCategory::PromptInjection, ThreatLevel::High, "ignore", 0.9),
-            SecurityThreat::new(ThreatCategory::RoleManipulation, ThreatLevel::Medium, "act as", 0.7),
+            SecurityThreat::new(
+                ThreatCategory::PromptInjection,
+                ThreatLevel::High,
+                "ignore",
+                0.9,
+            ),
+            SecurityThreat::new(
+                ThreatCategory::RoleManipulation,
+                ThreatLevel::Medium,
+                "act as",
+                0.7,
+            ),
         ];
 
         let result = PromptAnalysisResult::with_threats(threats, 200);
@@ -397,8 +414,18 @@ mod tests {
     #[test]
     fn analysis_result_highest_threat_level() {
         let threats = vec![
-            SecurityThreat::new(ThreatCategory::PromptInjection, ThreatLevel::Medium, "a", 0.8),
-            SecurityThreat::new(ThreatCategory::DataExfiltration, ThreatLevel::Critical, "b", 0.9),
+            SecurityThreat::new(
+                ThreatCategory::PromptInjection,
+                ThreatLevel::Medium,
+                "a",
+                0.8,
+            ),
+            SecurityThreat::new(
+                ThreatCategory::DataExfiltration,
+                ThreatLevel::Critical,
+                "b",
+                0.9,
+            ),
             SecurityThreat::new(ThreatCategory::RoleManipulation, ThreatLevel::Low, "c", 0.5),
         ];
 
@@ -410,7 +437,12 @@ mod tests {
     fn analysis_result_threat_categories() {
         let threats = vec![
             SecurityThreat::new(ThreatCategory::PromptInjection, ThreatLevel::High, "a", 0.8),
-            SecurityThreat::new(ThreatCategory::PromptInjection, ThreatLevel::Medium, "b", 0.7),
+            SecurityThreat::new(
+                ThreatCategory::PromptInjection,
+                ThreatLevel::Medium,
+                "b",
+                0.7,
+            ),
             SecurityThreat::new(ThreatCategory::RoleManipulation, ThreatLevel::Low, "c", 0.5),
         ];
 
@@ -447,7 +479,12 @@ mod tests {
         let multiple = PromptAnalysisResult::with_threats(
             vec![
                 SecurityThreat::new(ThreatCategory::PromptInjection, ThreatLevel::High, "a", 1.0),
-                SecurityThreat::new(ThreatCategory::RoleManipulation, ThreatLevel::Medium, "b", 1.0),
+                SecurityThreat::new(
+                    ThreatCategory::RoleManipulation,
+                    ThreatLevel::Medium,
+                    "b",
+                    1.0,
+                ),
             ],
             100,
         );

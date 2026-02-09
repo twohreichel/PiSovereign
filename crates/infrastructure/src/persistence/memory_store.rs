@@ -306,7 +306,10 @@ impl MemoryStore for SqliteMemoryStore {
                         .enumerate()
                         .map(|(i, _)| format!("?{}", params.len() + i + 1))
                         .collect();
-                    sql.push_str(&format!(" AND m.memory_type IN ({})", placeholders.join(", ")));
+                    sql.push_str(&format!(
+                        " AND m.memory_type IN ({})",
+                        placeholders.join(", ")
+                    ));
                     for t in types {
                         params.push(Box::new(memory_type_to_str(*t).to_string()));
                     }
@@ -328,7 +331,8 @@ impl MemoryStore for SqliteMemoryStore {
                 .prepare(&sql)
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
-            let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+            let param_refs: Vec<&dyn rusqlite::ToSql> =
+                params.iter().map(std::convert::AsRef::as_ref).collect();
 
             let memories: Vec<Memory> = stmt
                 .query_map(param_refs.as_slice(), row_to_memory)
@@ -369,9 +373,7 @@ impl MemoryStore for SqliteMemoryStore {
 
             // Get all memories
             let mut stmt = conn
-                .prepare(
-                    "SELECT id, importance, accessed_at, access_count FROM memories",
-                )
+                .prepare("SELECT id, importance, accessed_at, access_count FROM memories")
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
             let rows: Vec<(String, f32, String, u32)> = stmt
@@ -391,18 +393,18 @@ impl MemoryStore for SqliteMemoryStore {
 
             for (id, importance, accessed_at_str, access_count) in rows {
                 let accessed_at = DateTime::parse_from_rfc3339(&accessed_at_str)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now());
+                    .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
-                let days_since_access = Utc::now()
-                    .signed_duration_since(accessed_at)
-                    .num_days() as f32;
+                #[allow(clippy::cast_precision_loss)] // Days count won't exceed f32 precision
+                let days_since_access =
+                    Utc::now().signed_duration_since(accessed_at).num_days() as f32;
 
                 // Exponential decay with access boost
                 let decay_factor = (-decay_rate * days_since_access).exp();
                 let mut new_importance = importance * decay_factor;
 
                 // Add access boost
+                #[allow(clippy::cast_precision_loss)] // Access count won't exceed f32 precision
                 let access_boost = (access_count as f32 * 0.01).min(0.1);
                 new_importance = (new_importance + access_boost).min(1.0);
 
@@ -421,10 +423,7 @@ impl MemoryStore for SqliteMemoryStore {
                 }
             }
 
-            debug!(
-                decayed = below_threshold.len(),
-                "Applied decay to memories"
-            );
+            debug!(decayed = below_threshold.len(), "Applied decay to memories");
             Ok(below_threshold)
         })
         .await
@@ -580,20 +579,18 @@ fn row_to_memory(row: &Row<'_>) -> Result<Memory, rusqlite::Error> {
 
     let id = MemoryId::parse(&id_str).unwrap_or_else(|_| MemoryId::new());
     let user_id = UserId::parse(&user_id_str).unwrap_or_else(|_| UserId::new());
-    let conversation_id = conversation_id_str
-        .and_then(|s| domain::value_objects::ConversationId::parse(&s).ok());
+    let conversation_id =
+        conversation_id_str.and_then(|s| domain::value_objects::ConversationId::parse(&s).ok());
 
     let memory_type = str_to_memory_type(&memory_type_str);
 
     let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
     let created_at = DateTime::parse_from_rfc3339(&created_at_str)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now());
+        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
     let accessed_at = DateTime::parse_from_rfc3339(&accessed_at_str)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now());
+        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
     let embedding = embedding_bytes.map(|bytes| bytes_to_embedding(&bytes));
 
@@ -634,17 +631,13 @@ fn str_to_memory_type(s: &str) -> MemoryType {
         "preference" => MemoryType::Preference,
         "tool_result" => MemoryType::ToolResult,
         "correction" => MemoryType::Correction,
-        "context" => MemoryType::Context,
-        _ => MemoryType::Context, // Default fallback
+        _ => MemoryType::Context, // Default fallback including "context"
     }
 }
 
 /// Convert embedding vector to bytes for storage
 fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
-    embedding
-        .iter()
-        .flat_map(|f| f.to_le_bytes())
-        .collect()
+    embedding.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
 /// Convert bytes back to embedding vector

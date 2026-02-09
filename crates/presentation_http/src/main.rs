@@ -403,7 +403,9 @@ async fn main() -> anyhow::Result<()> {
             initial_config.prompt_security.to_prompt_security_config(),
         );
         let tracker = InMemorySuspiciousActivityTracker::new(
-            initial_config.prompt_security.to_suspicious_activity_config(),
+            initial_config
+                .prompt_security
+                .to_suspicious_activity_config(),
         );
         info!(
             sensitivity = %initial_config.prompt_security.sensitivity,

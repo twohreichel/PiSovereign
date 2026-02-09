@@ -88,16 +88,10 @@ pub trait MemoryStore: Send + Sync {
     /// Apply decay to all memories and return IDs of memories below threshold
     ///
     /// This should update importance scores based on time since last access.
-    async fn apply_decay(
-        &self,
-        decay_rate: f32,
-    ) -> Result<Vec<MemoryId>, ApplicationError>;
+    async fn apply_decay(&self, decay_rate: f32) -> Result<Vec<MemoryId>, ApplicationError>;
 
     /// Delete memories below the importance threshold
-    async fn cleanup_below_threshold(
-        &self,
-        threshold: f32,
-    ) -> Result<usize, ApplicationError>;
+    async fn cleanup_below_threshold(&self, threshold: f32) -> Result<usize, ApplicationError>;
 
     /// Find memories similar to the given one for potential merging
     async fn find_merge_candidates(
@@ -120,8 +114,8 @@ mod tests {
     #[test]
     fn similar_memory_relevance_score() {
         let user_id = UserId::parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let memory = Memory::new(user_id, "content", "summary", MemoryType::Fact)
-            .with_importance(0.8);
+        let memory =
+            Memory::new(user_id, "content", "summary", MemoryType::Fact).with_importance(0.8);
 
         let similar = SimilarMemory::new(memory, 0.9);
 

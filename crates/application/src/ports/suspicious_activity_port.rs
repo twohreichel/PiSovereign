@@ -79,8 +79,8 @@ impl Default for SuspiciousActivityConfig {
     fn default() -> Self {
         Self {
             max_violations_before_block: 3,
-            violation_window_secs: 3600,      // 1 hour
-            block_duration_secs: 86400,       // 24 hours
+            violation_window_secs: 3600, // 1 hour
+            block_duration_secs: 86400,  // 24 hours
             auto_block_on_critical: true,
         }
     }
@@ -153,6 +153,7 @@ mod mock {
     }
 
     #[async_trait]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     impl SuspiciousActivityPort for MockSuspiciousActivityPort {
         async fn record_violation(&self, ip: IpAddr, violation: ViolationRecord) {
             let mut violations = self.violations.lock();
@@ -163,17 +164,19 @@ mod mock {
             let violations_in_window: u32 = entry
                 .iter()
                 .filter(|v| {
-                    let window_start =
-                        Utc::now() - chrono::Duration::seconds(self.config.violation_window_secs as i64);
+                    let window_start = Utc::now()
+                        - chrono::Duration::seconds(self.config.violation_window_secs as i64);
                     v.timestamp >= window_start
                 })
                 .count() as u32;
 
             if violations_in_window >= self.config.max_violations_before_block
-                || (self.config.auto_block_on_critical && violation.threat_level == ThreatLevel::Critical)
+                || (self.config.auto_block_on_critical
+                    && violation.threat_level == ThreatLevel::Critical)
             {
                 drop(violations);
-                let expires = Utc::now() + chrono::Duration::seconds(self.config.block_duration_secs as i64);
+                let expires =
+                    Utc::now() + chrono::Duration::seconds(self.config.block_duration_secs as i64);
                 self.blocked.lock().insert(ip, expires);
             }
         }
@@ -188,9 +191,10 @@ mod mock {
 
             match records {
                 Some(recs) if !recs.is_empty() => {
-                    let window_start =
-                        Utc::now() - chrono::Duration::seconds(self.config.violation_window_secs as i64);
-                    let violations_in_window = recs.iter().filter(|v| v.timestamp >= window_start).count() as u32;
+                    let window_start = Utc::now()
+                        - chrono::Duration::seconds(self.config.violation_window_secs as i64);
+                    let violations_in_window =
+                        recs.iter().filter(|v| v.timestamp >= window_start).count() as u32;
 
                     ViolationSummary {
                         total_violations: recs.len() as u32,
@@ -201,7 +205,7 @@ mod mock {
                         first_violation_at: recs.first().map(|v| v.timestamp),
                         last_violation_at: recs.last().map(|v| v.timestamp),
                     }
-                }
+                },
                 _ => ViolationSummary {
                     is_blocked,
                     block_expires_at,
@@ -211,7 +215,10 @@ mod mock {
         }
 
         async fn is_blocked(&self, ip: IpAddr) -> bool {
-            self.blocked.lock().get(&ip).is_some_and(|&exp| exp > Utc::now())
+            self.blocked
+                .lock()
+                .get(&ip)
+                .is_some_and(|&exp| exp > Utc::now())
         }
 
         async fn block_ip(&self, ip: IpAddr, duration_secs: u64) {

@@ -122,7 +122,7 @@ impl Memory {
 
     /// Set the conversation this memory originated from
     #[must_use]
-    pub fn with_conversation(mut self, conversation_id: ConversationId) -> Self {
+    pub const fn with_conversation(mut self, conversation_id: ConversationId) -> Self {
         self.conversation_id = Some(conversation_id);
         self
     }
@@ -136,6 +136,7 @@ impl Memory {
 
     /// Set the importance score
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // clamp is not const
     pub fn with_importance(mut self, importance: f32) -> Self {
         self.importance = importance.clamp(0.0, Self::MAX_IMPORTANCE);
         self
@@ -186,6 +187,7 @@ impl Memory {
     ///
     /// Reduces importance based on time since last access and decay rate.
     /// Returns true if the memory is still above minimum importance threshold.
+    #[allow(clippy::cast_precision_loss)] // Acceptable for days and access count
     pub fn apply_decay(&mut self, decay_rate: f32) -> bool {
         let days_since_access = Utc::now()
             .signed_duration_since(self.accessed_at)
@@ -212,12 +214,12 @@ impl Memory {
     #[must_use]
     pub fn relevance_score(&self, similarity: f32) -> f32 {
         // 70% similarity, 30% importance
-        (similarity * 0.7) + (self.importance * 0.3)
+        similarity.mul_add(0.7, self.importance * 0.3)
     }
 
     /// Check if this memory has an embedding
     #[must_use]
-    pub fn has_embedding(&self) -> bool {
+    pub const fn has_embedding(&self) -> bool {
         self.embedding.is_some()
     }
 
@@ -353,16 +355,11 @@ mod tests {
         let conversation_id = ConversationId::new();
         let embedding = vec![0.1, 0.2, 0.3];
 
-        let memory = Memory::new(
-            test_user_id(),
-            "Content",
-            "Summary",
-            MemoryType::Preference,
-        )
-        .with_conversation(conversation_id)
-        .with_embedding(embedding.clone())
-        .with_importance(0.9)
-        .with_tags(vec!["tag1".to_string(), "tag2".to_string()]);
+        let memory = Memory::new(test_user_id(), "Content", "Summary", MemoryType::Preference)
+            .with_conversation(conversation_id)
+            .with_embedding(embedding.clone())
+            .with_importance(0.9)
+            .with_tags(vec!["tag1".to_string(), "tag2".to_string()]);
 
         assert_eq!(memory.conversation_id, Some(conversation_id));
         assert_eq!(memory.embedding, Some(embedding));
