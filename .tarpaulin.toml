@@ -23,9 +23,9 @@ timeout = "300s"
 # - llvm: Cross-platform, required for aarch64/macOS
 engine = "llvm"
 
-# Fail the build if coverage drops below 75%
-# Note: 90% requires full testcontainer integration tests for DB/API code
-fail-under = 75
+# Fail the build if coverage drops below 90%
+# Comprehensive unit and integration tests ensure high coverage
+fail-under = 90
 
 # Enable branch coverage for comprehensive testing
 branch = true
@@ -97,7 +97,7 @@ all-features = true
 workspace = true
 timeout = "600s"
 engine = "llvm"
-fail-under = 75
+fail-under = 90
 branch = true
 test-threads = 2
 out = ["Lcov"]
@@ -128,7 +128,7 @@ all-features = true
 workspace = true
 timeout = "300s"
 engine = "llvm"
-fail-under = 70
+fail-under = 85
 branch = false
 test-threads = 8
 out = ["Html"]
