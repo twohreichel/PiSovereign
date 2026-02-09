@@ -11,7 +11,8 @@ pub mod validation;
 
 pub use auth::{ApiKeyAuth, ApiKeyAuthLayer, ApiKeyStore};
 pub use rate_limit::{
-    RateLimiter, RateLimiterConfig, RateLimiterLayer, RateLimiterState, spawn_cleanup_task,
+    ClientIp, RateLimiter, RateLimiterConfig, RateLimiterLayer, RateLimiterState,
+    extract_client_ip, spawn_cleanup_task,
 };
 pub use request_id::{REQUEST_ID_HEADER, RequestId, RequestIdLayer};
 pub use security_headers::{SecurityHeaders, SecurityHeadersLayer};

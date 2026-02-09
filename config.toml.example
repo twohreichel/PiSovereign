@@ -100,6 +100,31 @@ connection_timeout_secs = 30
 min_tls_version = "1.2"
 
 # ==============================
+# Prompt Security Settings
+# ==============================
+# Protects against prompt injection and other AI security threats
+[prompt_security]
+# Enable prompt security analysis
+enabled = true
+# Sensitivity level: "low", "medium", or "high"
+# - low: Only block high-confidence threats
+# - medium: Block medium and high confidence threats (recommended)
+# - high: Block all detected threats including low confidence
+sensitivity = "medium"
+# Block requests when security threats are detected
+block_on_detection = true
+# Maximum violations before auto-blocking an IP
+max_violations_before_block = 3
+# Time window for counting violations (seconds)
+violation_window_secs = 3600
+# How long to block an IP after exceeding max violations (seconds)
+block_duration_secs = 86400
+# Immediately block IPs that send critical-level threats
+auto_block_on_critical = true
+# Custom patterns to detect (in addition to built-in patterns)
+# custom_patterns = ["DROP TABLE", "eval("]
+
+# ==============================
 # Messenger Platform Selection
 # ==============================
 # Choose which messaging platform to use: "whatsapp", "signal", or "none"

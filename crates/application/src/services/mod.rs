@@ -8,6 +8,7 @@ mod chat_service;
 mod conversation_context;
 mod email_service;
 mod health_service;
+mod prompt_sanitizer;
 mod voice_message_service;
 
 pub use agent_service::{AgentService, ApprovalStatus, CommandResult, ExecutionResult};
@@ -23,4 +24,5 @@ pub use conversation_context::{
 };
 pub use email_service::{EmailService, InboxSummary};
 pub use health_service::{HealthConfig, HealthReport, HealthService, ServiceHealth};
+pub use prompt_sanitizer::{PromptSanitizer, PromptSecurityConfig, SecuritySensitivity};
 pub use voice_message_service::{VoiceMessageConfig, VoiceMessageResult, VoiceMessageService};

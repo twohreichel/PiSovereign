@@ -113,6 +113,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub security: SecurityConfig,
 
+    /// Prompt security configuration (AI input validation)
+    #[serde(default)]
+    pub prompt_security: PromptSecurityConfig,
+
     /// WhatsApp configuration
     #[serde(default)]
     pub whatsapp: WhatsAppConfig,
@@ -366,6 +370,109 @@ impl SecurityConfig {
     #[must_use]
     pub fn has_api_keys(&self) -> bool {
         !self.api_keys.is_empty()
+    }
+}
+
+/// Prompt security configuration for AI input validation
+///
+/// Controls detection and blocking of prompt injection attacks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptSecurityConfig {
+    /// Whether prompt security analysis is enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Sensitivity level: "low", "medium", or "high"
+    #[serde(default = "default_sensitivity")]
+    pub sensitivity: String,
+
+    /// Whether to block requests when threats are detected
+    #[serde(default = "default_true")]
+    pub block_on_detection: bool,
+
+    /// Maximum violations before automatically blocking an IP
+    #[serde(default = "default_max_violations")]
+    pub max_violations_before_block: u32,
+
+    /// Time window for counting violations (in seconds)
+    #[serde(default = "default_violation_window")]
+    pub violation_window_secs: u64,
+
+    /// How long to block an IP after exceeding threshold (in seconds)
+    #[serde(default = "default_block_duration")]
+    pub block_duration_secs: u64,
+
+    /// Whether to auto-block on critical threats (without waiting for threshold)
+    #[serde(default = "default_true")]
+    pub auto_block_on_critical: bool,
+
+    /// Custom patterns to detect (in addition to built-in patterns)
+    #[serde(default)]
+    pub custom_patterns: Vec<String>,
+}
+
+fn default_sensitivity() -> String {
+    "medium".to_string()
+}
+
+const fn default_max_violations() -> u32 {
+    3
+}
+
+const fn default_violation_window() -> u64 {
+    3600 // 1 hour
+}
+
+const fn default_block_duration() -> u64 {
+    86400 // 24 hours
+}
+
+impl Default for PromptSecurityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sensitivity: default_sensitivity(),
+            block_on_detection: true,
+            max_violations_before_block: default_max_violations(),
+            violation_window_secs: default_violation_window(),
+            block_duration_secs: default_block_duration(),
+            auto_block_on_critical: true,
+            custom_patterns: Vec::new(),
+        }
+    }
+}
+
+impl PromptSecurityConfig {
+    /// Parse the sensitivity string into the application layer enum
+    #[must_use]
+    pub fn sensitivity_level(&self) -> application::services::SecuritySensitivity {
+        match self.sensitivity.to_lowercase().as_str() {
+            "low" => application::services::SecuritySensitivity::Low,
+            "high" => application::services::SecuritySensitivity::High,
+            _ => application::services::SecuritySensitivity::Medium,
+        }
+    }
+
+    /// Convert to the application layer config
+    #[must_use]
+    pub fn to_prompt_security_config(&self) -> application::services::PromptSecurityConfig {
+        application::services::PromptSecurityConfig {
+            enabled: self.enabled,
+            sensitivity: self.sensitivity_level(),
+            block_on_detection: self.block_on_detection,
+            min_confidence: self.sensitivity_level().confidence_threshold(),
+        }
+    }
+
+    /// Convert to the suspicious activity config
+    #[must_use]
+    pub const fn to_suspicious_activity_config(&self) -> application::ports::SuspiciousActivityConfig {
+        application::ports::SuspiciousActivityConfig {
+            max_violations_before_block: self.max_violations_before_block,
+            violation_window_secs: self.violation_window_secs,
+            block_duration_secs: self.block_duration_secs,
+            auto_block_on_critical: self.auto_block_on_critical,
+        }
     }
 }
 

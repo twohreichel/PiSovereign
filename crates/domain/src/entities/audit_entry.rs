@@ -28,6 +28,8 @@ pub enum AuditEventType {
     Integration,
     /// Security-related events
     Security,
+    /// Prompt injection attempt detected
+    PromptInjection,
 }
 
 impl std::fmt::Display for AuditEventType {
@@ -42,6 +44,7 @@ impl std::fmt::Display for AuditEventType {
             Self::DataAccess => "data_access",
             Self::Integration => "integration",
             Self::Security => "security",
+            Self::PromptInjection => "prompt_injection",
         };
         write!(f, "{s}")
     }
@@ -235,6 +238,33 @@ impl AuditBuilder {
     pub fn config_reloaded(actor: &str) -> AuditEntry {
         AuditEntry::success(AuditEventType::ConfigChange, "reload").with_actor(actor)
     }
+
+    /// Log detected prompt injection attempt
+    pub fn prompt_injection_detected(
+        ip: IpAddr,
+        threat_category: &str,
+        threat_level: &str,
+        details: &str,
+    ) -> AuditEntry {
+        AuditEntry::failure(AuditEventType::PromptInjection, "injection_detected")
+            .with_ip_address(ip)
+            .with_resource("threat", threat_category)
+            .with_details(format!("{threat_level}: {details}"))
+    }
+
+    /// Log blocked suspicious activity
+    pub fn suspicious_activity_blocked(ip: IpAddr, reason: &str) -> AuditEntry {
+        AuditEntry::failure(AuditEventType::Security, "suspicious_blocked")
+            .with_ip_address(ip)
+            .with_details(reason)
+    }
+
+    /// Log user rate-limited due to suspicious behavior
+    pub fn user_rate_limited_suspicious(ip: IpAddr, violation_count: u32) -> AuditEntry {
+        AuditEntry::failure(AuditEventType::Security, "suspicious_rate_limit")
+            .with_ip_address(ip)
+            .with_details(format!("Blocked after {violation_count} violations"))
+    }
 }
 
 #[cfg(test)]
@@ -361,6 +391,50 @@ mod tests {
             AuditEventType::CommandExecution.to_string(),
             "command_execution"
         );
+        assert_eq!(
+            AuditEventType::PromptInjection.to_string(),
+            "prompt_injection"
+        );
+    }
+
+    #[test]
+    fn audit_builder_prompt_injection() {
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
+        let entry = AuditBuilder::prompt_injection_detected(
+            ip,
+            "prompt_injection",
+            "high",
+            "ignore previous instructions",
+        );
+
+        assert!(!entry.success);
+        assert_eq!(entry.event_type, AuditEventType::PromptInjection);
+        assert_eq!(entry.action, "injection_detected");
+        assert_eq!(entry.ip_address, Some(ip));
+        assert_eq!(entry.resource_type, Some("threat".to_string()));
+        assert_eq!(entry.resource_id, Some("prompt_injection".to_string()));
+        assert!(entry.details.as_ref().unwrap().contains("high"));
+    }
+
+    #[test]
+    fn audit_builder_suspicious_blocked() {
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50));
+        let entry = AuditBuilder::suspicious_activity_blocked(ip, "Multiple injection attempts");
+
+        assert!(!entry.success);
+        assert_eq!(entry.event_type, AuditEventType::Security);
+        assert_eq!(entry.action, "suspicious_blocked");
+        assert!(entry.details.as_ref().unwrap().contains("injection"));
+    }
+
+    #[test]
+    fn audit_builder_suspicious_rate_limit() {
+        let ip = IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1));
+        let entry = AuditBuilder::user_rate_limited_suspicious(ip, 5);
+
+        assert!(!entry.success);
+        assert_eq!(entry.event_type, AuditEventType::Security);
+        assert!(entry.details.as_ref().unwrap().contains("5 violations"));
     }
 
     #[test]

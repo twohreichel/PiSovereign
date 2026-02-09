@@ -21,6 +21,7 @@ serde_json.workspace = true
 fuzzydate.workspace = true
 futures = "0.3"
 parking_lot.workspace = true
+aho-corasick.workspace = true
 
 [dev-dependencies]
 tokio-test.workspace = true

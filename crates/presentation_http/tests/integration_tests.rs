@@ -456,6 +456,8 @@ fn create_test_state_with_health_service(
         metrics: Arc::new(MetricsCollector::new()),
         messenger_adapter: None,
         signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
     }
 }
 
@@ -475,6 +477,8 @@ fn create_test_state() -> AppState {
         metrics: Arc::new(MetricsCollector::new()),
         messenger_adapter: None,
         signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
     }
 }
 
@@ -494,6 +498,8 @@ fn create_unhealthy_test_state() -> AppState {
         metrics: Arc::new(MetricsCollector::new()),
         messenger_adapter: None,
         signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
     }
 }
 
@@ -1006,6 +1012,8 @@ mod degraded_mode_tests {
             metrics: Arc::new(MetricsCollector::new()),
             messenger_adapter: None,
             signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
         }
     }
 
@@ -1305,6 +1313,8 @@ mod workflow_tests {
             metrics: Arc::new(MetricsCollector::new()),
             messenger_adapter: None,
             signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
         };
 
         (state, draft_store)
@@ -1331,6 +1341,8 @@ mod workflow_tests {
             metrics: Arc::new(MetricsCollector::new()),
             messenger_adapter: None,
             signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
         };
 
         (state, user_profile_store)
@@ -1639,6 +1651,8 @@ mod workflow_tests {
             metrics: Arc::new(MetricsCollector::new()),
             messenger_adapter: None,
             signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
         };
 
         let router = create_router(state);
@@ -1710,6 +1724,8 @@ mod workflow_tests {
             metrics: Arc::new(MetricsCollector::new()),
             messenger_adapter: None,
             signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
         };
 
         let router = create_router(state);
@@ -1751,6 +1767,8 @@ mod workflow_tests {
             metrics: Arc::new(MetricsCollector::new()),
             messenger_adapter: None,
             signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
         };
 
         let router = create_router(state);
@@ -1919,6 +1937,8 @@ mod health_service_e2e_tests {
             metrics: Arc::new(MetricsCollector::new()),
             messenger_adapter: None,
             signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
         };
 
         let router = create_router(state);

@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use application::ports::MessengerPort;
+use application::ports::{MessengerPort, SuspiciousActivityPort};
+use application::services::PromptSanitizer;
 use application::{AgentService, ApprovalService, ChatService, HealthService, VoiceMessageService};
 use integration_signal::SignalClient;
 
@@ -29,6 +30,10 @@ pub struct AppState {
     pub messenger_adapter: Option<Arc<dyn MessengerPort>>,
     /// Signal client for direct access (polling messages)
     pub signal_client: Option<Arc<SignalClient>>,
+    /// Prompt sanitizer for security analysis
+    pub prompt_sanitizer: Option<Arc<PromptSanitizer>>,
+    /// Suspicious activity tracker for IP-based blocking
+    pub suspicious_activity_tracker: Option<Arc<dyn SuspiciousActivityPort>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -46,6 +51,11 @@ impl std::fmt::Debug for AppState {
             .field("metrics", &"<MetricsCollector>")
             .field("messenger_adapter", &self.messenger_adapter.is_some())
             .field("signal_client", &self.signal_client.is_some())
+            .field("prompt_sanitizer", &self.prompt_sanitizer.is_some())
+            .field(
+                "suspicious_activity_tracker",
+                &self.suspicious_activity_tracker.is_some(),
+            )
             .finish()
     }
 }

@@ -8,14 +8,16 @@ use application::{
     AgentService, ApprovalService, ChatService, HealthService,
     ports::{
         CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
-        MessengerPort, WeatherPort,
+        MessengerPort, SuspiciousActivityPort, WeatherPort,
     },
+    services::PromptSanitizer,
 };
 use infrastructure::{
     AppConfig, MessengerSelection, OllamaInferenceAdapter, SecurityValidator,
     adapters::{
-        CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig, ProtonEmailAdapter,
-        SignalMessengerAdapter, WeatherAdapter, WhatsAppMessengerAdapter,
+        CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig,
+        InMemorySuspiciousActivityTracker, ProtonEmailAdapter, SignalMessengerAdapter,
+        WeatherAdapter, WhatsAppMessengerAdapter,
     },
     persistence::{
         SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, SqliteDatabaseHealth,
@@ -392,6 +394,30 @@ async fn main() -> anyhow::Result<()> {
         },
     };
 
+    // Initialize prompt security services if enabled
+    let (prompt_sanitizer, suspicious_activity_tracker): (
+        Option<Arc<PromptSanitizer>>,
+        Option<Arc<dyn SuspiciousActivityPort>>,
+    ) = if initial_config.prompt_security.enabled {
+        let sanitizer = PromptSanitizer::with_config(
+            initial_config.prompt_security.to_prompt_security_config(),
+        );
+        let tracker = InMemorySuspiciousActivityTracker::new(
+            initial_config.prompt_security.to_suspicious_activity_config(),
+        );
+        info!(
+            sensitivity = %initial_config.prompt_security.sensitivity,
+            "🛡️ Prompt security enabled"
+        );
+        (
+            Some(Arc::new(sanitizer)),
+            Some(Arc::new(tracker) as Arc<dyn SuspiciousActivityPort>),
+        )
+    } else {
+        info!("⚠️ Prompt security disabled");
+        (None, None)
+    };
+
     // Create app state with reloadable config
     let state = AppState {
         chat_service: Arc::new(chat_service),
@@ -403,6 +429,8 @@ async fn main() -> anyhow::Result<()> {
         metrics,
         messenger_adapter,
         signal_client,
+        prompt_sanitizer,
+        suspicious_activity_tracker,
     };
 
     // Build router

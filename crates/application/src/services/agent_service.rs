@@ -1010,8 +1010,7 @@ impl AgentService {
         let active_count = tasks.iter().filter(|t| t.status.is_active()).count();
         let completed_count = tasks.iter().filter(|t| t.status.is_done()).count();
         response.push_str(&format!(
-            "\n---\n*{} active task(s), {} completed*",
-            active_count, completed_count
+            "\n---\n*{active_count} active task(s), {completed_count} completed*"
         ));
 
         Ok(ExecutionResult {

@@ -151,6 +151,92 @@ groups:
       - record: pisovereign:inference_per_second:5m
         expr: rate(inference_requests_total[5m])
 
+  - name: pisovereign_security
+    interval: 30s
+    rules:
+      # Alert on high prompt injection attempts
+      - alert: HighPromptInjectionRate
+        expr: increase(security_prompt_injection_attempts_total[5m]) > 10
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High prompt injection attempt rate"
+          description: "{{ $value }} prompt injection attempts detected in the last 5 minutes."
+
+      # Alert on any jailbreak attempt
+      - alert: JailbreakAttemptDetected
+        expr: increase(security_jailbreak_attempts_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Jailbreak attempt detected"
+          description: "{{ $value }} jailbreak attempts detected in the last 5 minutes."
+
+      # Alert on system prompt leak attempts
+      - alert: SystemPromptLeakAttempt
+        expr: increase(security_system_prompt_leak_attempts_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "System prompt leak attempt detected"
+          description: "{{ $value }} attempts to extract system prompt detected."
+
+      # Alert when IPs are being blocked
+      - alert: SuspiciousIPBlocked
+        expr: increase(security_ips_blocked_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Suspicious IP address blocked"
+          description: "{{ $value }} IP(s) blocked due to suspicious activity in the last 5 minutes."
+
+      # Alert on high blocked request rate
+      - alert: HighSecurityBlockRate
+        expr: |
+          (
+            rate(security_blocked_requests_total[5m]) / 
+            rate(http_requests_total[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High security block rate"
+          description: "{{ $value | humanizePercentage }} of requests blocked for security reasons."
+
+      # Alert on sudden spike in security events
+      - alert: SecurityEventSpike
+        expr: |
+          (
+            security_prompt_injection_attempts_total + 
+            security_jailbreak_attempts_total + 
+            security_system_prompt_leak_attempts_total + 
+            security_other_threats_total
+          ) - (
+            security_prompt_injection_attempts_total offset 10m + 
+            security_jailbreak_attempts_total offset 10m + 
+            security_system_prompt_leak_attempts_total offset 10m + 
+            security_other_threats_total offset 10m
+          ) > 50
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Security event spike detected"
+          description: "Significant increase in security events. Possible coordinated attack."
+
+      # Record security threat rate for trending
+      - record: pisovereign:security_threats_per_minute:5m
+        expr: |
+          rate(security_prompt_injection_attempts_total[5m]) * 60 +
+          rate(security_jailbreak_attempts_total[5m]) * 60 +
+          rate(security_system_prompt_leak_attempts_total[5m]) * 60 +
+          rate(security_other_threats_total[5m]) * 60
+
 # Future enhancements:
 # - Cache hit/miss rate alerts (requires exposing cache metrics from Moka/Redb layers)
 # - Per-user request rate limits

@@ -24,6 +24,13 @@ use tracing::{debug, info, warn};
 
 use crate::error::ApiError;
 
+/// Client IP address extracted from the request
+///
+/// This extension is inserted by the rate limiter middleware and can
+/// be extracted in handlers via `Extension<ClientIp>`.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientIp(pub IpAddr);
+
 /// Rate limiter configuration
 #[derive(Clone, Debug)]
 pub struct RateLimiterConfig {
@@ -274,12 +281,18 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Request) -> Self::Future {
+    fn call(&mut self, mut req: Request) -> Self::Future {
         let enabled = self.enabled;
         let state = Arc::clone(&self.state);
         let excluded_paths = self.excluded_paths.clone();
         let trusted_proxies = Arc::clone(&self.trusted_proxies);
         let mut inner = self.inner.clone();
+
+        // Extract client IP early so it's available even if rate limiting is disabled
+        let client_ip = extract_client_ip(&req, &trusted_proxies);
+        
+        // Insert client IP into request extensions for downstream handlers
+        req.extensions_mut().insert(ClientIp(client_ip));
 
         Box::pin(async move {
             // If rate limiting is disabled, pass through
@@ -292,9 +305,6 @@ where
             if excluded_paths.iter().any(|p| path.starts_with(p)) {
                 return inner.call(req).await;
             }
-
-            // Extract client IP, respecting trusted proxies
-            let client_ip = extract_client_ip(&req, &trusted_proxies);
 
             // Check rate limit
             if state.check(client_ip).await {
@@ -320,7 +330,8 @@ where
 ///
 /// Never trust `X-Forwarded-For` from untrusted sources. Attackers can easily
 /// spoof this header to bypass rate limiting or IP-based access controls.
-fn extract_client_ip(req: &Request, trusted_proxies: &HashSet<IpAddr>) -> IpAddr {
+#[allow(clippy::implicit_hasher)] // Using standard RandomState is fine for IP lookups
+pub fn extract_client_ip(req: &Request, trusted_proxies: &HashSet<IpAddr>) -> IpAddr {
     // Get the connecting IP (direct connection)
     // In a real deployment with axum::extract::ConnectInfo, this would be
     // the actual socket address. For now, we default to localhost.
