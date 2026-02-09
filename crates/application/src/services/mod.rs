@@ -8,6 +8,7 @@ mod chat_service;
 mod conversation_context;
 mod email_service;
 mod health_service;
+mod memory_service;
 mod prompt_sanitizer;
 mod voice_message_service;
 
@@ -24,5 +25,6 @@ pub use conversation_context::{
 };
 pub use email_service::{EmailService, InboxSummary};
 pub use health_service::{HealthConfig, HealthReport, HealthService, ServiceHealth};
+pub use memory_service::{MemoryService, MemoryServiceConfig};
 pub use prompt_sanitizer::{PromptSanitizer, PromptSecurityConfig, SecuritySensitivity};
 pub use voice_message_service::{VoiceMessageConfig, VoiceMessageResult, VoiceMessageService};
