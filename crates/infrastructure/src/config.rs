@@ -168,6 +168,10 @@ pub struct AppConfig {
     /// Speech processing configuration (optional, for voice messages)
     #[serde(default)]
     pub speech: Option<SpeechConfig>,
+
+    /// Memory/knowledge storage configuration (optional)
+    #[serde(default)]
+    pub memory: Option<MemoryAppConfig>,
 }
 
 /// HTTP server configuration
@@ -1802,4 +1806,178 @@ impl HealthAppConfig {
             service_timeouts,
         }
     }
+}
+
+// ==============================
+// Memory/Knowledge Storage Configuration
+// ==============================
+
+/// Memory storage configuration for AI knowledge persistence
+///
+/// Enables storage of AI interactions, facts, and context for RAG-based
+/// retrieval and self-improvement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryAppConfig {
+    /// Enable memory storage (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Enable RAG context retrieval (default: true)
+    #[serde(default = "default_true")]
+    pub enable_rag: bool,
+
+    /// Enable automatic learning from interactions (default: true)
+    #[serde(default = "default_true")]
+    pub enable_learning: bool,
+
+    /// Number of memories to retrieve for RAG context (default: 5)
+    #[serde(default = "default_rag_limit")]
+    pub rag_limit: usize,
+
+    /// Minimum similarity threshold for RAG retrieval (0.0-1.0, default: 0.5)
+    #[serde(default = "default_rag_threshold")]
+    pub rag_threshold: f32,
+
+    /// Similarity threshold for memory deduplication (0.0-1.0, default: 0.85)
+    #[serde(default = "default_merge_threshold")]
+    pub merge_threshold: f32,
+
+    /// Minimum importance score to keep memories (default: 0.1)
+    #[serde(default = "default_min_importance")]
+    pub min_importance: f32,
+
+    /// Decay factor for memory importance over time (default: 0.95)
+    #[serde(default = "default_decay_factor")]
+    pub decay_factor: f32,
+
+    /// Enable content encryption (default: true)
+    #[serde(default = "default_true")]
+    pub enable_encryption: bool,
+
+    /// Path to encryption key file (generated if not exists)
+    #[serde(default = "default_encryption_key_path")]
+    pub encryption_key_path: String,
+
+    /// Embedding model configuration
+    #[serde(default)]
+    pub embedding: EmbeddingAppConfig,
+}
+
+impl Default for MemoryAppConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            enable_rag: true,
+            enable_learning: true,
+            rag_limit: default_rag_limit(),
+            rag_threshold: default_rag_threshold(),
+            merge_threshold: default_merge_threshold(),
+            min_importance: default_min_importance(),
+            decay_factor: default_decay_factor(),
+            enable_encryption: true,
+            encryption_key_path: default_encryption_key_path(),
+            embedding: EmbeddingAppConfig::default(),
+        }
+    }
+}
+
+/// Embedding model configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingAppConfig {
+    /// Embedding model name (default: nomic-embed-text)
+    #[serde(default = "default_embedding_model")]
+    pub model: String,
+
+    /// Embedding dimension (default: 384 for nomic-embed-text)
+    #[serde(default = "default_embedding_dimension")]
+    pub dimension: usize,
+
+    /// Request timeout in milliseconds (default: 30000)
+    #[serde(default = "default_embedding_timeout")]
+    pub timeout_ms: u64,
+}
+
+impl Default for EmbeddingAppConfig {
+    fn default() -> Self {
+        Self {
+            model: default_embedding_model(),
+            dimension: default_embedding_dimension(),
+            timeout_ms: default_embedding_timeout(),
+        }
+    }
+}
+
+impl MemoryAppConfig {
+    /// Convert to MemoryServiceConfig
+    #[must_use]
+    pub fn to_memory_service_config(&self) -> application::MemoryServiceConfig {
+        application::MemoryServiceConfig {
+            rag_limit: self.rag_limit,
+            rag_threshold: self.rag_threshold,
+            merge_threshold: self.merge_threshold,
+            min_importance: self.min_importance,
+            decay_factor: self.decay_factor,
+            enable_encryption: self.enable_encryption,
+        }
+    }
+
+    /// Convert to MemoryEnhancedChatConfig
+    #[must_use]
+    pub fn to_enhanced_chat_config(&self, system_prompt: Option<String>) -> application::MemoryEnhancedChatConfig {
+        application::MemoryEnhancedChatConfig {
+            enable_rag: self.enable_rag,
+            enable_learning: self.enable_learning,
+            system_prompt,
+            min_learning_length: 20,
+            default_importance: 0.5,
+        }
+    }
+
+    /// Convert embedding config to ai_core::EmbeddingConfig
+    #[must_use]
+    pub fn to_embedding_config(&self, base_url: &str) -> ai_core::EmbeddingConfig {
+        ai_core::EmbeddingConfig {
+            base_url: base_url.to_string(),
+            model: self.embedding.model.clone(),
+            dimensions: self.embedding.dimension,
+            timeout_ms: self.embedding.timeout_ms,
+        }
+    }
+}
+
+// Default value functions for memory config
+fn default_rag_limit() -> usize {
+    5
+}
+
+fn default_rag_threshold() -> f32 {
+    0.5
+}
+
+fn default_merge_threshold() -> f32 {
+    0.85
+}
+
+fn default_min_importance() -> f32 {
+    0.1
+}
+
+fn default_decay_factor() -> f32 {
+    0.95
+}
+
+fn default_encryption_key_path() -> String {
+    "memory_encryption.key".to_string()
+}
+
+fn default_embedding_model() -> String {
+    "nomic-embed-text".to_string()
+}
+
+fn default_embedding_dimension() -> usize {
+    384
+}
+
+fn default_embedding_timeout() -> u64 {
+    30000
 }
