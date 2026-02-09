@@ -11,6 +11,6 @@ pub mod selector;
 
 pub use config::InferenceConfig;
 pub use error::InferenceError;
-pub use ollama::OllamaInferenceEngine;
+pub use ollama::{EmbeddingConfig, EmbeddingEngine, OllamaEmbeddingEngine, OllamaInferenceEngine};
 pub use ports::{InferenceEngine, InferenceRequest, InferenceResponse, StreamingChunk};
 pub use selector::{ModelSelector, ModelSelectorConfig, TaskComplexity};
