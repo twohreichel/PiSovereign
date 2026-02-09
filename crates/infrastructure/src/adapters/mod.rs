@@ -7,6 +7,7 @@ mod cached_inference_adapter;
 mod caldav_calendar_adapter;
 mod circuit_breaker;
 mod degraded_inference;
+mod encryption_adapter;
 mod env_secret_store;
 mod model_registry_adapter;
 mod ollama_inference_adapter;
@@ -29,6 +30,7 @@ pub use circuit_breaker::{
 pub use degraded_inference::{
     DegradedInferenceAdapter, DegradedModeConfig, DegradedModeStats, ServiceStatus,
 };
+pub use encryption_adapter::ChaChaEncryptionAdapter;
 pub use env_secret_store::EnvSecretStore;
 pub use model_registry_adapter::OllamaModelRegistryAdapter;
 pub use ollama_inference_adapter::OllamaInferenceAdapter;
