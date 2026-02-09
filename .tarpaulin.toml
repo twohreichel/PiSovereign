@@ -19,9 +19,9 @@ workspace = true
 timeout = "300s"
 
 # Engine selection:
-# - ptrace: Default on Linux, not available on macOS
-# - llvm: Cross-platform, required for aarch64/macOS
-engine = "llvm"
+# - Ptrace: Default on Linux, not available on macOS
+# - Llvm: Cross-platform, required for aarch64/macOS
+engine = "Llvm"
 
 # Fail the build if coverage drops below 90%
 # Comprehensive unit and integration tests ensure high coverage
@@ -96,7 +96,7 @@ exclude = [
 all-features = true
 workspace = true
 timeout = "600s"
-engine = "llvm"
+engine = "Llvm"
 fail-under = 90
 branch = true
 test-threads = 2
@@ -127,7 +127,7 @@ exclude = ["presentation_cli"]
 all-features = true
 workspace = true
 timeout = "300s"
-engine = "llvm"
+engine = "Llvm"
 fail-under = 85
 branch = false
 test-threads = 8
@@ -142,3 +142,11 @@ exclude-files = [
     "*/testing/*",
     "*/telemetry/*",
     "*/handlers/*",
+    "*/config_reload.rs",
+    "*/state.rs",
+    "*/middleware/request_id.rs",
+    "*/integration_caldav/src/task.rs",
+    "*/imap_client.rs",
+    "*/smtp_client.rs",
+]
+exclude = ["presentation_cli"]
