@@ -6,12 +6,14 @@ mod briefing;
 mod chat_message;
 mod conversation;
 mod email_draft;
+mod memory;
 mod prompt_security;
 mod user_profile;
 mod voice_message;
 mod web_search;
 
 pub use approval_request::{ApprovalError, ApprovalRequest, ApprovalStatus};
+pub use memory::{Memory, MemoryQuery, MemoryType};
 pub use audit_entry::{AuditBuilder, AuditEntry, AuditEventType};
 pub use briefing::{
     CalendarBrief, CalendarItem, EmailBrief, MorningBriefing, TaskBrief, TaskItem, WeatherSummary,
