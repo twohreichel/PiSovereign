@@ -354,6 +354,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{MockEmbeddingPort, MockMemoryStore, NoOpEncryption, SimilarMemory};
+    use crate::services::MemoryServiceConfig;
 
     #[test]
     fn test_config_default() {
@@ -378,5 +380,399 @@ mod tests {
         assert!(config.enable_learning);
         assert_eq!(config.system_prompt.as_deref(), Some("Custom prompt"));
         assert_eq!(config.min_learning_length, 50);
+    }
+
+    #[test]
+    fn test_config_clone() {
+        let config = MemoryEnhancedChatConfig {
+            enable_rag: true,
+            enable_learning: false,
+            system_prompt: Some("Test".to_string()),
+            min_learning_length: 30,
+            default_importance: 0.6,
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.enable_rag, config.enable_rag);
+        assert_eq!(cloned.enable_learning, config.enable_learning);
+        assert_eq!(cloned.system_prompt, config.system_prompt);
+        assert_eq!(cloned.min_learning_length, config.min_learning_length);
+    }
+
+    #[test]
+    fn test_config_debug() {
+        let config = MemoryEnhancedChatConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("MemoryEnhancedChatConfig"));
+        assert!(debug.contains("enable_rag"));
+        assert!(debug.contains("enable_learning"));
+    }
+
+    #[test]
+    fn test_create_summary_short_question_and_answer() {
+        let summary =
+            MemoryEnhancedChat::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::create_summary(
+                "What is Rust?",
+                "A systems programming language.",
+            );
+        assert!(summary.contains("What is Rust?"));
+        assert!(summary.contains("A systems programming language."));
+        assert!(summary.contains("→"));
+    }
+
+    #[test]
+    fn test_create_summary_long_question() {
+        let long_question = "a".repeat(150);
+        let summary =
+            MemoryEnhancedChat::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::create_summary(
+                &long_question,
+                "Short answer.",
+            );
+        assert!(summary.contains("..."));
+        // Question part should be truncated
+        assert!(summary.len() < 200);
+    }
+
+    #[test]
+    fn test_create_summary_long_answer() {
+        let long_answer = "b".repeat(100);
+        let summary =
+            MemoryEnhancedChat::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::create_summary(
+                "Short question?",
+                &long_answer,
+            );
+        assert!(summary.contains("..."));
+        // Includes Q: prefix
+        assert!(summary.starts_with("Q:"));
+    }
+
+    #[test]
+    fn test_create_summary_both_long() {
+        let long_question = "q".repeat(200);
+        let long_answer = "a".repeat(200);
+        let summary =
+            MemoryEnhancedChat::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::create_summary(
+                &long_question,
+                &long_answer,
+            );
+        // Both should be truncated
+        assert!(summary.contains("..."));
+        assert!(summary.starts_with("Q: "));
+    }
+
+    #[test]
+    fn test_create_summary_exact_max_question_length() {
+        let exact_question = "x".repeat(100);
+        let summary =
+            MemoryEnhancedChat::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::create_summary(
+                &exact_question,
+                "answer",
+            );
+        // At exactly 100 chars, should not truncate question
+        assert!(summary.contains(&"x".repeat(100)));
+        assert!(!summary.contains("...→")); // No truncation marker before arrow
+    }
+
+    #[test]
+    fn test_create_summary_exact_max_answer_length() {
+        let exact_answer = "y".repeat(50);
+        let summary =
+            MemoryEnhancedChat::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::create_summary(
+                "question",
+                &exact_answer,
+            );
+        // At exactly 50 chars, should not truncate answer
+        assert!(summary.contains(&"y".repeat(50)));
+    }
+
+    // Helper to create a test memory service
+    fn setup_memory_service() -> MemoryService<MockMemoryStore, MockEmbeddingPort, NoOpEncryption> {
+        let store = Arc::new(MockMemoryStore::new());
+        let embedding = Arc::new(MockEmbeddingPort::new());
+        let encryption = Arc::new(NoOpEncryption);
+        let config = MemoryServiceConfig {
+            enable_encryption: false,
+            ..Default::default()
+        };
+        MemoryService::new(store, embedding, encryption, config)
+    }
+
+    // Helper mock for InferencePort
+    struct MockInference {
+        model_name: String,
+        healthy: bool,
+    }
+
+    impl MockInference {
+        fn new() -> Self {
+            Self {
+                model_name: "test-model".to_string(),
+                healthy: true,
+            }
+        }
+
+        fn unhealthy() -> Self {
+            Self {
+                model_name: "test-model".to_string(),
+                healthy: false,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl InferencePort for MockInference {
+        async fn generate(
+            &self,
+            _message: &str,
+        ) -> Result<crate::ports::InferenceResult, ApplicationError> {
+            Ok(crate::ports::InferenceResult {
+                content: "Generated response".to_string(),
+                model: self.model_name.clone(),
+                tokens_used: Some(10),
+                latency_ms: 50,
+            })
+        }
+
+        async fn generate_with_context(
+            &self,
+            _conversation: &Conversation,
+        ) -> Result<crate::ports::InferenceResult, ApplicationError> {
+            Ok(crate::ports::InferenceResult {
+                content: "Context response".to_string(),
+                model: self.model_name.clone(),
+                tokens_used: Some(15),
+                latency_ms: 60,
+            })
+        }
+
+        async fn generate_with_system(
+            &self,
+            _system_prompt: &str,
+            _message: &str,
+        ) -> Result<crate::ports::InferenceResult, ApplicationError> {
+            Ok(crate::ports::InferenceResult {
+                content: "System response".to_string(),
+                model: self.model_name.clone(),
+                tokens_used: Some(20),
+                latency_ms: 70,
+            })
+        }
+
+        async fn generate_stream(
+            &self,
+            _message: &str,
+        ) -> Result<crate::ports::InferenceStream, ApplicationError> {
+            Err(ApplicationError::Internal(
+                "streaming not implemented in mock".to_string(),
+            ))
+        }
+
+        async fn generate_stream_with_system(
+            &self,
+            _system_prompt: &str,
+            _message: &str,
+        ) -> Result<crate::ports::InferenceStream, ApplicationError> {
+            Err(ApplicationError::Internal(
+                "streaming not implemented in mock".to_string(),
+            ))
+        }
+
+        async fn is_healthy(&self) -> bool {
+            self.healthy
+        }
+
+        fn current_model(&self) -> String {
+            self.model_name.clone()
+        }
+
+        async fn list_available_models(&self) -> Result<Vec<String>, ApplicationError> {
+            Ok(vec![self.model_name.clone()])
+        }
+
+        async fn switch_model(&self, _model_name: &str) -> Result<(), ApplicationError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_memory_enhanced_chat_new() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let debug = format!("{chat:?}");
+        assert!(debug.contains("MemoryEnhancedChat"));
+    }
+
+    #[test]
+    fn test_memory_enhanced_chat_clone() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let cloned = chat.clone();
+
+        // Both should have same config
+        assert_eq!(cloned.config.enable_rag, chat.config.enable_rag);
+        assert_eq!(cloned.config.enable_learning, chat.config.enable_learning);
+    }
+
+    #[test]
+    fn test_memory_enhanced_chat_debug() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig {
+            enable_rag: false,
+            enable_learning: true,
+            system_prompt: Some("Debug test".to_string()),
+            min_learning_length: 25,
+            default_importance: 0.6,
+        };
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let debug = format!("{chat:?}");
+
+        assert!(debug.contains("MemoryEnhancedChat"));
+        assert!(debug.contains("config"));
+    }
+
+    #[test]
+    fn test_current_model() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        assert_eq!(chat.current_model(), "test-model");
+    }
+
+    #[tokio::test]
+    async fn test_is_healthy_true() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        assert!(chat.is_healthy().await);
+    }
+
+    #[tokio::test]
+    async fn test_is_healthy_false() {
+        let inference = Arc::new(MockInference::unhealthy());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        assert!(!chat.is_healthy().await);
+    }
+
+    #[test]
+    fn test_build_system_prompt_without_memories() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig {
+            system_prompt: Some("You are helpful.".to_string()),
+            ..Default::default()
+        };
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let prompt = chat.build_system_prompt(&[]);
+
+        assert_eq!(prompt, "You are helpful.");
+    }
+
+    #[test]
+    fn test_build_system_prompt_default_without_memories() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let prompt = chat.build_system_prompt(&[]);
+
+        assert_eq!(prompt, "You are a helpful AI assistant.");
+    }
+
+    #[test]
+    fn test_build_system_prompt_with_memories() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig {
+            system_prompt: Some("Be helpful.".to_string()),
+            ..Default::default()
+        };
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+
+        let user_id = UserId::new();
+        let memory = Memory::new(
+            user_id,
+            "User prefers concise answers".to_string(),
+            "User prefers concise answers".to_string(),
+            MemoryType::Preference,
+        )
+        .with_importance(0.8);
+
+        let similar = vec![SimilarMemory::new(memory, 0.95)];
+        let prompt = chat.build_system_prompt(&similar);
+
+        assert!(prompt.contains("Be helpful."));
+        assert!(prompt.contains("concise answers"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_default_with_memories() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+
+        let user_id = UserId::new();
+        let memory = Memory::new(
+            user_id,
+            "Important fact".to_string(),
+            "Important fact".to_string(),
+            MemoryType::Fact,
+        );
+
+        let similar = vec![SimilarMemory::new(memory, 0.9)];
+        let prompt = chat.build_system_prompt(&similar);
+
+        assert!(prompt.contains("You are a helpful AI assistant."));
+        assert!(prompt.contains("Important fact"));
+    }
+
+    #[test]
+    fn test_config_all_disabled() {
+        let config = MemoryEnhancedChatConfig {
+            enable_rag: false,
+            enable_learning: false,
+            system_prompt: None,
+            min_learning_length: 0,
+            default_importance: 0.0,
+        };
+        assert!(!config.enable_rag);
+        assert!(!config.enable_learning);
+        assert!(config.system_prompt.is_none());
+    }
+
+    #[test]
+    fn test_config_high_importance() {
+        let config = MemoryEnhancedChatConfig {
+            default_importance: 1.0,
+            ..Default::default()
+        };
+        assert!((config.default_importance - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_config_low_learning_threshold() {
+        let config = MemoryEnhancedChatConfig {
+            min_learning_length: 1,
+            ..Default::default()
+        };
+        assert_eq!(config.min_learning_length, 1);
     }
 }

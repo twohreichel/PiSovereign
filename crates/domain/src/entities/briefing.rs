@@ -509,4 +509,229 @@ mod tests {
         assert!(deserialized.weather.is_some());
         assert_eq!(deserialized.briefing_date, briefing.briefing_date);
     }
+
+    // === Additional tests for coverage ===
+
+    #[test]
+    fn test_weather_summary_default() {
+        let weather = WeatherSummary::default();
+        assert!((weather.temperature - 20.0).abs() < f32::EPSILON);
+        assert_eq!(weather.condition, "Unknown");
+        assert_eq!(weather.emoji, "❓");
+    }
+
+    #[test]
+    fn test_weather_summary_summary() {
+        let weather = WeatherSummary::new(22.0, "Cloudy", 26.0, 18.0);
+        let summary = weather.summary();
+        assert!(summary.contains("🌤️"));
+        assert!(summary.contains("Cloudy"));
+    }
+
+    #[test]
+    fn test_task_item_new_defaults() {
+        let task = TaskItem::new("task-1", "Do something");
+        assert_eq!(task.id, "task-1");
+        assert_eq!(task.title, "Do something");
+        assert_eq!(task.priority, Priority::Low);
+        assert!(task.due.is_none());
+        assert!(!task.is_overdue);
+    }
+
+    #[test]
+    fn test_task_brief_new() {
+        let brief = TaskBrief::new();
+        assert_eq!(brief.due_today, 0);
+        assert_eq!(brief.overdue, 0);
+        assert!(brief.high_priority.is_empty());
+        assert!(brief.today_tasks.is_empty());
+        assert!(brief.overdue_tasks.is_empty());
+    }
+
+    #[test]
+    fn test_task_brief_default() {
+        let brief = TaskBrief::default();
+        assert_eq!(brief.due_today, 0);
+    }
+
+    #[test]
+    fn test_task_brief_summary_empty() {
+        let brief = TaskBrief::new();
+        let summary = brief.summary();
+        assert_eq!(summary, "No tasks requiring attention");
+    }
+
+    #[test]
+    fn test_calendar_brief_new() {
+        let brief = CalendarBrief::new();
+        assert_eq!(brief.event_count, 0);
+        assert!(!brief.has_events());
+        assert!(brief.upcoming.is_empty());
+        assert!(brief.first_event.is_none());
+    }
+
+    #[test]
+    fn test_calendar_brief_default() {
+        let brief = CalendarBrief::default();
+        assert_eq!(brief.event_count, 0);
+    }
+
+    #[test]
+    fn test_calendar_brief_has_events() {
+        let mut brief = CalendarBrief::new();
+        assert!(!brief.has_events());
+        brief.event_count = 5;
+        assert!(brief.has_events());
+    }
+
+    #[test]
+    fn test_calendar_item_with_location() {
+        let start = Utc::now();
+        let end = start + chrono::Duration::minutes(30);
+        let mut item = CalendarItem::new("Standup", start, end);
+        item.location = Some("Room A".to_string());
+        item.is_now = true;
+
+        assert_eq!(item.location, Some("Room A".to_string()));
+        assert!(item.is_now);
+        assert_eq!(item.duration_minutes(), 30);
+    }
+
+    #[test]
+    fn test_email_brief_new() {
+        let brief = EmailBrief::new();
+        assert_eq!(brief.unread_count, 0);
+        assert_eq!(brief.priority_count, 0);
+        assert!(!brief.has_unread());
+    }
+
+    #[test]
+    fn test_email_brief_default() {
+        let brief = EmailBrief::default();
+        assert_eq!(brief.unread_count, 0);
+    }
+
+    #[test]
+    fn test_email_brief_has_unread() {
+        let mut brief = EmailBrief::new();
+        assert!(!brief.has_unread());
+        brief.unread_count = 10;
+        assert!(brief.has_unread());
+    }
+
+    #[test]
+    fn test_morning_briefing_for_date() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 15).unwrap();
+        let briefing = MorningBriefing::for_date(date);
+        assert_eq!(briefing.briefing_date, date);
+    }
+
+    #[test]
+    fn test_morning_briefing_default() {
+        let briefing = MorningBriefing::default();
+        assert!(briefing.weather.is_none());
+        assert!(briefing.ai_summary.is_none());
+    }
+
+    #[test]
+    fn test_morning_briefing_with_calendar() {
+        let mut calendar = CalendarBrief::new();
+        calendar.event_count = 3;
+
+        let briefing = MorningBriefing::new().with_calendar(calendar);
+        assert_eq!(briefing.calendar.event_count, 3);
+    }
+
+    #[test]
+    fn test_morning_briefing_with_email() {
+        let mut email = EmailBrief::new();
+        email.unread_count = 15;
+
+        let briefing = MorningBriefing::new().with_email(email);
+        assert_eq!(briefing.email.unread_count, 15);
+    }
+
+    #[test]
+    fn test_morning_briefing_with_tasks() {
+        let mut tasks = TaskBrief::new();
+        tasks.due_today = 5;
+
+        let briefing = MorningBriefing::new().with_tasks(tasks);
+        assert_eq!(briefing.tasks.due_today, 5);
+    }
+
+    #[test]
+    fn test_morning_briefing_has_attention_priority_email() {
+        let mut briefing = MorningBriefing::new();
+        briefing.email.priority_count = 2;
+        assert!(briefing.has_attention_items());
+    }
+
+    #[test]
+    fn test_morning_briefing_has_attention_calendar_now() {
+        let mut briefing = MorningBriefing::new();
+        let start = Utc::now();
+        let end = start + chrono::Duration::hours(1);
+        let mut item = CalendarItem::new("Meeting", start, end);
+        item.is_now = true;
+        briefing.calendar.upcoming.push(item);
+
+        assert!(briefing.has_attention_items());
+    }
+
+    #[test]
+    fn test_weather_summary_serialization() {
+        let weather = WeatherSummary::new(18.5, "Rainy", 20.0, 15.0);
+        let json = serde_json::to_string(&weather).expect("serialize");
+        let parsed: WeatherSummary = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.condition, "Rainy");
+    }
+
+    #[test]
+    fn test_task_item_serialization() {
+        let task = TaskItem::new("t-1", "Test")
+            .with_priority(Priority::High)
+            .overdue();
+        let json = serde_json::to_string(&task).expect("serialize");
+        let parsed: TaskItem = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.priority, Priority::High);
+        assert!(parsed.is_overdue);
+    }
+
+    #[test]
+    fn test_calendar_item_serialization() {
+        let start = Utc::now();
+        let end = start + chrono::Duration::hours(2);
+        let item = CalendarItem::new("Workshop", start, end);
+        let json = serde_json::to_string(&item).expect("serialize");
+        let parsed: CalendarItem = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.title, "Workshop");
+    }
+
+    #[test]
+    fn test_email_brief_serialization() {
+        let mut brief = EmailBrief::new();
+        brief.unread_count = 5;
+        brief.important_senders.push("boss@company.com".to_string());
+        let json = serde_json::to_string(&brief).expect("serialize");
+        let parsed: EmailBrief = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.unread_count, 5);
+    }
+
+    #[test]
+    fn test_task_brief_has_attention_with_high_priority() {
+        let mut brief = TaskBrief::new();
+        brief.high_priority.push(TaskItem::new("1", "Urgent"));
+        assert!(brief.has_attention_items());
+        assert_eq!(brief.attention_count(), 1);
+    }
+
+    #[test]
+    fn test_task_brief_attention_count_combined() {
+        let mut brief = TaskBrief::new();
+        brief.overdue = 2;
+        brief.high_priority.push(TaskItem::new("1", "Urgent"));
+        brief.high_priority.push(TaskItem::new("2", "Also urgent"));
+        assert_eq!(brief.attention_count(), 4); // 2 overdue + 2 high priority
+    }
 }

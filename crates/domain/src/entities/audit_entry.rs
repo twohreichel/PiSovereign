@@ -473,4 +473,119 @@ mod tests {
         assert!(debug.contains("AuditEntry"));
         assert!(debug.contains("System"));
     }
+
+    // === Additional AuditBuilder tests ===
+
+    #[test]
+    fn audit_builder_command_failed() {
+        let entry = AuditBuilder::command_failed("user-456", "create_event", "Permission denied");
+
+        assert!(!entry.success);
+        assert_eq!(entry.event_type, AuditEventType::CommandExecution);
+        assert_eq!(entry.action, "execute");
+        assert!(entry.details.as_ref().unwrap().contains("create_event"));
+        assert!(
+            entry
+                .details
+                .as_ref()
+                .unwrap()
+                .contains("Permission denied")
+        );
+    }
+
+    #[test]
+    fn audit_builder_approval_granted() {
+        let entry = AuditBuilder::approval_granted("apr-123");
+
+        assert!(entry.success);
+        assert_eq!(entry.event_type, AuditEventType::Approval);
+        assert_eq!(entry.action, "approve");
+        assert_eq!(entry.resource_id, Some("apr-123".to_string()));
+    }
+
+    #[test]
+    fn audit_builder_approval_denied_with_reason() {
+        let entry = AuditBuilder::approval_denied("apr-456", Some("User rejected"));
+
+        assert!(entry.success); // denial is a successful action
+        assert_eq!(entry.event_type, AuditEventType::Approval);
+        assert_eq!(entry.action, "deny");
+        assert_eq!(entry.details, Some("User rejected".to_string()));
+    }
+
+    #[test]
+    fn audit_builder_approval_denied_without_reason() {
+        let entry = AuditBuilder::approval_denied("apr-789", None);
+
+        assert_eq!(entry.action, "deny");
+        assert!(entry.details.is_none());
+    }
+
+    #[test]
+    fn audit_builder_unauthorized() {
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50));
+        let entry = AuditBuilder::unauthorized(ip, "/api/admin/config");
+
+        assert!(!entry.success);
+        assert_eq!(entry.event_type, AuditEventType::Authorization);
+        assert_eq!(entry.action, "unauthorized_access");
+        assert_eq!(entry.ip_address, Some(ip));
+        assert!(entry.details.as_ref().unwrap().contains("/api/admin"));
+    }
+
+    #[test]
+    fn audit_builder_system_shutdown() {
+        let entry = AuditBuilder::system_shutdown("graceful");
+
+        assert!(entry.success);
+        assert_eq!(entry.event_type, AuditEventType::System);
+        assert_eq!(entry.action, "shutdown");
+        assert_eq!(entry.details, Some("graceful".to_string()));
+    }
+
+    #[test]
+    fn audit_builder_config_reloaded() {
+        let entry = AuditBuilder::config_reloaded("admin-user");
+
+        assert!(entry.success);
+        assert_eq!(entry.event_type, AuditEventType::ConfigChange);
+        assert_eq!(entry.action, "reload");
+        assert_eq!(entry.actor, Some("admin-user".to_string()));
+    }
+
+    #[test]
+    fn with_request_id() {
+        let request_id = Uuid::new_v4();
+        let entry = AuditEntry::success(AuditEventType::System, "test").with_request_id(request_id);
+
+        assert_eq!(entry.request_id, Some(request_id));
+    }
+
+    #[test]
+    fn event_type_all_variants_have_display() {
+        let variants = [
+            AuditEventType::Authentication,
+            AuditEventType::Authorization,
+            AuditEventType::CommandExecution,
+            AuditEventType::Approval,
+            AuditEventType::ConfigChange,
+            AuditEventType::System,
+            AuditEventType::DataAccess,
+            AuditEventType::Integration,
+            AuditEventType::Security,
+            AuditEventType::PromptInjection,
+        ];
+
+        for variant in variants {
+            let display = variant.to_string();
+            assert!(!display.is_empty());
+        }
+    }
+
+    #[test]
+    fn audit_builder_default_has_debug() {
+        let builder = AuditBuilder;
+        let debug = format!("{builder:?}");
+        assert!(debug.contains("AuditBuilder"));
+    }
 }
