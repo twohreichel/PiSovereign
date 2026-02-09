@@ -78,3 +78,4 @@ mockall.workspace = true
 testcontainers.workspace = true
 testcontainers-modules.workspace = true
 wiremock.workspace = true
+proptest.workspace = true

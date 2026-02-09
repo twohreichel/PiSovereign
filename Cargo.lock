@@ -47,6 +47,7 @@ dependencies = [
  "domain",
  "futures",
  "parking_lot",
+ "proptest",
  "reqwest",
  "serde",
  "serde_json",
@@ -55,6 +56,7 @@ dependencies = [
  "tokio-stream",
  "tokio-test",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]
@@ -2467,6 +2469,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "proptest",
  "r2d2",
  "r2d2_sqlite",
  "rand 0.8.5",
@@ -2510,6 +2513,7 @@ dependencies = [
  "chrono",
  "domain",
  "icalendar",
+ "proptest",
  "quick-xml 0.37.5",
  "reqwest",
  "serde",
@@ -2518,6 +2522,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]
@@ -2535,12 +2540,16 @@ dependencies = [
  "mailparse",
  "mockall",
  "native-tls",
+ "proptest",
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
+ "testcontainers",
  "thiserror 2.0.18",
  "tokio",
  "tokio-native-tls",
+ "tokio-stream",
  "tokio-test",
  "tracing",
  "uuid",
@@ -2553,8 +2562,10 @@ dependencies = [
  "application",
  "async-trait",
  "domain",
+ "proptest",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-test",
@@ -2609,6 +2620,7 @@ dependencies = [
  "domain",
  "hex",
  "hmac",
+ "proptest",
  "reqwest",
  "serde",
  "serde_json",
@@ -2617,6 +2629,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]
