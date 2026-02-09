@@ -7,6 +7,13 @@
 //! - IMAP/SMTP client construction
 //! - Email summary parsing
 
+#![allow(
+    clippy::redundant_clone,
+    clippy::implicit_clone,
+    clippy::panic,
+    clippy::missing_const_for_fn
+)]
+
 use integration_proton::{
     EmailComposition, EmailSummary, ProtonBridgeClient, ProtonConfig, ProtonError, TlsConfig,
 };
@@ -289,7 +296,7 @@ mod email_summary_tests {
     #[test]
     fn email_summary_equality() {
         let summary1 = EmailSummary::new("1", "a@b.com", "Subject");
-        let summary2 = EmailSummary::new("1", "a@b.com", "Subject");
+        let _summary2 = EmailSummary::new("1", "a@b.com", "Subject");
 
         // Note: received_at is set to current time, so we need to create with same time
         let summary3 = summary1.clone();
@@ -359,7 +366,8 @@ mod email_composition_tests {
     #[test]
     fn email_composition_with_cc_list() {
         let cc_list = vec!["a@b.com".to_string(), "c@d.com".to_string()];
-        let email = EmailComposition::new("to@example.com", "Subject", "Body").with_cc_list(cc_list);
+        let email =
+            EmailComposition::new("to@example.com", "Subject", "Body").with_cc_list(cc_list);
 
         assert_eq!(email.cc.len(), 2);
     }
@@ -422,8 +430,8 @@ mod email_composition_tests {
 
     #[test]
     fn email_composition_serialization_roundtrip() {
-        let email = EmailComposition::new("to@example.com", "Test", "Body text")
-            .with_cc("cc@example.com");
+        let email =
+            EmailComposition::new("to@example.com", "Test", "Body text").with_cc("cc@example.com");
 
         let json = serde_json::to_string(&email).unwrap();
         let deserialized: EmailComposition = serde_json::from_str(&json).unwrap();
@@ -458,10 +466,7 @@ mod proton_error_tests {
     #[test]
     fn error_display_bridge_unavailable() {
         let err = ProtonError::BridgeUnavailable("Connection refused".to_string());
-        assert_eq!(
-            err.to_string(),
-            "Bridge not available: Connection refused"
-        );
+        assert_eq!(err.to_string(), "Bridge not available: Connection refused");
     }
 
     #[test]
@@ -686,7 +691,7 @@ mod imap_client_tests {
         assert!(result.is_err());
         // Should fail with connection error
         match result {
-            Err(ProtonError::ConnectionFailed(_)) => {}
+            Err(ProtonError::ConnectionFailed(_)) => {},
             Err(e) => panic!("Expected ConnectionFailed, got {:?}", e),
             Ok(_) => panic!("Expected error, got success"),
         }
@@ -727,7 +732,7 @@ mod smtp_client_tests {
         assert!(result.is_err());
         // Should fail with connection error
         match result {
-            Err(ProtonError::ConnectionFailed(_)) => {}
+            Err(ProtonError::ConnectionFailed(_)) => {},
             Err(e) => panic!("Expected ConnectionFailed, got {:?}", e),
             Ok(_) => panic!("Expected error, got success"),
         }

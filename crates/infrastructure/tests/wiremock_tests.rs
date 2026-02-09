@@ -9,6 +9,23 @@
 //! - Encryption and API key hashing
 //! - Degraded inference mode
 
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_comparisons,
+    clippy::float_cmp,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::items_after_statements,
+    clippy::panic,
+    clippy::redundant_clone,
+    clippy::unreadable_literal,
+    clippy::too_many_lines,
+    clippy::absurd_extreme_comparisons,
+    clippy::nonminimal_bool
+)]
+
 use std::time::Duration;
 use uuid::Uuid;
 use wiremock::matchers::{header, method, path};
@@ -861,17 +878,30 @@ mod weather_adapter_tests {
         // Test that weather API responses can be parsed correctly
         let response = weather_current_response();
         let current = response.get("current").unwrap();
-        
-        assert_eq!(current.get("temperature_2m").unwrap().as_f64().unwrap(), 5.2);
-        assert_eq!(current.get("relative_humidity_2m").unwrap().as_i64().unwrap(), 75);
-        assert_eq!(current.get("wind_speed_10m").unwrap().as_f64().unwrap(), 15.5);
+
+        assert_eq!(
+            current.get("temperature_2m").unwrap().as_f64().unwrap(),
+            5.2
+        );
+        assert_eq!(
+            current
+                .get("relative_humidity_2m")
+                .unwrap()
+                .as_i64()
+                .unwrap(),
+            75
+        );
+        assert_eq!(
+            current.get("wind_speed_10m").unwrap().as_f64().unwrap(),
+            15.5
+        );
     }
 
     #[tokio::test]
     async fn weather_forecast_response_parsing() {
         let response = weather_forecast_response();
         let daily = response.get("daily").unwrap();
-        
+
         let temps_max = daily.get("temperature_2m_max").unwrap().as_array().unwrap();
         assert_eq!(temps_max.len(), 3);
         assert_eq!(temps_max[0].as_f64().unwrap(), 8.5);
@@ -915,7 +945,10 @@ mod weather_adapter_tests {
 
         let client = CorrelatedHttpClient::new().unwrap();
         let response = client
-            .get(format!("{}/v1/forecast?latitude=52.52&longitude=13.41", mock_server.uri()))
+            .get(format!(
+                "{}/v1/forecast?latitude=52.52&longitude=13.41",
+                mock_server.uri()
+            ))
             .send()
             .await
             .unwrap();
@@ -966,11 +999,17 @@ mod whatsapp_adapter_tests {
     #[tokio::test]
     async fn whatsapp_send_message_response_parsing() {
         let response = whatsapp_send_success_response();
-        
-        assert_eq!(response.get("messaging_product").unwrap().as_str().unwrap(), "whatsapp");
+
+        assert_eq!(
+            response.get("messaging_product").unwrap().as_str().unwrap(),
+            "whatsapp"
+        );
         let contacts = response.get("contacts").unwrap().as_array().unwrap();
         assert_eq!(contacts.len(), 1);
-        assert_eq!(contacts[0].get("wa_id").unwrap().as_str().unwrap(), "491234567890");
+        assert_eq!(
+            contacts[0].get("wa_id").unwrap().as_str().unwrap(),
+            "491234567890"
+        );
     }
 
     #[tokio::test]
@@ -981,7 +1020,9 @@ mod whatsapp_adapter_tests {
             .and(path("/v17.0/123456789/messages"))
             .and(header("Authorization", "Bearer test_token"))
             .and(header("Content-Type", "application/json"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(whatsapp_send_success_response()))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(whatsapp_send_success_response()),
+            )
             .mount(&mock_server)
             .await;
 
@@ -1013,7 +1054,9 @@ mod whatsapp_adapter_tests {
         Mock::given(method("POST"))
             .and(path("/v17.0/123456789/media"))
             .and(header("Authorization", "Bearer test_token"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(whatsapp_media_upload_response()))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(whatsapp_media_upload_response()),
+            )
             .mount(&mock_server)
             .await;
 
@@ -1061,25 +1104,25 @@ mod whatsapp_adapter_tests {
         // Test HMAC-SHA256 webhook signature verification logic
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
-        
+
         type HmacSha256 = Hmac<Sha256>;
-        
+
         let secret = "my_webhook_secret";
         let payload = r#"{"object":"whatsapp_business_account"}"#;
-        
+
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(payload.as_bytes());
         let result = mac.finalize();
         let signature = hex::encode(result.into_bytes());
-        
+
         // Verify signature format
         assert_eq!(signature.len(), 64); // SHA256 produces 32 bytes = 64 hex chars
-        
+
         // Verify that the same input produces the same signature
         let mut mac2 = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac2.update(payload.as_bytes());
         let signature2 = hex::encode(mac2.finalize().into_bytes());
-        
+
         assert_eq!(signature, signature2);
     }
 }
@@ -1171,9 +1214,15 @@ mod ollama_adapter_tests {
     #[tokio::test]
     async fn ollama_generate_response_parsing() {
         let response = ollama_generate_response();
-        
-        assert_eq!(response.get("model").unwrap().as_str().unwrap(), "qwen2.5:1.5b");
-        assert_eq!(response.get("response").unwrap().as_str().unwrap(), "Hello! How can I help you today?");
+
+        assert_eq!(
+            response.get("model").unwrap().as_str().unwrap(),
+            "qwen2.5:1.5b"
+        );
+        assert_eq!(
+            response.get("response").unwrap().as_str().unwrap(),
+            "Hello! How can I help you today?"
+        );
         assert!(response.get("done").unwrap().as_bool().unwrap());
         assert_eq!(response.get("eval_count").unwrap().as_i64().unwrap(), 25);
     }
@@ -1205,7 +1254,10 @@ mod ollama_adapter_tests {
 
         assert_eq!(response.status(), 200);
         let body: serde_json::Value = response.json().await.unwrap();
-        assert_eq!(body["response"].as_str().unwrap(), "Hello! How can I help you today?");
+        assert_eq!(
+            body["response"].as_str().unwrap(),
+            "Hello! How can I help you today?"
+        );
     }
 
     #[tokio::test]
@@ -1248,7 +1300,12 @@ mod ollama_adapter_tests {
 
         assert_eq!(response.status(), 200);
         let body: serde_json::Value = response.json().await.unwrap();
-        assert!(body["message"]["content"].as_str().unwrap().contains("doing well"));
+        assert!(
+            body["message"]["content"]
+                .as_str()
+                .unwrap()
+                .contains("doing well")
+        );
     }
 
     #[tokio::test]
@@ -1365,15 +1422,14 @@ mod ollama_adapter_tests {
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_json(ollama_generate_response())
-                    .set_delay(Duration::from_millis(100))
+                    .set_delay(Duration::from_millis(100)),
             )
             .mount(&mock_server)
             .await;
 
-        let config = CorrelatedClientConfig::default()
-            .with_timeout(Duration::from_secs(10)); // Long enough to complete
+        let config = CorrelatedClientConfig::default().with_timeout(Duration::from_secs(10)); // Long enough to complete
         let client = CorrelatedHttpClient::with_config(config).unwrap();
-        
+
         let response = client
             .post(format!("{}/api/generate", mock_server.uri()))
             .json(&serde_json::json!({"model": "test", "prompt": "hi"}))
@@ -1404,7 +1460,7 @@ mod circuit_breaker_integration_tests {
             .await;
 
         let client = CorrelatedHttpClient::new().unwrap();
-        
+
         // Make multiple failing requests
         for _ in 0..5 {
             let _ = client
@@ -1424,7 +1480,7 @@ mod circuit_breaker_integration_tests {
             success_threshold: 2,
             half_open_timeout_secs: 30,
         };
-        
+
         assert_eq!(config.failure_threshold, 5);
         assert_eq!(config.success_threshold, 2);
         assert_eq!(config.half_open_timeout_secs, 30);
@@ -1441,7 +1497,7 @@ mod degraded_inference_tests {
     #[test]
     fn degraded_mode_config_defaults() {
         let config = DegradedModeConfig::default();
-        
+
         assert!(config.enabled);
         assert_eq!(config.retry_cooldown_secs, 30);
         assert_eq!(config.failure_threshold, 3);
@@ -1458,7 +1514,7 @@ mod degraded_inference_tests {
             failure_threshold: 5,
             success_threshold: 3,
         };
-        
+
         assert_eq!(config.retry_cooldown_secs, 60);
         assert_eq!(config.failure_threshold, 5);
         assert_eq!(config.unavailable_message, "Custom message");
@@ -1467,11 +1523,11 @@ mod degraded_inference_tests {
     #[test]
     fn service_status_variants() {
         assert_eq!(ServiceStatus::default(), ServiceStatus::Healthy);
-        
+
         let healthy = ServiceStatus::Healthy;
         let degraded = ServiceStatus::Degraded;
         let unavailable = ServiceStatus::Unavailable;
-        
+
         assert_ne!(healthy, degraded);
         assert_ne!(degraded, unavailable);
         assert_ne!(healthy, unavailable);
@@ -1481,11 +1537,11 @@ mod degraded_inference_tests {
     fn degraded_mode_config_serialization() {
         let config = DegradedModeConfig::default();
         let json = serde_json::to_string(&config).unwrap();
-        
+
         assert!(json.contains("enabled"));
         assert!(json.contains("unavailable_message"));
         assert!(json.contains("retry_cooldown_secs"));
-        
+
         let parsed: DegradedModeConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(config.enabled, parsed.enabled);
         assert_eq!(config.failure_threshold, parsed.failure_threshold);
@@ -1497,8 +1553,8 @@ mod degraded_inference_tests {
 // ============================================================================
 
 mod encryption_extended_tests {
-    use infrastructure::adapters::ChaChaEncryptionAdapter;
     use application::ports::EncryptionPort;
+    use infrastructure::adapters::ChaChaEncryptionAdapter;
 
     #[test]
     fn key_generation_produces_correct_size() {
@@ -1511,12 +1567,16 @@ mod encryption_extended_tests {
         let keys: Vec<_> = (0..10)
             .map(|_| ChaChaEncryptionAdapter::generate_key())
             .collect();
-        
+
         // All keys should be unique
         for (i, key1) in keys.iter().enumerate() {
             for (j, key2) in keys.iter().enumerate() {
                 if i != j {
-                    assert_ne!(key1, key2, "Keys at index {} and {} should be different", i, j);
+                    assert_ne!(
+                        key1, key2,
+                        "Keys at index {} and {} should be different",
+                        i, j
+                    );
                 }
             }
         }
@@ -1526,15 +1586,15 @@ mod encryption_extended_tests {
     async fn encryption_roundtrip_various_sizes() {
         let key = ChaChaEncryptionAdapter::generate_key();
         let adapter = ChaChaEncryptionAdapter::new(&key).unwrap();
-        
+
         // Test various data sizes
         let test_sizes = [0, 1, 16, 100, 1024, 65536];
-        
+
         for size in test_sizes {
             let plaintext: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
             let encrypted = adapter.encrypt(&plaintext).await.unwrap();
             let decrypted = adapter.decrypt(&encrypted).await.unwrap();
-            
+
             assert_eq!(plaintext, decrypted, "Failed for size {}", size);
         }
     }
@@ -1543,7 +1603,7 @@ mod encryption_extended_tests {
     async fn encryption_with_unicode() {
         let key = ChaChaEncryptionAdapter::generate_key();
         let adapter = ChaChaEncryptionAdapter::new(&key).unwrap();
-        
+
         let test_strings = [
             "Hello, World!",
             "Grüß Gott!",
@@ -1552,12 +1612,12 @@ mod encryption_extended_tests {
             "🎉🎊🎈",
             "Mixed: Hello 世界 🌍",
         ];
-        
+
         for s in test_strings {
             let encrypted = adapter.encrypt(s.as_bytes()).await.unwrap();
             let decrypted = adapter.decrypt(&encrypted).await.unwrap();
             let decrypted_str = String::from_utf8(decrypted).unwrap();
-            
+
             assert_eq!(s, decrypted_str, "Failed for string: {}", s);
         }
     }
@@ -1570,14 +1630,14 @@ mod encryption_extended_tests {
             let result = ChaChaEncryptionAdapter::new(&key);
             assert!(result.is_err(), "Should reject key of size {}", size);
         }
-        
+
         // Too long
         for size in [33, 64, 128] {
             let key = vec![0u8; size];
             let result = ChaChaEncryptionAdapter::new(&key);
             assert!(result.is_err(), "Should reject key of size {}", size);
         }
-        
+
         // Correct size
         let key = vec![0u8; 32];
         let result = ChaChaEncryptionAdapter::new(&key);
@@ -1588,21 +1648,21 @@ mod encryption_extended_tests {
     async fn decryption_fails_for_tampered_data() {
         let key = ChaChaEncryptionAdapter::generate_key();
         let adapter = ChaChaEncryptionAdapter::new(&key).unwrap();
-        
+
         let plaintext = b"Sensitive data";
         let mut encrypted = adapter.encrypt(plaintext).await.unwrap();
-        
+
         // Tamper with various positions
         let test_positions = [0, 12, 24, encrypted.len() / 2, encrypted.len() - 1];
-        
+
         for &pos in &test_positions {
             if pos < encrypted.len() {
                 let original = encrypted[pos];
                 encrypted[pos] ^= 0xFF;
-                
+
                 let result = adapter.decrypt(&encrypted).await;
                 assert!(result.is_err(), "Should fail for tampered position {}", pos);
-                
+
                 encrypted[pos] = original; // Restore for next test
             }
         }
@@ -1612,13 +1672,13 @@ mod encryption_extended_tests {
     async fn different_keys_cannot_decrypt() {
         let key1 = ChaChaEncryptionAdapter::generate_key();
         let key2 = ChaChaEncryptionAdapter::generate_key();
-        
+
         let adapter1 = ChaChaEncryptionAdapter::new(&key1).unwrap();
         let adapter2 = ChaChaEncryptionAdapter::new(&key2).unwrap();
-        
+
         let plaintext = b"Secret message";
         let encrypted = adapter1.encrypt(plaintext).await.unwrap();
-        
+
         // Decryption with different key should fail
         let result = adapter2.decrypt(&encrypted).await;
         assert!(result.is_err());
@@ -1635,7 +1695,7 @@ mod api_key_hasher_extended_tests {
     #[test]
     fn hasher_handles_various_key_formats() {
         let hasher = ApiKeyHasher::new();
-        
+
         let test_keys = [
             "sk-simple",
             "sk-with-dashes-and-numbers-123",
@@ -1645,10 +1705,14 @@ mod api_key_hasher_extended_tests {
             "key with spaces",
             "key-with-special-chars!@#$%",
         ];
-        
+
         for key in test_keys {
             let hash = hasher.hash(key).unwrap();
-            assert!(hasher.verify(key, &hash).unwrap(), "Failed for key: {}", key);
+            assert!(
+                hasher.verify(key, &hash).unwrap(),
+                "Failed for key: {}",
+                key
+            );
         }
     }
 
@@ -1658,15 +1722,15 @@ mod api_key_hasher_extended_tests {
         // timing analysis, but we verify the API at least accepts various inputs
         let hasher = ApiKeyHasher::new();
         let hash = hasher.hash("reference-key").unwrap();
-        
+
         // Various wrong keys should all be rejected
         let wrong_keys = [
             "wrong-key",
-            "reference-ke",  // One char short
+            "reference-ke",   // One char short
             "reference-key!", // One char extra
             "Reference-key",  // Case difference
         ];
-        
+
         for wrong_key in wrong_keys {
             assert!(!hasher.verify(wrong_key, &hash).unwrap());
         }
@@ -1677,7 +1741,7 @@ mod api_key_hasher_extended_tests {
         // Empty iterator
         let count = ApiKeyHasher::detect_plaintext_keys(std::iter::empty());
         assert_eq!(count, 0);
-        
+
         // All hashed
         let all_hashed = &[
             "$argon2id$v=19$m=19456,t=2,p=1$salt$hash1",
@@ -1685,7 +1749,7 @@ mod api_key_hasher_extended_tests {
         ];
         let count = ApiKeyHasher::detect_plaintext_keys(all_hashed.iter().copied());
         assert_eq!(count, 0);
-        
+
         // All plaintext
         let all_plaintext = &["key1", "key2", "key3"];
         let count = ApiKeyHasher::detect_plaintext_keys(all_plaintext.iter().copied());
@@ -1699,7 +1763,7 @@ mod api_key_hasher_extended_tests {
         assert!(!ApiKeyHasher::is_hashed("$"));
         assert!(!ApiKeyHasher::is_hashed("$argon"));
         assert!(!ApiKeyHasher::is_hashed("argon2id"));
-        
+
         // Valid prefixes
         assert!(ApiKeyHasher::is_hashed("$argon2id$"));
         assert!(ApiKeyHasher::is_hashed("$argon2i$"));

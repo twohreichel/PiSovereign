@@ -2,23 +2,24 @@
 //!
 //! These tests verify the actual persistence stores used by the application.
 
+#![allow(clippy::expect_used, clippy::cast_possible_truncation, unused_imports)]
+
 use std::sync::Arc;
 
-use infrastructure::config::DatabaseConfig;
-use infrastructure::persistence::{
-    create_pool, SqliteAuditLog, SqliteApprovalQueue, SqliteConversationStore,
-    SqliteDraftStore, SqliteUserProfileStore, ConnectionPool,
-};
 use application::ports::{
-    AuditLogPort, ApprovalQueuePort, ConversationStore, DraftStorePort,
-    UserProfileStore, AuditQuery,
-};
-use domain::{
-    AuditEntry, AuditEventType, ApprovalRequest, ApprovalStatus,
-    Conversation, ChatMessage, UserId, ConversationId,
-    PersistedEmailDraft, DraftId, AgentCommand, UserProfile,
+    ApprovalQueuePort, AuditLogPort, AuditQuery, ConversationStore, DraftStorePort,
+    UserProfileStore,
 };
 use chrono::{Duration, Utc};
+use domain::{
+    AgentCommand, ApprovalRequest, ApprovalStatus, AuditEntry, AuditEventType, ChatMessage,
+    Conversation, ConversationId, DraftId, PersistedEmailDraft, UserId, UserProfile,
+};
+use infrastructure::config::DatabaseConfig;
+use infrastructure::persistence::{
+    ConnectionPool, SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, SqliteDraftStore,
+    SqliteUserProfileStore, create_pool,
+};
 
 // ============================================================================
 // Test Helpers
@@ -57,10 +58,10 @@ mod conversation_store_tests {
         let id = conversation.id;
 
         store.save(&conversation).await.expect("Failed to save");
-        
+
         let retrieved = store.get(&id).await.expect("Failed to get");
         assert!(retrieved.is_some());
-        
+
         let retrieved = retrieved.unwrap();
         assert_eq!(retrieved.id, id);
         assert_eq!(retrieved.title, Some("Test Conversation".to_string()));
@@ -71,8 +72,11 @@ mod conversation_store_tests {
     async fn test_get_nonexistent_conversation() {
         let pool = create_test_db();
         let store = SqliteConversationStore::new(pool);
-        
-        let result = store.get(&ConversationId::new()).await.expect("Failed to query");
+
+        let result = store
+            .get(&ConversationId::new())
+            .await
+            .expect("Failed to query");
         assert!(result.is_none());
     }
 
@@ -111,7 +115,7 @@ mod conversation_store_tests {
     async fn test_list_recent_conversations() {
         let pool = create_test_db();
         let store = SqliteConversationStore::new(pool);
-        
+
         // Create multiple conversations
         for _ in 0..5 {
             let conv = create_test_conversation();
@@ -126,7 +130,7 @@ mod conversation_store_tests {
     async fn test_list_recent_limit() {
         let pool = create_test_db();
         let store = SqliteConversationStore::new(pool);
-        
+
         // Create 10 conversations
         for _ in 0..10 {
             let conv = create_test_conversation();
@@ -142,7 +146,7 @@ mod conversation_store_tests {
     async fn test_message_ordering() {
         let pool = create_test_db();
         let store = SqliteConversationStore::new(pool);
-        
+
         let mut conversation = Conversation::new();
 
         // Add messages in order
@@ -156,8 +160,12 @@ mod conversation_store_tests {
 
         store.save(&conversation).await.expect("Failed to save");
 
-        let retrieved = store.get(&conversation.id).await.expect("Failed to get").unwrap();
-        
+        let retrieved = store
+            .get(&conversation.id)
+            .await
+            .expect("Failed to get")
+            .unwrap();
+
         // Verify ordering
         for (i, msg) in retrieved.messages.iter().enumerate() {
             assert!(msg.content.contains(&i.to_string()));
@@ -168,7 +176,7 @@ mod conversation_store_tests {
     async fn test_add_messages() {
         let pool = create_test_db();
         let store = SqliteConversationStore::new(pool);
-        
+
         let conversation = create_test_conversation();
         let id = conversation.id;
         let current_count = conversation.messages.len(); // 2 messages
@@ -178,10 +186,14 @@ mod conversation_store_tests {
         // Add new messages with sequence numbers greater than existing
         let new_messages = vec![
             ChatMessage::user("New message 1").with_sequence_number((current_count + 1) as u32),
-            ChatMessage::assistant("New response 1").with_sequence_number((current_count + 2) as u32),
+            ChatMessage::assistant("New response 1")
+                .with_sequence_number((current_count + 2) as u32),
         ];
-        
-        let added = store.add_messages(&id, &new_messages).await.expect("Failed to add messages");
+
+        let added = store
+            .add_messages(&id, &new_messages)
+            .await
+            .expect("Failed to add messages");
         assert_eq!(added, 2);
 
         let retrieved = store.get(&id).await.expect("Failed to get").unwrap();
@@ -190,7 +202,7 @@ mod conversation_store_tests {
 }
 
 // ============================================================================
-// Audit Log Tests  
+// Audit Log Tests
 // ============================================================================
 
 mod audit_log_tests {
@@ -219,14 +231,14 @@ mod audit_log_tests {
         let log = SqliteAuditLog::new(pool);
 
         let entry = create_test_audit_entry(AuditEventType::DataAccess, "read");
-        
+
         log.log(&entry).await.expect("Failed to log event");
 
         let query = AuditQuery::new().with_event_type(AuditEventType::DataAccess);
-        
+
         let events = log.query(&query).await.expect("Failed to get events");
         assert!(!events.is_empty());
-        
+
         let event = &events[0];
         assert_eq!(event.event_type, AuditEventType::DataAccess);
         assert_eq!(event.actor, Some("test-user".to_string()));
@@ -238,18 +250,32 @@ mod audit_log_tests {
         let log = SqliteAuditLog::new(pool);
 
         // Log different event types
-        log.log(&create_test_audit_entry(AuditEventType::Authentication, "login")).await.unwrap();
-        log.log(&create_test_audit_entry(AuditEventType::DataAccess, "read")).await.unwrap();
-        log.log(&create_test_audit_entry(AuditEventType::Authentication, "logout")).await.unwrap();
-        log.log(&create_test_audit_entry(AuditEventType::System, "startup")).await.unwrap();
+        log.log(&create_test_audit_entry(
+            AuditEventType::Authentication,
+            "login",
+        ))
+        .await
+        .unwrap();
+        log.log(&create_test_audit_entry(AuditEventType::DataAccess, "read"))
+            .await
+            .unwrap();
+        log.log(&create_test_audit_entry(
+            AuditEventType::Authentication,
+            "logout",
+        ))
+        .await
+        .unwrap();
+        log.log(&create_test_audit_entry(AuditEventType::System, "startup"))
+            .await
+            .unwrap();
 
         let query = AuditQuery::new().with_event_type(AuditEventType::Authentication);
-        
+
         let login_events = log.query(&query).await.expect("Failed to query");
         assert_eq!(login_events.len(), 2);
 
         let query = AuditQuery::new().with_event_type(AuditEventType::DataAccess);
-        
+
         let data_events = log.query(&query).await.expect("Failed to query");
         assert_eq!(data_events.len(), 1);
     }
@@ -262,7 +288,7 @@ mod audit_log_tests {
         // Create entries for different users
         let mut entry_alice = create_test_audit_entry(AuditEventType::DataAccess, "read");
         entry_alice.actor = Some("alice".to_string());
-        
+
         let mut entry_bob = create_test_audit_entry(AuditEventType::DataAccess, "read");
         entry_bob.actor = Some("bob".to_string());
 
@@ -271,7 +297,7 @@ mod audit_log_tests {
         log.log(&entry_bob).await.unwrap();
 
         let query = AuditQuery::new().with_actor("alice");
-        
+
         let alice_events = log.query(&query).await.expect("Failed to query");
         assert_eq!(alice_events.len(), 2);
     }
@@ -280,13 +306,15 @@ mod audit_log_tests {
     async fn test_audit_log_time_range() {
         let pool = create_test_db();
         let log = SqliteAuditLog::new(pool);
-        
+
         let entry = create_test_audit_entry(AuditEventType::DataAccess, "read");
         log.log(&entry).await.unwrap();
 
-        let query = AuditQuery::new()
-            .with_time_range(Utc::now() - Duration::hours(1), Utc::now() + Duration::hours(1));
-        
+        let query = AuditQuery::new().with_time_range(
+            Utc::now() - Duration::hours(1),
+            Utc::now() + Duration::hours(1),
+        );
+
         let events = log.query(&query).await.expect("Failed to query");
         assert!(!events.is_empty());
     }
@@ -295,9 +323,10 @@ mod audit_log_tests {
     async fn test_audit_log_get_recent() {
         let pool = create_test_db();
         let log = SqliteAuditLog::new(pool);
-        
+
         for i in 0..10 {
-            let entry = create_test_audit_entry(AuditEventType::DataAccess, &format!("action_{}", i));
+            let entry =
+                create_test_audit_entry(AuditEventType::DataAccess, &format!("action_{}", i));
             log.log(&entry).await.unwrap();
         }
 
@@ -309,15 +338,18 @@ mod audit_log_tests {
     async fn test_audit_log_get_for_actor() {
         let pool = create_test_db();
         let log = SqliteAuditLog::new(pool);
-        
+
         let mut entry = create_test_audit_entry(AuditEventType::DataAccess, "read");
         entry.actor = Some("specific-user".to_string());
-        
+
         for _ in 0..3 {
             log.log(&entry).await.unwrap();
         }
 
-        let events = log.get_for_actor("specific-user", 10).await.expect("Failed to query");
+        let events = log
+            .get_for_actor("specific-user", 10)
+            .await
+            .expect("Failed to query");
         assert_eq!(events.len(), 3);
     }
 }
@@ -361,7 +393,7 @@ mod approval_queue_tests {
         let queue = SqliteApprovalQueue::new(pool);
 
         let user_id = UserId::new();
-        
+
         for _ in 0..2 {
             let request = ApprovalRequest::new(
                 user_id,
@@ -376,7 +408,10 @@ mod approval_queue_tests {
         // Create one for another user
         queue.enqueue(&create_test_approval()).await.unwrap();
 
-        let user_requests = queue.get_pending_for_user(&user_id).await.expect("Failed to get");
+        let user_requests = queue
+            .get_pending_for_user(&user_id)
+            .await
+            .expect("Failed to get");
         assert_eq!(user_requests.len(), 2);
     }
 
@@ -386,7 +421,7 @@ mod approval_queue_tests {
         let queue = SqliteApprovalQueue::new(pool);
 
         let user_id = UserId::new();
-        
+
         for _ in 0..3 {
             let request = ApprovalRequest::new(
                 user_id,
@@ -398,7 +433,10 @@ mod approval_queue_tests {
             queue.enqueue(&request).await.unwrap();
         }
 
-        let count = queue.count_pending_for_user(&user_id).await.expect("Failed to count");
+        let count = queue
+            .count_pending_for_user(&user_id)
+            .await
+            .expect("Failed to count");
         assert_eq!(count, 3);
     }
 
@@ -448,7 +486,8 @@ mod draft_store_tests {
             "recipient@example.com",
             "Test Subject",
             "Test body content",
-        ).with_cc("cc@example.com")
+        )
+        .with_cc("cc@example.com")
     }
 
     #[tokio::test]
@@ -490,18 +529,17 @@ mod draft_store_tests {
         let store = SqliteDraftStore::new(pool);
 
         let user_id = UserId::new();
-        
+
         for _ in 0..3 {
-            let draft = PersistedEmailDraft::new(
-                user_id,
-                "test@example.com",
-                "Test Subject",
-                "Test body",
-            );
+            let draft =
+                PersistedEmailDraft::new(user_id, "test@example.com", "Test Subject", "Test body");
             store.save(&draft).await.unwrap();
         }
 
-        let drafts = store.list_for_user(&user_id, 10).await.expect("Failed to list");
+        let drafts = store
+            .list_for_user(&user_id, 10)
+            .await
+            .expect("Failed to list");
         assert_eq!(drafts.len(), 3);
     }
 
@@ -528,23 +566,25 @@ mod draft_store_tests {
 
         let user_id = UserId::new();
         let other_user_id = UserId::new();
-        
-        let draft = PersistedEmailDraft::new(
-            user_id,
-            "test@example.com",
-            "Test Subject",
-            "Test body",
-        );
+
+        let draft =
+            PersistedEmailDraft::new(user_id, "test@example.com", "Test Subject", "Test body");
         let id = draft.id;
 
         store.save(&draft).await.expect("Failed to save");
 
         // Can get as the owner
-        let result = store.get_for_user(&id, &user_id).await.expect("Failed to get");
+        let result = store
+            .get_for_user(&id, &user_id)
+            .await
+            .expect("Failed to get");
         assert!(result.is_some());
 
         // Cannot get as different user
-        let result = store.get_for_user(&id, &other_user_id).await.expect("Failed to get");
+        let result = store
+            .get_for_user(&id, &other_user_id)
+            .await
+            .expect("Failed to get");
         assert!(result.is_none());
     }
 }
@@ -628,7 +668,7 @@ mod concurrent_access_tests {
         // Using file-based database for concurrent access
         let temp_dir = std::env::temp_dir();
         let db_path = temp_dir.join(format!("test_concurrent_{}.db", uuid::Uuid::new_v4()));
-        
+
         let config = DatabaseConfig {
             path: db_path.to_string_lossy().to_string(),
             max_connections: 5,
@@ -636,20 +676,20 @@ mod concurrent_access_tests {
         };
         let pool = Arc::new(create_pool(&config).expect("Failed to create pool"));
         let store = Arc::new(SqliteConversationStore::new(pool));
-        
+
         let barrier = Arc::new(Barrier::new(5));
         let mut handles = vec![];
 
         for i in 0..5 {
             let store = Arc::clone(&store);
             let barrier = Arc::clone(&barrier);
-            
+
             handles.push(tokio::spawn(async move {
                 barrier.wait().await;
-                
+
                 let mut conv = Conversation::new();
                 conv.title = Some(format!("Conversation {}", i));
-                
+
                 store.save(&conv).await.expect("Failed to save");
                 conv.id
             }));

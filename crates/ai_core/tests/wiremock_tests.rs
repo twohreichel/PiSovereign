@@ -9,7 +9,7 @@ use ai_core::{
 };
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{body_json_schema, method, path},
+    matchers::{method, path},
 };
 
 // =============================================================================
@@ -63,6 +63,7 @@ fn models_list_response() -> serde_json::Value {
 }
 
 /// Sample Ollama embed response (single)
+#[allow(clippy::cast_precision_loss)]
 fn embed_single_response() -> serde_json::Value {
     // Generate a 384-dimensional embedding
     let embedding: Vec<f32> = (0..384).map(|i| (i as f32) / 384.0).collect();
@@ -72,6 +73,7 @@ fn embed_single_response() -> serde_json::Value {
 }
 
 /// Sample Ollama embed response (batch)
+#[allow(clippy::cast_precision_loss)]
 fn embed_batch_response(count: usize) -> serde_json::Value {
     let embeddings: Vec<Vec<f32>> = (0..count)
         .map(|i| (0..384).map(|j| ((i + j) as f32) / 384.0).collect())
@@ -314,7 +316,6 @@ mod inference_tests {
 
 mod embedding_tests {
     use super::*;
-    use ai_core::EmbeddingEngine;
 
     #[tokio::test]
     async fn embed_single_text_success() {
@@ -648,7 +649,7 @@ mod proptest_tests {
         ) {
             if a.len() == b.len() {
                 let similarity = ai_core::OllamaEmbeddingEngine::cosine_similarity(&a, &b);
-                prop_assert!(similarity >= -1.0 && similarity <= 1.0, "Similarity should be in [-1, 1], got {}", similarity);
+                prop_assert!((-1.0..=1.0).contains(&similarity), "Similarity should be in [-1, 1], got {}", similarity);
             }
         }
 
@@ -660,7 +661,7 @@ mod proptest_tests {
             let request = ai_core::InferenceRequest::simple(&content).with_model(&model);
             let json = serde_json::to_string(&request).unwrap();
             let parsed: ai_core::InferenceRequest = serde_json::from_str(&json).unwrap();
-            
+
             prop_assert_eq!(request.messages.len(), parsed.messages.len());
             prop_assert_eq!(request.model, parsed.model);
         }
@@ -672,13 +673,13 @@ mod proptest_tests {
         ) {
             let config = ai_core::EmbeddingConfig {
                 base_url: "http://localhost:11434".to_string(),
-                model: model.clone(),
+                model,
                 timeout_ms: 30000,
                 dimensions,
             };
             let json = serde_json::to_string(&config).unwrap();
             let parsed: ai_core::EmbeddingConfig = serde_json::from_str(&json).unwrap();
-            
+
             prop_assert_eq!(config.model, parsed.model);
             prop_assert_eq!(config.dimensions, parsed.dimensions);
         }

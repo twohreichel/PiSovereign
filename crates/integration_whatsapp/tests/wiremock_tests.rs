@@ -3,6 +3,16 @@
 //! These tests mock the Meta Graph API to verify client behavior without
 //! making actual API calls.
 
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    clippy::items_after_statements,
+    clippy::expect_used,
+    clippy::match_wildcard_for_single_variants,
+    clippy::panic
+)]
+
 use integration_whatsapp::{WhatsAppClient, WhatsAppClientConfig, WhatsAppError};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -94,9 +104,7 @@ mod send_message_tests {
         assert_eq!(parsed.contacts.len(), 1);
         assert_eq!(parsed.contacts[0].wa_id, "491234567890");
         assert_eq!(parsed.messages.len(), 1);
-        assert!(parsed.messages[0]
-            .id
-            .starts_with("wamid."));
+        assert!(parsed.messages[0].id.starts_with("wamid."));
     }
 
     #[tokio::test]
@@ -175,7 +183,7 @@ mod media_download_tests {
     #[tokio::test]
     async fn media_url_response_parsing() {
         let response = media_url_response("https://cdn.example.com/media/123");
-        
+
         #[derive(serde::Deserialize)]
         struct MediaUrlResponse {
             url: String,
@@ -376,10 +384,7 @@ mod whitelist_tests {
     fn whitelist_multiple_numbers() {
         let config = test_config("http://localhost");
         let client = WhatsAppClient::new(config).unwrap();
-        let whitelist = vec![
-            "+491234567890".to_string(),
-            "+491111111111".to_string(),
-        ];
+        let whitelist = vec!["+491234567890".to_string(), "+491111111111".to_string()];
 
         assert!(client.is_whitelisted("+491234567890", &whitelist));
         assert!(client.is_whitelisted("+491111111111", &whitelist));
@@ -400,7 +405,11 @@ mod signature_tests {
         config.signature_required = false;
         let client = WhatsAppClient::new(config).unwrap();
 
-        assert!(client.verify_signature(b"any_payload", "invalid_sig").is_ok());
+        assert!(
+            client
+                .verify_signature(b"any_payload", "invalid_sig")
+                .is_ok()
+        );
     }
 
     #[test]
@@ -518,11 +527,16 @@ mod webhook_tests {
 
         assert_eq!(audio_messages.len(), 1);
         match &audio_messages[0] {
-            integration_whatsapp::IncomingMessage::Audio { media_id, mime_type, is_voice, .. } => {
+            integration_whatsapp::IncomingMessage::Audio {
+                media_id,
+                mime_type,
+                is_voice,
+                ..
+            } => {
                 assert_eq!(media_id, "media-id-12345");
                 assert_eq!(mime_type, "audio/ogg; codecs=opus");
                 assert!(is_voice);
-            }
+            },
             _ => panic!("Expected Audio message"),
         }
     }
@@ -574,7 +588,8 @@ mod webhook_tests {
     fn verify_signature_incorrect() {
         let payload = b"test";
         let secret = "secret";
-        let wrong_signature = "sha256=0000000000000000000000000000000000000000000000000000000000000000";
+        let wrong_signature =
+            "sha256=0000000000000000000000000000000000000000000000000000000000000000";
         assert!(!verify_signature(payload, wrong_signature, secret));
     }
 }
@@ -679,14 +694,14 @@ mod proptest_tests {
             hex in "[0-9a-fA-F]{64}"
         ) {
             use integration_whatsapp::verify_signature;
-            
+
             // Only sha256= prefix should be valid
             let with_correct_prefix = format!("sha256={}", hex);
             let with_wrong_prefix = format!("{}={}", prefix, hex);
-            
+
             // Correct prefix format should at least not panic
             let _ = verify_signature(b"test", &with_correct_prefix, "secret");
-            
+
             // Wrong prefix should return false
             if prefix != "sha256" {
                 assert!(!verify_signature(b"test", &with_wrong_prefix, "secret"));

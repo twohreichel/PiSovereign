@@ -2,9 +2,7 @@
 //!
 //! These tests use proptest to verify invariants across many random inputs.
 
-use domain::value_objects::{
-    EmailAddress, GeoLocation, Humidity, MemoryId, TaskStatus, Timezone,
-};
+use domain::value_objects::{EmailAddress, GeoLocation, Humidity, MemoryId, TaskStatus, Timezone};
 use proptest::prelude::*;
 
 // ============================================================================
@@ -22,7 +20,7 @@ mod geo_location_tests {
         ) {
             let result = GeoLocation::new(lat, lon);
             prop_assert!(result.is_ok());
-            
+
             let loc = result.unwrap();
             prop_assert!((loc.latitude() - lat).abs() < f64::EPSILON);
             prop_assert!((loc.longitude() - lon).abs() < f64::EPSILON);
@@ -178,7 +176,7 @@ mod email_address_tests {
         ) {
             let email_str = format!("{}@{}.{}", local, domain, tld);
             let result = EmailAddress::new(&email_str);
-            
+
             // Should succeed for valid format
             if result.is_ok() {
                 let email = result.unwrap();
@@ -209,7 +207,7 @@ mod email_address_tests {
             }
         }
     }
-    
+
     #[test]
     fn empty_email_rejected() {
         let result = EmailAddress::new("");
@@ -416,7 +414,7 @@ mod cross_type_tests {
             humidity in 0u8..=100u8
         ) {
             let hum = Humidity::new(humidity).unwrap();
-            
+
             // Value should be maintained
             prop_assert_eq!(hum.value(), humidity);
         }

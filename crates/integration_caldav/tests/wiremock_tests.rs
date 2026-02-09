@@ -3,7 +3,11 @@
 //! These tests mock CalDAV server responses (PROPFIND, REPORT, PUT, DELETE)
 //! to verify client behavior without requiring an actual CalDAV server.
 
-use integration_caldav::{CalDavClient, CalDavConfig, CalDavError, CalendarEvent, HttpCalDavClient};
+#![allow(clippy::redundant_clone, clippy::missing_const_for_fn, unused_imports)]
+
+use integration_caldav::{
+    CalDavClient, CalDavConfig, CalDavError, CalendarEvent, HttpCalDavClient,
+};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{body_string_contains, header, method, path, path_regex},
@@ -32,7 +36,10 @@ fn test_event() -> CalendarEvent {
         start: "2025-02-01T10:00:00".to_string(),
         end: "2025-02-01T11:00:00".to_string(),
         location: Some("Conference Room A".to_string()),
-        attendees: vec!["alice@example.com".to_string(), "bob@example.com".to_string()],
+        attendees: vec![
+            "alice@example.com".to_string(),
+            "bob@example.com".to_string(),
+        ],
     }
 }
 
@@ -202,10 +209,7 @@ mod get_events_tests {
 
         Mock::given(method("REPORT"))
             .and(path_regex(r".*calendars.*"))
-            .respond_with(
-                ResponseTemplate::new(207)
-                    .set_body_string(report_events_response()),
-            )
+            .respond_with(ResponseTemplate::new(207).set_body_string(report_events_response()))
             .expect(1)
             .mount(&mock_server)
             .await;
@@ -233,10 +237,7 @@ mod get_events_tests {
         let mock_server = MockServer::start().await;
 
         Mock::given(method("REPORT"))
-            .respond_with(
-                ResponseTemplate::new(207)
-                    .set_body_string(report_empty_response()),
-            )
+            .respond_with(ResponseTemplate::new(207).set_body_string(report_empty_response()))
             .expect(1)
             .mount(&mock_server)
             .await;
@@ -266,7 +267,11 @@ mod get_events_tests {
         let client = HttpCalDavClient::new(config).expect("Failed to create client");
 
         let result = client
-            .get_events("/calendars/nonexistent", "20250101T000000Z", "20250228T235959Z")
+            .get_events(
+                "/calendars/nonexistent",
+                "20250101T000000Z",
+                "20250228T235959Z",
+            )
             .await;
 
         assert!(matches!(result, Err(CalDavError::CalendarNotFound(_))));
@@ -493,9 +498,9 @@ mod delete_event_tests {
 // iCalendar Building Tests (skipped - uses private functions)
 // =============================================================================
 
-// Note: iCalendar building and parsing tests removed as they require access to 
+// Note: iCalendar building and parsing tests removed as they require access to
 // private functions (build_icalendar, parse_icalendar).
-// The functionality is tested indirectly through the public API tests above 
+// The functionality is tested indirectly through the public API tests above
 // (create_event, update_event, list_events).
 
 // =============================================================================
@@ -603,7 +608,7 @@ mod calendar_event_tests {
 }
 
 // =============================================================================
-// Error Tests  
+// Error Tests
 // =============================================================================
 
 mod error_tests {
@@ -675,10 +680,10 @@ mod proptest_tests {
                 location: None,
                 attendees: vec![],
             };
-            
+
             let json = serde_json::to_string(&event).unwrap();
             let parsed: integration_caldav::CalendarEvent = serde_json::from_str(&json).unwrap();
-            
+
             prop_assert_eq!(event.id, parsed.id);
             prop_assert_eq!(event.summary, parsed.summary);
         }
@@ -697,10 +702,10 @@ mod proptest_tests {
                 verify_certs: true,
                 timeout_secs: 30,
             };
-            
+
             let json = serde_json::to_string(&config).unwrap();
             let parsed: integration_caldav::CalDavConfig = serde_json::from_str(&json).unwrap();
-            
+
             prop_assert_eq!(config.username, parsed.username);
             prop_assert_eq!(config.verify_certs, parsed.verify_certs);
         }
