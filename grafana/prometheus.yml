@@ -42,10 +42,7 @@ scrape_configs:
     # Only scrape if node_exporter is available
     scrape_interval: 30s
 
-# Storage configuration for Pi with limited disk
-storage:
-  tsdb:
-    # Retain data for 7 days
-    retention.time: 7d
-    # Limit disk usage
-    retention.size: 1GB
+# Note: Storage configuration for Pi with limited disk is set via command-line flags:
+#   --storage.tsdb.retention.time=7d
+#   --storage.tsdb.retention.size=1GB
+# These are configured in docker-compose.yml or systemd service file
