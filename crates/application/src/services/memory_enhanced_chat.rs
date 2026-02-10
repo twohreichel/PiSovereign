@@ -989,7 +989,7 @@ mod tests {
                 question,
                 answer,
             );
-        assert!(summary.contains("<"));
+        assert!(summary.contains('<'));
         assert!(summary.contains("Q:"));
         assert!(summary.contains("→"));
     }

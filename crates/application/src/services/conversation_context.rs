@@ -674,7 +674,7 @@ mod tests {
         let debug = format!("{stats:?}");
         assert!(debug.contains("ConversationCacheStats"));
         assert!(debug.contains("10"));
-        assert!(debug.contains("3"));
+        assert!(debug.contains('3'));
     }
 
     #[tokio::test]

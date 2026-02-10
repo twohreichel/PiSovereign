@@ -852,6 +852,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::items_after_statements)]
     async fn test_complex_data_serialization() {
         let cache = RedbCache::in_memory().unwrap();
 

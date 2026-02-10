@@ -608,7 +608,10 @@ mod tests {
         let result: Result<i32, InjectedError> = injector.wrap(async { Ok(42) }).await;
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), InjectedError::ConnectionReset));
+        assert!(matches!(
+            result.unwrap_err(),
+            InjectedError::ConnectionReset
+        ));
     }
 
     #[tokio::test]
@@ -640,8 +643,9 @@ mod tests {
     async fn injector_wrap_timeout() {
         use std::time::Instant;
 
-        let mut injector =
-            FaultInjector::new(FaultPolicy::always(FaultType::Timeout(Duration::from_millis(50))));
+        let mut injector = FaultInjector::new(FaultPolicy::always(FaultType::Timeout(
+            Duration::from_millis(50),
+        )));
 
         let start = Instant::now();
         let result: Result<i32, InjectedError> = injector.wrap(async { Ok(42) }).await;

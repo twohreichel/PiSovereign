@@ -1489,7 +1489,13 @@ mod async_tests {
         let parser = CommandParser::new();
         let response = r#"{"intent":"create_task","title":"Buy groceries"}"#;
         let cmd = parser.parse_llm_response(response, "").unwrap();
-        let AgentCommand::CreateTask { title, due_date, priority, description } = cmd else {
+        let AgentCommand::CreateTask {
+            title,
+            due_date,
+            priority,
+            description,
+        } = cmd
+        else {
             unreachable!("Expected CreateTask")
         };
         assert_eq!(title, "Buy groceries");
@@ -1503,7 +1509,13 @@ mod async_tests {
         let parser = CommandParser::new();
         let response = r#"{"intent":"create_task","title":"Call mom","date":"2025-02-15","priority":"high","description":"Discuss birthday plans"}"#;
         let cmd = parser.parse_llm_response(response, "").unwrap();
-        let AgentCommand::CreateTask { title, due_date, priority, description } = cmd else {
+        let AgentCommand::CreateTask {
+            title,
+            due_date,
+            priority,
+            description,
+        } = cmd
+        else {
             unreachable!("Expected CreateTask")
         };
         assert_eq!(title, "Call mom");
@@ -1576,7 +1588,14 @@ mod async_tests {
         let parser = CommandParser::new();
         let response = r#"{"intent":"update_task","task_id":"task-789","title":"New title","date":"2025-03-01","priority":"medium","description":"New description"}"#;
         let cmd = parser.parse_llm_response(response, "").unwrap();
-        let AgentCommand::UpdateTask { task_id, title, due_date, priority, description } = cmd else {
+        let AgentCommand::UpdateTask {
+            task_id,
+            title,
+            due_date,
+            priority,
+            description,
+        } = cmd
+        else {
             unreachable!("Expected UpdateTask")
         };
         assert_eq!(task_id, "task-789");
@@ -1662,7 +1681,16 @@ mod async_tests {
         let parser = CommandParser::new();
         let response = r#"{"intent":"update_calendar_event","event_id":"evt-456","date":"2025-03-15","time":"10:30","title":"Team Standup","location":"Conference Room A","duration_minutes":30}"#;
         let cmd = parser.parse_llm_response(response, "").unwrap();
-        let AgentCommand::UpdateCalendarEvent { event_id, date, time, title, location, duration_minutes, .. } = cmd else {
+        let AgentCommand::UpdateCalendarEvent {
+            event_id,
+            date,
+            time,
+            title,
+            location,
+            duration_minutes,
+            ..
+        } = cmd
+        else {
             unreachable!("Expected UpdateCalendarEvent")
         };
         assert_eq!(event_id, "evt-456");
@@ -1685,7 +1713,8 @@ mod async_tests {
     #[test]
     fn parse_llm_response_update_calendar_event_invalid_date() {
         let parser = CommandParser::new();
-        let response = r#"{"intent":"update_calendar_event","event_id":"evt-123","date":"invalid"}"#;
+        let response =
+            r#"{"intent":"update_calendar_event","event_id":"evt-123","date":"invalid"}"#;
         let result = parser.parse_llm_response(response, "");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid date format"));

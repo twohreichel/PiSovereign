@@ -738,8 +738,8 @@ mod tests {
             let memories = self.memories.lock().unwrap();
             let mut result: Vec<Memory> = memories
                 .values()
-                .filter(|m| query.user_id.map_or(true, |uid| m.user_id == uid))
-                .filter(|m| query.min_importance.map_or(true, |min| m.importance >= min))
+                .filter(|m| query.user_id.is_none_or(|uid| m.user_id == uid))
+                .filter(|m| query.min_importance.is_none_or(|min| m.importance >= min))
                 .cloned()
                 .collect();
             if let Some(limit) = query.limit {
@@ -803,6 +803,7 @@ mod tests {
                 .iter()
                 .filter(|m| m.embedding.is_some())
                 .count();
+            #[allow(clippy::cast_precision_loss)]
             let avg_importance = if total_count > 0 {
                 user_memories.iter().map(|m| m.importance).sum::<f32>() / total_count as f32
             } else {

@@ -640,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
     fn retry_result_unwrap_failure() {
         let result: RetryResult<i32, TestError> = RetryResult {
             result: Err(TestError {
@@ -678,7 +678,7 @@ mod tests {
             let delay_ms = config.delay_for_attempt(0).as_millis();
             // With 10% jitter on 1000ms, should be between 900 and 1100
             assert!(
-                delay_ms >= 900 && delay_ms <= 1100,
+                (900..=1100).contains(&delay_ms),
                 "delay_ms={delay_ms} out of range"
             );
         }

@@ -1451,28 +1451,38 @@ mod tests {
 
     #[test]
     fn prompt_security_config_sensitivity_level() {
-        let mut config = PromptSecurityConfig::default();
-
-        config.sensitivity = "low".to_string();
+        let config = PromptSecurityConfig {
+            sensitivity: "low".to_string(),
+            ..Default::default()
+        };
         assert_eq!(
             config.sensitivity_level(),
             application::services::SecuritySensitivity::Low
         );
 
-        config.sensitivity = "medium".to_string();
+        let config = PromptSecurityConfig {
+            sensitivity: "medium".to_string(),
+            ..Default::default()
+        };
         assert_eq!(
             config.sensitivity_level(),
             application::services::SecuritySensitivity::Medium
         );
 
-        config.sensitivity = "high".to_string();
+        let config = PromptSecurityConfig {
+            sensitivity: "high".to_string(),
+            ..Default::default()
+        };
         assert_eq!(
             config.sensitivity_level(),
             application::services::SecuritySensitivity::High
         );
 
         // Unknown defaults to medium
-        config.sensitivity = "unknown".to_string();
+        let config = PromptSecurityConfig {
+            sensitivity: "unknown".to_string(),
+            ..Default::default()
+        };
         assert_eq!(
             config.sensitivity_level(),
             application::services::SecuritySensitivity::Medium

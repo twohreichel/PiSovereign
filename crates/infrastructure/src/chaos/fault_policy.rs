@@ -471,10 +471,10 @@ mod tests {
     fn latency_distribution_normal() {
         let dist =
             LatencyDistribution::normal(Duration::from_millis(100), Duration::from_millis(10));
-        // Normal distribution should produce non-negative values
+        // Normal distribution should produce valid durations
         for _ in 0..10 {
-            let sample = dist.sample();
-            assert!(sample.as_millis() >= 0);
+            let _sample = dist.sample();
+            // Duration is always non-negative by definition
         }
     }
 
