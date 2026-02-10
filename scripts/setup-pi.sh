@@ -1493,7 +1493,7 @@ setup_docker_compose() {
         setup_monitoring_docker
     fi
     
-    # Create docker-compose.yml
+    # Create docker-compose.yml - services section first
     cat > docker-compose.yml << 'EOF'
 version: '3.8'
 
@@ -1536,16 +1536,9 @@ services:
       - ollama-models:/root/.ollama
     networks:
       - pisovereign-net
-
-networks:
-  pisovereign-net:
-    driver: bridge
-
-volumes:
-  ollama-models:
 EOF
 
-    # Add monitoring services if enabled
+    # Add monitoring services if enabled (within services section)
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
         cat >> docker-compose.yml << 'MONEOF'
 
@@ -1599,9 +1592,32 @@ EOF
       timeout: 10s
       retries: 3
 MONEOF
-        # Add volumes for monitoring
-        sed -i 's/^volumes:$/volumes:\n  prometheus_data:\n  grafana_data:/' docker-compose.yml
-        info "Added Prometheus and Grafana services to docker-compose.yml"
+        info "Added Prometheus and Grafana services"
+    fi
+
+    # Add networks section
+    cat >> docker-compose.yml << 'EOF'
+
+networks:
+  pisovereign-net:
+    driver: bridge
+EOF
+
+    # Add volumes section based on monitoring status
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        cat >> docker-compose.yml << 'EOF'
+
+volumes:
+  ollama-models:
+  prometheus_data:
+  grafana_data:
+EOF
+    else
+        cat >> docker-compose.yml << 'EOF'
+
+volumes:
+  ollama-models:
+EOF
     fi
 
     # Add Traefik if domain is configured
