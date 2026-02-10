@@ -497,6 +497,8 @@ fn summarize(content: &str) -> String {
 mod tests {
     use super::*;
     use crate::ports::{MockEmbeddingPort, MockMemoryStore, NoOpEncryption};
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
     fn setup_service() -> MemoryService<MockMemoryStore, MockEmbeddingPort, NoOpEncryption> {
         let store = Arc::new(MockMemoryStore::new());
@@ -521,9 +523,33 @@ mod tests {
     }
 
     #[test]
+    fn test_config_custom() {
+        let config = MemoryServiceConfig {
+            rag_limit: 10,
+            rag_threshold: 0.7,
+            merge_threshold: 0.9,
+            min_importance: 0.2,
+            decay_factor: 0.8,
+            enable_encryption: false,
+        };
+        assert_eq!(config.rag_limit, 10);
+        assert!((config.rag_threshold - 0.7).abs() < 0.001);
+        assert!((config.merge_threshold - 0.9).abs() < 0.001);
+        assert!(!config.enable_encryption);
+    }
+
+    #[test]
     fn test_summarize_short() {
         let content = "Short content";
         assert_eq!(summarize(content), content);
+    }
+
+    #[test]
+    fn test_summarize_exact_boundary() {
+        let content = "a".repeat(200);
+        let summary = summarize(&content);
+        assert_eq!(summary.len(), 200);
+        assert!(!summary.ends_with("..."));
     }
 
     #[test]
@@ -532,6 +558,12 @@ mod tests {
         let summary = summarize(&content);
         assert!(summary.len() <= 200);
         assert!(summary.ends_with("..."));
+    }
+
+    #[test]
+    fn test_summarize_empty() {
+        let content = "";
+        assert_eq!(summarize(content), "");
     }
 
     #[test]
@@ -558,6 +590,71 @@ mod tests {
         assert!(context.contains("Paris"));
         assert!(context.contains("95%"));
         assert!(context.contains("Fact"));
+        assert!(context.contains("Relevant context from memory:"));
+    }
+
+    #[test]
+    fn test_format_context_multiple_memories() {
+        let user_id = UserId::new();
+        let memories = vec![
+            SimilarMemory {
+                memory: Memory::new(user_id, "Fact one", "Summary one", MemoryType::Fact),
+                similarity: 0.9,
+            },
+            SimilarMemory {
+                memory: Memory::new(user_id, "Preference", "Pref summary", MemoryType::Preference),
+                similarity: 0.85,
+            },
+            SimilarMemory {
+                memory: Memory::new(user_id, "Context", "Context summary", MemoryType::Context),
+                similarity: 0.75,
+            },
+        ];
+
+        let context = MemoryService::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::format_context_for_prompt(&memories);
+        assert!(context.contains("1."));
+        assert!(context.contains("2."));
+        assert!(context.contains("3."));
+        assert!(context.contains("90%"));
+        assert!(context.contains("85%"));
+        assert!(context.contains("75%"));
+        assert!(context.contains("Fact"));
+        assert!(context.contains("Preference"));
+        assert!(context.contains("Context"));
+    }
+
+    #[test]
+    fn test_format_context_all_memory_types() {
+        let user_id = UserId::new();
+        let memories = vec![
+            SimilarMemory {
+                memory: Memory::new(user_id, "c", "s", MemoryType::Fact),
+                similarity: 0.9,
+            },
+            SimilarMemory {
+                memory: Memory::new(user_id, "c", "s", MemoryType::Preference),
+                similarity: 0.8,
+            },
+            SimilarMemory {
+                memory: Memory::new(user_id, "c", "s", MemoryType::ToolResult),
+                similarity: 0.7,
+            },
+            SimilarMemory {
+                memory: Memory::new(user_id, "c", "s", MemoryType::Correction),
+                similarity: 0.6,
+            },
+            SimilarMemory {
+                memory: Memory::new(user_id, "c", "s", MemoryType::Context),
+                similarity: 0.5,
+            },
+        ];
+
+        let context = MemoryService::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::format_context_for_prompt(&memories);
+        assert!(context.contains("[Fact]"));
+        assert!(context.contains("[Preference]"));
+        assert!(context.contains("[Tool Result]"));
+        assert!(context.contains("[Correction]"));
+        assert!(context.contains("[Context]"));
     }
 
     #[test]
@@ -573,5 +670,349 @@ mod tests {
         let service = setup_service();
         let cloned = service.clone();
         assert_eq!(cloned.config.rag_limit, service.config.rag_limit);
+        assert_eq!(cloned.config.enable_encryption, service.config.enable_encryption);
+    }
+
+    // Test with a simple in-memory mock store
+    struct SimpleMemoryStore {
+        memories: Mutex<HashMap<MemoryId, Memory>>,
+        access_log: Mutex<Vec<MemoryId>>,
+    }
+
+    impl SimpleMemoryStore {
+        fn new() -> Self {
+            Self {
+                memories: Mutex::new(HashMap::new()),
+                access_log: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::MemoryStore for SimpleMemoryStore {
+        async fn save(&self, memory: &Memory) -> Result<(), ApplicationError> {
+            self.memories.lock().unwrap().insert(memory.id, memory.clone());
+            Ok(())
+        }
+
+        async fn get(&self, id: &MemoryId) -> Result<Option<Memory>, ApplicationError> {
+            Ok(self.memories.lock().unwrap().get(id).cloned())
+        }
+
+        async fn update(&self, memory: &Memory) -> Result<(), ApplicationError> {
+            self.memories.lock().unwrap().insert(memory.id, memory.clone());
+            Ok(())
+        }
+
+        async fn delete(&self, id: &MemoryId) -> Result<(), ApplicationError> {
+            self.memories.lock().unwrap().remove(id);
+            Ok(())
+        }
+
+        async fn search_similar(
+            &self,
+            _user_id: &UserId,
+            _embedding: &[f32],
+            _limit: usize,
+            _min_similarity: f32,
+        ) -> Result<Vec<SimilarMemory>, ApplicationError> {
+            // Return empty for now - no semantic search in simple mock
+            Ok(vec![])
+        }
+
+        async fn list(&self, query: &MemoryQuery) -> Result<Vec<Memory>, ApplicationError> {
+            let memories = self.memories.lock().unwrap();
+            let mut result: Vec<Memory> = memories.values()
+                .filter(|m| query.user_id.map_or(true, |uid| m.user_id == uid))
+                .filter(|m| query.min_importance.map_or(true, |min| m.importance >= min))
+                .cloned()
+                .collect();
+            if let Some(limit) = query.limit {
+                result.truncate(limit);
+            }
+            Ok(result)
+        }
+
+        async fn list_by_type(
+            &self,
+            user_id: &UserId,
+            memory_type: MemoryType,
+            limit: usize,
+        ) -> Result<Vec<Memory>, ApplicationError> {
+            let memories = self.memories.lock().unwrap();
+            let result: Vec<Memory> = memories.values()
+                .filter(|m| m.user_id == *user_id && m.memory_type == memory_type)
+                .take(limit)
+                .cloned()
+                .collect();
+            Ok(result)
+        }
+
+        async fn apply_decay(&self, decay_rate: f32) -> Result<Vec<MemoryId>, ApplicationError> {
+            let mut memories = self.memories.lock().unwrap();
+            let mut below_threshold = Vec::new();
+            for memory in memories.values_mut() {
+                memory.importance *= decay_rate;
+                if memory.importance < 0.1 {
+                    below_threshold.push(memory.id);
+                }
+            }
+            Ok(below_threshold)
+        }
+
+        async fn cleanup_below_threshold(&self, threshold: f32) -> Result<usize, ApplicationError> {
+            let mut memories = self.memories.lock().unwrap();
+            let before = memories.len();
+            memories.retain(|_, m| m.importance >= threshold);
+            Ok(before - memories.len())
+        }
+
+        async fn find_merge_candidates(
+            &self,
+            _memory: &Memory,
+            _similarity_threshold: f32,
+        ) -> Result<Vec<SimilarMemory>, ApplicationError> {
+            Ok(vec![])
+        }
+
+        async fn stats(&self, user_id: &UserId) -> Result<MemoryStats, ApplicationError> {
+            let memories = self.memories.lock().unwrap();
+            let user_memories: Vec<_> = memories.values()
+                .filter(|m| m.user_id == *user_id)
+                .collect();
+            
+            let total_count = user_memories.len();
+            let with_embeddings = user_memories.iter().filter(|m| m.embedding.is_some()).count();
+            let avg_importance = if total_count > 0 {
+                user_memories.iter().map(|m| m.importance).sum::<f32>() / total_count as f32
+            } else {
+                0.0
+            };
+
+            Ok(MemoryStats {
+                total_count,
+                by_type: vec![],
+                with_embeddings,
+                avg_importance,
+            })
+        }
+
+        async fn record_access(&self, id: &MemoryId) -> Result<(), ApplicationError> {
+            self.access_log.lock().unwrap().push(*id);
+            if let Some(memory) = self.memories.lock().unwrap().get_mut(id) {
+                memory.record_access();
+            }
+            Ok(())
+        }
+    }
+
+    struct SimpleEmbedding;
+
+    #[async_trait::async_trait]
+    impl crate::ports::EmbeddingPort for SimpleEmbedding {
+        async fn embed(&self, _text: &str) -> Result<Vec<f32>, ApplicationError> {
+            Ok(vec![0.1, 0.2, 0.3, 0.4, 0.5])
+        }
+
+        async fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, ApplicationError> {
+            Ok(texts.iter().map(|_| vec![0.1, 0.2, 0.3, 0.4, 0.5]).collect())
+        }
+
+        fn model_info(&self) -> crate::ports::EmbeddingModelInfo {
+            crate::ports::EmbeddingModelInfo {
+                model: "test".to_string(),
+                dimensions: 5,
+                max_tokens: Some(512),
+            }
+        }
+    }
+
+    fn setup_testable_service() -> MemoryService<SimpleMemoryStore, SimpleEmbedding, NoOpEncryption> {
+        let store = Arc::new(SimpleMemoryStore::new());
+        let embedding = Arc::new(SimpleEmbedding);
+        let encryption = Arc::new(NoOpEncryption);
+        let config = MemoryServiceConfig {
+            enable_encryption: false,
+            ..Default::default()
+        };
+        MemoryService::new(store, embedding, encryption, config)
+    }
+
+    #[tokio::test]
+    async fn test_store_memory() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        let memory = Memory::new(
+            user_id,
+            "Test content".to_string(),
+            "Test summary".to_string(),
+            MemoryType::Fact,
+        );
+        
+        let stored = service.store(memory).await.unwrap();
+        assert!(stored.embedding.is_some());
+        assert_eq!(stored.embedding.as_ref().unwrap().len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_store_fact() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        let memory = service.store_fact(user_id, "Paris is the capital", 0.8).await.unwrap();
+        assert_eq!(memory.memory_type, MemoryType::Fact);
+        assert!((memory.importance - 0.8).abs() < 0.001);
+        assert!(memory.embedding.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_store_preference() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        let memory = service.store_preference(user_id, "Likes coffee", 0.7).await.unwrap();
+        assert_eq!(memory.memory_type, MemoryType::Preference);
+        assert!((memory.importance - 0.7).abs() < 0.001);
+    }
+
+    #[tokio::test]
+    async fn test_store_correction() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        let memory = service.store_correction(user_id, "User correction", 0.9).await.unwrap();
+        assert_eq!(memory.memory_type, MemoryType::Correction);
+    }
+
+    #[tokio::test]
+    async fn test_store_tool_result() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        let memory = service.store_tool_result(user_id, "Weather: sunny", 0.6).await.unwrap();
+        assert_eq!(memory.memory_type, MemoryType::ToolResult);
+    }
+
+    #[tokio::test]
+    async fn test_store_context() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        let conv_id = domain::value_objects::ConversationId::new();
+        
+        let memory = service.store_context(user_id, conv_id, "Conversation context", 0.5).await.unwrap();
+        assert_eq!(memory.memory_type, MemoryType::Context);
+        assert_eq!(memory.conversation_id, Some(conv_id));
+    }
+
+    #[tokio::test]
+    async fn test_get_memory() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        let stored = service.store_fact(user_id, "Test fact", 0.8).await.unwrap();
+        let retrieved = service.get(&stored.id).await.unwrap();
+        
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().id, stored.id);
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_memory() {
+        let service = setup_testable_service();
+        let fake_id = MemoryId::new();
+        
+        let retrieved = service.get(&fake_id).await.unwrap();
+        assert!(retrieved.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_memory() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        let stored = service.store_fact(user_id, "To delete", 0.8).await.unwrap();
+        service.delete(&stored.id).await.unwrap();
+        
+        let retrieved = service.get(&stored.id).await.unwrap();
+        assert!(retrieved.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_list_memories() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        service.store_fact(user_id, "Fact 1", 0.8).await.unwrap();
+        service.store_fact(user_id, "Fact 2", 0.7).await.unwrap();
+        
+        let query = MemoryQuery::new().for_user(user_id).limit(10);
+        let memories = service.list(query).await.unwrap();
+        
+        assert_eq!(memories.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_with_min_importance() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        service.store_fact(user_id, "High importance", 0.9).await.unwrap();
+        service.store_fact(user_id, "Low importance", 0.3).await.unwrap();
+        
+        let query = MemoryQuery::new().for_user(user_id).min_importance(0.5);
+        let memories = service.list(query).await.unwrap();
+        
+        assert_eq!(memories.len(), 1);
+        assert!(memories[0].importance >= 0.5);
+    }
+
+    #[tokio::test]
+    async fn test_apply_decay() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        service.store_fact(user_id, "Fact", 0.5).await.unwrap();
+        
+        let below_threshold = service.apply_decay().await.unwrap();
+        // With 0.95 decay factor, 0.5 becomes 0.475, still above 0.1 threshold
+        assert!(below_threshold.is_empty() || below_threshold.len() <= 1);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_low_importance() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        // Store a memory with low importance
+        let memory = Memory::new(user_id, "Low", "Low", MemoryType::Fact)
+            .with_importance(0.05); // Below default threshold of 0.1
+        service.store(memory).await.unwrap();
+        
+        let deleted = service.cleanup_low_importance().await.unwrap();
+        assert_eq!(deleted, 1);
+    }
+
+    #[tokio::test]
+    async fn test_stats() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        service.store_fact(user_id, "Fact 1", 0.8).await.unwrap();
+        service.store_fact(user_id, "Fact 2", 0.6).await.unwrap();
+        
+        let stats = service.stats(&user_id).await.unwrap();
+        assert_eq!(stats.total_count, 2);
+        assert_eq!(stats.with_embeddings, 2);
+        assert!((stats.avg_importance - 0.7).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn test_retrieve_context_empty() {
+        let service = setup_testable_service();
+        let user_id = UserId::new();
+        
+        let context = service.retrieve_context(&user_id, "any query").await.unwrap();
+        assert!(context.is_empty());
     }
 }

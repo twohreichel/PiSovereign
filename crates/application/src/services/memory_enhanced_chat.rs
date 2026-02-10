@@ -775,4 +775,224 @@ mod tests {
         };
         assert_eq!(config.min_learning_length, 1);
     }
+
+    #[tokio::test]
+    async fn test_chat_basic() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig {
+            enable_rag: false,
+            enable_learning: false,
+            ..Default::default()
+        };
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let user_id = UserId::new();
+        let response = chat.chat(&user_id, "Hello").await.unwrap();
+        
+        assert!(!response.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_rag_disabled() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig {
+            enable_rag: false,
+            enable_learning: false,
+            ..Default::default()
+        };
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let user_id = UserId::new();
+        let response = chat.chat(&user_id, "Test message").await.unwrap();
+        
+        assert!(response.content.contains("System response"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_learning_disabled() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig {
+            enable_rag: false,
+            enable_learning: false,
+            ..Default::default()
+        };
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let user_id = UserId::new();
+        
+        let response = chat.chat(&user_id, "A longer message for testing purposes").await.unwrap();
+        assert!(!response.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_chat_in_conversation_basic() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig {
+            enable_rag: false,
+            enable_learning: false,
+            ..Default::default()
+        };
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let user_id = UserId::new();
+        let conversation = Conversation::new();
+        
+        let response = chat.chat_in_conversation(&user_id, &conversation, "Hello").await.unwrap();
+        assert!(response.content.contains("Context response"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_in_conversation_with_system_prompt() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig {
+            enable_rag: false,
+            enable_learning: false,
+            system_prompt: Some("Custom system prompt".to_string()),
+            ..Default::default()
+        };
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let user_id = UserId::new();
+        let conversation = Conversation::new();
+        
+        let response = chat.chat_in_conversation(&user_id, &conversation, "Test").await.unwrap();
+        assert!(!response.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_memory_stats() {
+        let inference = Arc::new(MockInference::new());
+        
+        // Setup mock with expectation
+        let mut mock_store = MockMemoryStore::new();
+        mock_store.expect_stats().returning(|_| {
+            Ok(crate::ports::MemoryStats {
+                total_count: 5,
+                by_type: vec![],
+                avg_importance: 0.5,
+                with_embeddings: 3,
+            })
+        });
+        
+        let store = Arc::new(mock_store);
+        let embedding = Arc::new(MockEmbeddingPort::new());
+        let encryption = Arc::new(NoOpEncryption);
+        let mem_config = MemoryServiceConfig {
+            enable_encryption: false,
+            ..Default::default()
+        };
+        let memory_service = MemoryService::new(store, embedding, encryption, mem_config);
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        let user_id = UserId::new();
+        
+        let stats = chat.memory_stats(&user_id).await.unwrap();
+        assert_eq!(stats.total_count, 5);
+    }
+
+    #[tokio::test]
+    async fn test_apply_memory_decay() {
+        let inference = Arc::new(MockInference::new());
+        
+        // Setup mock with expectation
+        let mut mock_store = MockMemoryStore::new();
+        mock_store.expect_apply_decay().returning(|_| Ok(vec![]));
+        
+        let store = Arc::new(mock_store);
+        let embedding = Arc::new(MockEmbeddingPort::new());
+        let encryption = Arc::new(NoOpEncryption);
+        let mem_config = MemoryServiceConfig {
+            enable_encryption: false,
+            ..Default::default()
+        };
+        let memory_service = MemoryService::new(store, embedding, encryption, mem_config);
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        
+        let decayed = chat.apply_memory_decay().await.unwrap();
+        assert!(decayed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_memories() {
+        let inference = Arc::new(MockInference::new());
+        
+        // Setup mock with expectation
+        let mut mock_store = MockMemoryStore::new();
+        mock_store.expect_cleanup_below_threshold().returning(|_| Ok(0));
+        
+        let store = Arc::new(mock_store);
+        let embedding = Arc::new(MockEmbeddingPort::new());
+        let encryption = Arc::new(NoOpEncryption);
+        let mem_config = MemoryServiceConfig {
+            enable_encryption: false,
+            ..Default::default()
+        };
+        let memory_service = MemoryService::new(store, embedding, encryption, mem_config);
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        
+        let cleaned = chat.cleanup_memories().await.unwrap();
+        assert_eq!(cleaned, 0);
+    }
+
+    #[tokio::test]
+    async fn test_list_available_models() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        
+        // Access inference directly to test list_available_models
+        let models = chat.inference.list_available_models().await.unwrap();
+        assert!(!models.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_switch_model() {
+        let inference = Arc::new(MockInference::new());
+        let memory_service = setup_memory_service();
+        let config = MemoryEnhancedChatConfig::default();
+
+        let chat = MemoryEnhancedChat::new(inference, memory_service, config);
+        
+        // Should not error
+        chat.inference.switch_model("new-model").await.unwrap();
+    }
+
+    #[test]
+    fn test_summary_with_special_characters() {
+        let question = "What is the symbol < used for?";
+        let answer = "The < symbol is used for 'less than' comparisons.";
+        let summary =
+            MemoryEnhancedChat::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::create_summary(
+                question,
+                answer,
+            );
+        assert!(summary.contains("<"));
+        assert!(summary.contains("Q:"));
+        assert!(summary.contains("→"));
+    }
+
+    #[test]
+    fn test_summary_with_unicode() {
+        let question = "Was bedeutet München?";
+        let answer = "München ist die Hauptstadt von Bayern.";
+        let summary =
+            MemoryEnhancedChat::<MockMemoryStore, MockEmbeddingPort, NoOpEncryption>::create_summary(
+                question,
+                answer,
+            );
+        assert!(summary.contains("München"));
+        assert!(summary.contains("Bayern"));
+    }
 }

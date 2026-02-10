@@ -2483,6 +2483,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
+ "tempfile",
  "tera",
  "testcontainers",
  "testcontainers-modules",

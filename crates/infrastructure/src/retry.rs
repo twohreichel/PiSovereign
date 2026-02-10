@@ -587,4 +587,170 @@ mod tests {
         let inner = result.into_result();
         assert_eq!(inner.unwrap(), 42);
     }
+
+    #[test]
+    fn config_new_custom() {
+        let config = RetryConfig::new(200, 5000, 1.5, 4);
+        assert_eq!(config.initial_delay_ms, 200);
+        assert_eq!(config.max_delay_ms, 5000);
+        assert!((config.multiplier - 1.5).abs() < f64::EPSILON);
+        assert_eq!(config.max_retries, 4);
+        assert!(config.jitter_enabled); // Default true in new()
+    }
+
+    #[test]
+    fn config_clone() {
+        let config = RetryConfig::critical();
+        #[allow(clippy::redundant_clone)]
+        let cloned = config.clone();
+        assert_eq!(config.initial_delay_ms, cloned.initial_delay_ms);
+        assert_eq!(config.max_delay_ms, cloned.max_delay_ms);
+        assert_eq!(config.max_retries, cloned.max_retries);
+    }
+
+    #[test]
+    fn config_debug() {
+        let config = RetryConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("RetryConfig"));
+        assert!(debug.contains("initial_delay_ms"));
+        assert!(debug.contains("max_delay_ms"));
+    }
+
+    #[test]
+    fn retry_result_debug() {
+        let result: RetryResult<i32, TestError> = RetryResult {
+            result: Ok(42),
+            attempts: 1,
+            total_duration: Duration::from_millis(10),
+        };
+        let debug = format!("{result:?}");
+        assert!(debug.contains("RetryResult"));
+        assert!(debug.contains("attempts"));
+    }
+
+    #[test]
+    fn retry_result_unwrap_success() {
+        let result: RetryResult<i32, TestError> = RetryResult {
+            result: Ok(42),
+            attempts: 1,
+            total_duration: Duration::from_millis(10),
+        };
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[test]
+    #[should_panic]
+    fn retry_result_unwrap_failure() {
+        let result: RetryResult<i32, TestError> = RetryResult {
+            result: Err(TestError {
+                message: "fail".to_string(),
+                retryable: false,
+            }),
+            attempts: 1,
+            total_duration: Duration::from_millis(10),
+        };
+        let _ = result.unwrap();
+    }
+
+    #[test]
+    fn delay_with_high_attempt() {
+        // Test overflow protection with high attempt numbers
+        let config = RetryConfig::new(100, 1000, 2.0, 100).without_jitter();
+        // Even with a high attempt, delay should be capped
+        let delay = config.delay_for_attempt(50);
+        assert_eq!(delay.as_millis(), 1000);
+    }
+
+    #[test]
+    fn delay_with_jitter_in_range() {
+        let config = RetryConfig {
+            initial_delay_ms: 1000,
+            max_delay_ms: 1000,
+            multiplier: 1.0,
+            max_retries: 3,
+            jitter_enabled: true,
+            jitter_factor: 0.1, // 10% jitter
+        };
+        
+        // Take multiple samples and verify they're within expected range
+        for _ in 0..20 {
+            let delay_ms = config.delay_for_attempt(0).as_millis();
+            // With 10% jitter on 1000ms, should be between 900 and 1100
+            assert!(delay_ms >= 900 && delay_ms <= 1100, "delay_ms={delay_ms} out of range");
+        }
+    }
+
+    #[test]
+    fn test_error_retryable_impl() {
+        let retryable_err = TestError {
+            message: "temp".to_string(),
+            retryable: true,
+        };
+        assert!(retryable_err.is_retryable());
+
+        let non_retryable_err = TestError {
+            message: "perm".to_string(),
+            retryable: false,
+        };
+        assert!(!non_retryable_err.is_retryable());
+    }
+
+    #[test]
+    fn test_error_display() {
+        let err = TestError {
+            message: "test error".to_string(),
+            retryable: true,
+        };
+        assert_eq!(format!("{err}"), "test error");
+    }
+
+    #[tokio::test]
+    async fn retry_with_zero_max_retries() {
+        let config = RetryConfig::new(10, 100, 2.0, 0).without_jitter();
+        let call_count = Arc::new(AtomicU32::new(0));
+
+        let result = with_retry(&config, || {
+            let count = Arc::clone(&call_count);
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                Err::<i32, _>(TestError {
+                    message: "always fails".to_string(),
+                    retryable: true,
+                })
+            }
+        })
+        .await;
+
+        assert!(result.is_err());
+        // With max_retries=0, should only try once
+        assert_eq!(result.attempts, 1);
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn retry_tracks_duration() {
+        let config = RetryConfig::new(50, 100, 2.0, 1).without_jitter();
+        let call_count = Arc::new(AtomicU32::new(0));
+
+        let result = with_retry(&config, || {
+            let count = Arc::clone(&call_count);
+            async move {
+                let calls = count.fetch_add(1, Ordering::SeqCst) + 1;
+                if calls < 2 {
+                    Err(TestError {
+                        message: "fail once".to_string(),
+                        retryable: true,
+                    })
+                } else {
+                    Ok(42)
+                }
+            }
+        })
+        .await;
+
+        assert!(result.is_ok());
+        // Should have some duration due to the retry delay
+        assert!(result.total_duration.as_millis() >= 40); // At least some delay
+    }
 }

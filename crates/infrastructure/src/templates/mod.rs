@@ -681,4 +681,259 @@ mod tests {
         let result = truncate_words_filter(&value, &args).unwrap();
         assert_eq!(result.as_str().unwrap(), "one two three...");
     }
+
+    #[test]
+    fn test_truncate_words_filter_short() {
+        // Test when text has fewer words than count
+        let value = Value::String("one two".to_string());
+        let mut args = HashMap::new();
+        args.insert("count".to_string(), Value::Number(10.into()));
+
+        let result = truncate_words_filter(&value, &args).unwrap();
+        assert_eq!(result.as_str().unwrap(), "one two");
+    }
+
+    #[test]
+    fn test_truncate_words_filter_default_count() {
+        // Test default count (20)
+        let value = Value::String("word ".repeat(25).trim().to_string());
+        let args = HashMap::new();
+
+        let result = truncate_words_filter(&value, &args).unwrap();
+        assert!(result.as_str().unwrap().ends_with("..."));
+    }
+
+    #[test]
+    fn test_template_config_default() {
+        let config = TemplateConfig::default();
+        assert!(config.templates_dir.is_none());
+        assert!(config.use_embedded_fallback);
+        assert!(config.auto_escape);
+    }
+
+    #[test]
+    fn test_template_context_extend() {
+        let mut ctx1 = TemplateContext::new();
+        ctx1.insert("key1", &"value1");
+
+        let mut ctx2 = TemplateContext::new();
+        ctx2.insert("key2", &"value2");
+
+        ctx1.extend(ctx2);
+        // After extend, ctx1 should have both keys
+        let inner = ctx1.into_inner();
+        assert!(inner.contains_key("key1"));
+        assert!(inner.contains_key("key2"));
+    }
+
+    #[test]
+    fn test_email_draft_html_rendering() {
+        let engine = TemplateEngine::new().unwrap();
+
+        let data = EmailDraftData {
+            recipient: "John".to_string(),
+            recipient_email: "john@example.com".to_string(),
+            subject: "Meeting Tomorrow".to_string(),
+            body: "Line 1\nLine 2".to_string(),
+            sender: "Alice".to_string(),
+            cc: vec![],
+            attachments: vec![],
+        };
+
+        let result = engine.render_email_draft(&data, true);
+        assert!(result.is_ok());
+        let email = result.unwrap();
+        assert!(email.contains("<!DOCTYPE html>"));
+        assert!(email.contains("<br>"));
+        assert!(email.contains("Dear John"));
+    }
+
+    #[test]
+    fn test_template_engine_debug() {
+        let engine = TemplateEngine::new().unwrap();
+        let debug = format!("{engine:?}");
+        assert!(debug.contains("TemplateEngine"));
+        assert!(debug.contains("config"));
+    }
+
+    #[test]
+    fn test_template_engine_clone() {
+        let engine = TemplateEngine::new().unwrap();
+        #[allow(clippy::redundant_clone)]
+        let cloned = engine.clone();
+        assert!(cloned.template_exists("email/draft.txt"));
+    }
+
+    #[test]
+    fn test_template_error_display() {
+        let err = TemplateError::NotFound("test".to_string());
+        assert!(format!("{err}").contains("Template not found"));
+
+        let err = TemplateError::Render("render fail".to_string());
+        assert!(format!("{err}").contains("rendering failed"));
+
+        let err = TemplateError::Compile("compile fail".to_string());
+        assert!(format!("{err}").contains("compilation failed"));
+
+        let err = TemplateError::Context("ctx fail".to_string());
+        assert!(format!("{err}").contains("Invalid context"));
+    }
+
+    #[test]
+    fn test_weather_report_with_forecast() {
+        let engine = TemplateEngine::new().unwrap();
+
+        let data = WeatherReportData {
+            location: "Munich".to_string(),
+            temperature: 18.0,
+            unit: "C".to_string(),
+            condition: "Sunny".to_string(),
+            emoji: "☀️".to_string(),
+            humidity: 50,
+            wind_speed: 10.0,
+            forecast: vec![
+                ForecastDay {
+                    day: "Monday".to_string(),
+                    high: 20.0,
+                    low: 12.0,
+                    condition: "Sunny".to_string(),
+                    emoji: "☀️".to_string(),
+                },
+                ForecastDay {
+                    day: "Tuesday".to_string(),
+                    high: 18.0,
+                    low: 10.0,
+                    condition: "Cloudy".to_string(),
+                    emoji: "☁️".to_string(),
+                },
+            ],
+        };
+
+        let result = engine.render_weather_report(&data);
+        assert!(result.is_ok());
+        let report = result.unwrap();
+        assert!(report.contains("Monday"));
+        assert!(report.contains("Tuesday"));
+        assert!(report.contains("Forecast"));
+    }
+
+    #[test]
+    fn test_calendar_event_minimal() {
+        let engine = TemplateEngine::new().unwrap();
+
+        let data = CalendarEventData {
+            title: "Quick Meeting".to_string(),
+            start_time: "10:00".to_string(),
+            end_time: "10:30".to_string(),
+            location: None,
+            description: None,
+            attendees: vec![],
+        };
+
+        let result = engine.render_calendar_event(&data);
+        assert!(result.is_ok());
+        let event = result.unwrap();
+        assert!(event.contains("Quick Meeting"));
+        assert!(!event.contains("Attendees"));
+    }
+
+    #[test]
+    fn test_assistant_response_with_approval() {
+        let engine = TemplateEngine::new().unwrap();
+
+        let data = AssistantResponseData {
+            content: "Ready to send".to_string(),
+            suggestions: vec![],
+            requires_approval: true,
+            approval_command: Some("approve 123".to_string()),
+        };
+
+        let result = engine.render_assistant_response(&data);
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(response.contains("requires approval"));
+        assert!(response.contains("approve 123"));
+    }
+
+    #[test]
+    fn test_email_draft_with_cc() {
+        let engine = TemplateEngine::new().unwrap();
+
+        let data = EmailDraftData {
+            recipient: "John".to_string(),
+            recipient_email: "john@example.com".to_string(),
+            subject: "Update".to_string(),
+            body: "Please review.".to_string(),
+            sender: "Alice".to_string(),
+            cc: vec!["bob@example.com".to_string(), "carol@example.com".to_string()],
+            attachments: vec![],
+        };
+
+        let result = engine.render_email_draft(&data, false);
+        assert!(result.is_ok());
+        let email = result.unwrap();
+        assert!(email.contains("bob@example.com"));
+        assert!(email.contains("carol@example.com"));
+    }
+
+    #[test]
+    fn test_linebreaksbr_filter_no_newlines() {
+        let value = Value::String("No newlines here".to_string());
+        let result = linebreaksbr_filter(&value, &HashMap::new()).unwrap();
+        assert_eq!(result.as_str().unwrap(), "No newlines here");
+    }
+
+    #[test]
+    fn test_with_config_no_auto_escape() {
+        let config = TemplateConfig {
+            auto_escape: false,
+            ..Default::default()
+        };
+        let engine = TemplateEngine::with_config(config);
+        assert!(engine.is_ok());
+    }
+
+    #[test]
+    fn test_data_structs_debug() {
+        let email = EmailDraftData {
+            recipient: "Test".to_string(),
+            recipient_email: "test@test.com".to_string(),
+            subject: "Subject".to_string(),
+            body: "Body".to_string(),
+            sender: "Sender".to_string(),
+            cc: vec![],
+            attachments: vec![],
+        };
+        assert!(format!("{email:?}").contains("EmailDraftData"));
+
+        let weather = WeatherReportData {
+            location: "Test".to_string(),
+            temperature: 20.0,
+            unit: "C".to_string(),
+            condition: "Clear".to_string(),
+            emoji: "☀️".to_string(),
+            humidity: 50,
+            wind_speed: 10.0,
+            forecast: vec![],
+        };
+        assert!(format!("{weather:?}").contains("WeatherReportData"));
+
+        let calendar = CalendarEventData {
+            title: "Event".to_string(),
+            start_time: "10:00".to_string(),
+            end_time: "11:00".to_string(),
+            location: None,
+            description: None,
+            attendees: vec![],
+        };
+        assert!(format!("{calendar:?}").contains("CalendarEventData"));
+
+        let response = AssistantResponseData {
+            content: "Content".to_string(),
+            suggestions: vec![],
+            requires_approval: false,
+            approval_command: None,
+        };
+        assert!(format!("{response:?}").contains("AssistantResponseData"));
+    }
 }
