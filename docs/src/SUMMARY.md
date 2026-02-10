@@ -20,6 +20,7 @@
 # Developer Guide
 
 - [Architecture](./developer/architecture.md)
+- [Memory System](./developer/memory-system.md)
 - [Contributing](./developer/contributing.md)
 - [Crate Reference](./developer/crate-reference.md)
 - [API Reference](./developer/api-reference.md)

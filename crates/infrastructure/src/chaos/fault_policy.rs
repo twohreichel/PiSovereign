@@ -459,4 +459,189 @@ mod tests {
         let fault = policy.select_fault();
         assert!(matches!(fault, Some(FaultType::RateLimited)));
     }
+
+    #[test]
+    fn fault_policy_select_fault_disabled() {
+        let policy = FaultPolicy::default(); // Disabled by default
+        let fault = policy.select_fault();
+        assert!(fault.is_none());
+    }
+
+    #[test]
+    fn latency_distribution_normal() {
+        let dist =
+            LatencyDistribution::normal(Duration::from_millis(100), Duration::from_millis(10));
+        // Normal distribution should produce valid durations
+        for _ in 0..10 {
+            let _sample = dist.sample();
+            // Duration is always non-negative by definition
+        }
+    }
+
+    #[test]
+    fn latency_distribution_default() {
+        let dist = LatencyDistribution::default();
+        assert_eq!(dist.min, Duration::from_millis(100));
+        assert_eq!(dist.max, Duration::from_millis(500));
+        assert_eq!(dist.distribution, LatencyDistributionType::Uniform);
+    }
+
+    #[test]
+    fn latency_distribution_type_default() {
+        let dt = LatencyDistributionType::default();
+        assert_eq!(dt, LatencyDistributionType::Uniform);
+    }
+
+    #[test]
+    fn fault_type_variants() {
+        // Test all fault type variants
+        let _ = FaultType::Error("test".to_string());
+        let _ = FaultType::Latency(LatencyDistribution::default());
+        let _ = FaultType::LatencyThenError {
+            latency: LatencyDistribution::default(),
+            error: "test".to_string(),
+        };
+        let _ = FaultType::Timeout(Duration::from_secs(1));
+        let _ = FaultType::CorruptedResponse {
+            corruption_rate: 0.5,
+        };
+        let _ = FaultType::ConnectionRefused;
+        let _ = FaultType::ConnectionReset;
+        let _ = FaultType::ResourceExhausted("memory".to_string());
+        let _ = FaultType::RateLimited;
+        let _ = FaultType::Custom("my_fault".to_string());
+    }
+
+    #[test]
+    fn fault_type_debug() {
+        let ft = FaultType::Error("debug test".to_string());
+        let debug = format!("{ft:?}");
+        assert!(debug.contains("Error"));
+        assert!(debug.contains("debug test"));
+    }
+
+    #[test]
+    fn fault_type_clone() {
+        let ft = FaultType::ConnectionRefused;
+        #[allow(clippy::redundant_clone)]
+        let cloned = ft.clone();
+        assert!(matches!(cloned, FaultType::ConnectionRefused));
+    }
+
+    #[test]
+    fn fault_type_serialization() {
+        // Test JSON serialization of fault types
+        let ft = FaultType::Error("serialization test".to_string());
+        let json = serde_json::to_string(&ft).unwrap();
+        assert!(json.contains("Error"));
+
+        let ft2 = FaultType::Timeout(Duration::from_secs(5));
+        let json2 = serde_json::to_string(&ft2).unwrap();
+        assert!(json2.contains("Timeout"));
+
+        let ft3 = FaultType::CorruptedResponse {
+            corruption_rate: 0.3,
+        };
+        let json3 = serde_json::to_string(&ft3).unwrap();
+        assert!(json3.contains("corruption_rate"));
+    }
+
+    #[test]
+    fn latency_distribution_serialization() {
+        let dist = LatencyDistribution::constant(Duration::from_millis(100));
+        let json = serde_json::to_string(&dist).unwrap();
+        assert!(json.contains("Uniform"));
+
+        let parsed: LatencyDistribution = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.distribution, dist.distribution);
+    }
+
+    #[test]
+    fn fault_policy_serialization() {
+        let policy = FaultPolicy::error(0.5, "test error");
+        let json = serde_json::to_string(&policy).unwrap();
+
+        let parsed: FaultPolicy = serde_json::from_str(&json).unwrap();
+        assert!((parsed.fault_rate - 0.5).abs() < f64::EPSILON);
+        assert!(parsed.enabled);
+    }
+
+    #[test]
+    fn fault_policy_should_inject_rate_zero() {
+        let mut policy = FaultPolicy::always(FaultType::Error("test".to_string()));
+        policy.fault_rate = 0.0;
+        assert!(!policy.should_inject());
+    }
+
+    #[test]
+    fn fault_policy_should_inject_rate_one() {
+        let mut policy = FaultPolicy::with_rate(1.0);
+        policy.enabled = true;
+        assert!(policy.should_inject());
+    }
+
+    #[test]
+    fn fault_policy_should_inject_disabled() {
+        let mut policy = FaultPolicy::with_rate(1.0);
+        policy.enabled = false;
+        assert!(!policy.should_inject());
+    }
+
+    #[test]
+    fn fault_policy_targets_and_exclusions() {
+        let policy = FaultPolicy::default()
+            .with_targets(vec!["op1".to_string(), "op2".to_string()])
+            .with_exclusions(vec!["op2".to_string()]);
+
+        // op1 is targeted and not excluded
+        assert!(policy.should_target("op1"));
+        // op2 is targeted but also excluded
+        assert!(!policy.should_target("op2"));
+        // op3 is not in targets
+        assert!(!policy.should_target("op3"));
+    }
+
+    #[test]
+    fn latency_distribution_exponential() {
+        // Create a distribution with Exponential type manually
+        let dist = LatencyDistribution {
+            min: Duration::from_millis(10),
+            max: Duration::from_millis(1000),
+            distribution: LatencyDistributionType::Exponential,
+        };
+
+        // Exponential distribution should produce values clamped to min/max
+        for _ in 0..10 {
+            let sample = dist.sample();
+            assert!(sample >= Duration::from_millis(10));
+            assert!(sample <= Duration::from_millis(1000));
+        }
+    }
+
+    #[test]
+    fn latency_distribution_type_eq() {
+        assert_eq!(
+            LatencyDistributionType::Uniform,
+            LatencyDistributionType::Uniform
+        );
+        assert_eq!(
+            LatencyDistributionType::Normal,
+            LatencyDistributionType::Normal
+        );
+        assert_eq!(
+            LatencyDistributionType::Exponential,
+            LatencyDistributionType::Exponential
+        );
+        assert_ne!(
+            LatencyDistributionType::Uniform,
+            LatencyDistributionType::Normal
+        );
+    }
+
+    #[test]
+    fn latency_distribution_copy() {
+        let dist = LatencyDistributionType::Uniform;
+        let copied = dist;
+        assert_eq!(dist, copied);
+    }
 }

@@ -11,12 +11,16 @@ mod conversation_store;
 mod database_health_port;
 mod draft_store;
 mod email_port;
+mod embedding_port;
+mod encryption_port;
 mod inference_port;
+mod memory_store;
 mod message_gateway_port;
 mod messenger_port;
 mod model_registry_port;
 mod secret_store;
 mod speech_port;
+mod suspicious_activity_port;
 mod task_port;
 mod user_profile_store;
 mod weather_port;
@@ -34,7 +38,16 @@ pub use draft_store::DraftStorePort;
 #[cfg(test)]
 pub use draft_store::MockDraftStorePort;
 pub use email_port::{EmailDraft, EmailError, EmailPort, EmailSummary};
+#[cfg(test)]
+pub use embedding_port::MockEmbeddingPort;
+pub use embedding_port::{EmbeddingModelInfo, EmbeddingPort};
+#[cfg(test)]
+pub use encryption_port::MockEncryptionPort;
+pub use encryption_port::{EncryptionPort, NoOpEncryption};
 pub use inference_port::{InferencePort, InferenceResult, InferenceStream, StreamingChunk};
+#[cfg(test)]
+pub use memory_store::MockMemoryStore;
+pub use memory_store::{MemoryStats, MemoryStore, SimilarMemory};
 pub use message_gateway_port::{IncomingMessage, MessageGatewayPort, OutgoingMessage};
 #[cfg(test)]
 pub use messenger_port::MockMessengerPort;
@@ -48,8 +61,13 @@ pub use secret_store::{SecretStoreExt, SecretStorePort};
 pub use speech_port::MockSpeechPort;
 pub use speech_port::{SpeechPort, SynthesisResult, TranscriptionResult, VoiceConfig, VoiceInfo};
 #[cfg(test)]
+pub use suspicious_activity_port::MockSuspiciousActivityPort;
+pub use suspicious_activity_port::{
+    SuspiciousActivityConfig, SuspiciousActivityPort, ViolationRecord, ViolationSummary,
+};
+#[cfg(test)]
 pub use task_port::MockTaskPort;
-pub use task_port::{NewTask, Task, TaskPort, TaskQuery, TaskStatus, TaskUpdates};
+pub use task_port::{NewTask, Task, TaskListInfo, TaskPort, TaskQuery, TaskStatus, TaskUpdates};
 pub use user_profile_store::UserProfileStore;
 #[cfg(test)]
 pub use weather_port::MockWeatherPort;

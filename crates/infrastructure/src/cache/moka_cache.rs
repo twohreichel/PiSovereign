@@ -328,4 +328,98 @@ mod tests {
         let result: Option<String> = cache.get("llm:test").await.unwrap();
         assert_eq!(result, Some("response".to_string()));
     }
+
+    #[test]
+    fn moka_cache_debug() {
+        let cache = MokaCache::new();
+        let debug = format!("{cache:?}");
+        assert!(debug.contains("MokaCache"));
+        assert!(debug.contains("entries"));
+        assert!(debug.contains("hits"));
+        assert!(debug.contains("misses"));
+    }
+
+    #[test]
+    fn moka_cache_default() {
+        let cache = MokaCache::default();
+        let stats = cache.stats();
+        assert_eq!(stats.entries, 0);
+        assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
+    }
+
+    #[test]
+    fn moka_config_copy() {
+        let config = MokaCacheConfig::default();
+        let copied = config;
+        assert_eq!(config.max_capacity_mb, copied.max_capacity_mb);
+    }
+
+    #[tokio::test]
+    async fn with_config_custom_settings() {
+        let config = MokaCacheConfig {
+            max_capacity_mb: 10,
+            default_ttl: Duration::from_secs(60),
+            time_to_idle: None,
+        };
+        let cache = MokaCache::with_config(config);
+        cache
+            .set("test", &42i32, Duration::from_secs(30))
+            .await
+            .unwrap();
+        let result: Option<i32> = cache.get("test").await.unwrap();
+        assert_eq!(result, Some(42));
+    }
+
+    #[tokio::test]
+    async fn stats_shows_entry_count() {
+        let cache = MokaCache::new();
+        cache
+            .set("key1", &1, Duration::from_secs(60))
+            .await
+            .unwrap();
+        cache
+            .set("key2", &2, Duration::from_secs(60))
+            .await
+            .unwrap();
+        cache
+            .set("key3", &3, Duration::from_secs(60))
+            .await
+            .unwrap();
+
+        // Run pending tasks to ensure entries are counted
+        cache.cache.run_pending_tasks().await;
+
+        let stats = cache.stats();
+        assert_eq!(stats.entries, 3);
+    }
+
+    #[tokio::test]
+    async fn invalidate_pattern_no_matches() {
+        let cache = MokaCache::new();
+        cache
+            .set("other:key", &1, Duration::from_secs(60))
+            .await
+            .unwrap();
+
+        let count = cache.invalidate_pattern("nomatch:*").await.unwrap();
+        assert_eq!(count, 0);
+
+        // Original key should still exist
+        assert!(cache.exists("other:key").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn get_bytes_and_set_bytes_directly() {
+        let cache = MokaCache::new();
+        let data = b"raw binary data";
+
+        cache
+            .set_bytes("binary_key", data.to_vec(), Duration::from_secs(60))
+            .await
+            .unwrap();
+
+        let result = cache.get_bytes("binary_key").await.unwrap();
+        assert_eq!(result, Some(data.to_vec()));
+    }
 }

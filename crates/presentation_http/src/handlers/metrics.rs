@@ -25,6 +25,8 @@ pub struct MetricsResponse {
     pub inference: InferenceMetrics,
     /// System metrics
     pub system: SystemMetrics,
+    /// Security metrics
+    pub security: SecurityMetrics,
 }
 
 /// Application metadata
@@ -91,6 +93,27 @@ pub struct SystemMetrics {
     pub active_tasks: Option<u64>,
 }
 
+/// Security metrics for prompt injection and threat detection
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SecurityMetrics {
+    /// Total prompt injection attempts detected
+    pub prompt_injection_attempts: u64,
+    /// Total jailbreak attempts detected
+    pub jailbreak_attempts: u64,
+    /// Total system prompt leak attempts
+    pub system_prompt_leak_attempts: u64,
+    /// Other security threats detected
+    pub other_security_threats: u64,
+    /// Total requests blocked due to security threats
+    pub security_blocked_requests: u64,
+    /// Total IPs blocked due to suspicious activity
+    pub ips_blocked: u64,
+    /// Average prompt analysis time in microseconds
+    pub avg_prompt_analysis_time_us: f64,
+    /// Total prompt analyses performed
+    pub total_prompt_analyses: u64,
+}
+
 /// Histogram buckets for response time (in milliseconds)
 /// Standard buckets: 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s
 pub const RESPONSE_TIME_BUCKETS_MS: &[f64] = &[
@@ -134,6 +157,23 @@ pub struct MetricsCollector {
     inference_time_buckets: [AtomicU64; 9],
     /// Total tokens generated
     total_tokens_generated: AtomicU64,
+    // Security metrics
+    /// Prompt injection attempts detected
+    prompt_injection_attempts: AtomicU64,
+    /// Jailbreak attempts detected
+    jailbreak_attempts: AtomicU64,
+    /// System prompt leak attempts
+    system_prompt_leak_attempts: AtomicU64,
+    /// Other security threats detected
+    other_security_threats: AtomicU64,
+    /// Total blocked requests due to security
+    security_blocked_requests: AtomicU64,
+    /// IPs blocked due to suspicious activity
+    ips_blocked: AtomicU64,
+    /// Total prompt analysis time in microseconds
+    total_prompt_analysis_time_us: AtomicU64,
+    /// Number of prompt analyses performed
+    total_prompt_analyses: AtomicU64,
 }
 
 impl Default for MetricsCollector {
@@ -173,6 +213,15 @@ impl MetricsCollector {
             total_inference_time_us: AtomicU64::new(0),
             inference_time_buckets: atomic_array::<9>(),
             total_tokens_generated: AtomicU64::new(0),
+            // Security metrics
+            prompt_injection_attempts: AtomicU64::new(0),
+            jailbreak_attempts: AtomicU64::new(0),
+            system_prompt_leak_attempts: AtomicU64::new(0),
+            other_security_threats: AtomicU64::new(0),
+            security_blocked_requests: AtomicU64::new(0),
+            ips_blocked: AtomicU64::new(0),
+            total_prompt_analysis_time_us: AtomicU64::new(0),
+            total_prompt_analyses: AtomicU64::new(0),
         }
     }
 
@@ -360,6 +409,67 @@ impl MetricsCollector {
             healthy,
         }
     }
+
+    /// Record a security threat detection
+    pub fn record_security_threat(&self, category: &str) {
+        match category {
+            "prompt_injection" => {
+                self.prompt_injection_attempts
+                    .fetch_add(1, Ordering::Relaxed);
+            },
+            "jailbreak_attempt" => {
+                self.jailbreak_attempts.fetch_add(1, Ordering::Relaxed);
+            },
+            "system_prompt_leak" => {
+                self.system_prompt_leak_attempts
+                    .fetch_add(1, Ordering::Relaxed);
+            },
+            _ => {
+                self.other_security_threats.fetch_add(1, Ordering::Relaxed);
+            },
+        }
+    }
+
+    /// Record a blocked request due to security
+    pub fn record_security_block(&self) {
+        self.security_blocked_requests
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record an IP being blocked
+    pub fn record_ip_blocked(&self) {
+        self.ips_blocked.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record prompt analysis metrics
+    pub fn record_prompt_analysis(&self, duration_us: u64) {
+        self.total_prompt_analyses.fetch_add(1, Ordering::Relaxed);
+        self.total_prompt_analysis_time_us
+            .fetch_add(duration_us, Ordering::Relaxed);
+    }
+
+    /// Get security metrics for display
+    #[must_use]
+    pub fn security_metrics(&self) -> SecurityMetrics {
+        let total_analyses = self.total_prompt_analyses.load(Ordering::Relaxed);
+        let total_analysis_time = self.total_prompt_analysis_time_us.load(Ordering::Relaxed);
+
+        SecurityMetrics {
+            prompt_injection_attempts: self.prompt_injection_attempts.load(Ordering::Relaxed),
+            jailbreak_attempts: self.jailbreak_attempts.load(Ordering::Relaxed),
+            system_prompt_leak_attempts: self.system_prompt_leak_attempts.load(Ordering::Relaxed),
+            other_security_threats: self.other_security_threats.load(Ordering::Relaxed),
+            security_blocked_requests: self.security_blocked_requests.load(Ordering::Relaxed),
+            ips_blocked: self.ips_blocked.load(Ordering::Relaxed),
+            #[allow(clippy::cast_precision_loss)]
+            avg_prompt_analysis_time_us: if total_analyses > 0 {
+                (total_analysis_time as f64) / (total_analyses as f64)
+            } else {
+                0.0
+            },
+            total_prompt_analyses: total_analyses,
+        }
+    }
 }
 
 /// Get metrics endpoint
@@ -390,6 +500,7 @@ pub async fn get_metrics(State(state): State<AppState>) -> Json<MetricsResponse>
             memory_estimate_bytes: None, // Would require jemalloc or similar
             active_tasks: None,          // Would require tokio runtime handle
         },
+        security: metrics.security_metrics(),
     })
 }
 
@@ -576,8 +687,67 @@ pub async fn get_metrics_prometheus(State(state): State<AppState>) -> String {
     output.push_str(&format!(
         "# HELP inference_healthy Inference engine health status\n\
          # TYPE inference_healthy gauge\n\
-         inference_healthy {}\n",
+         inference_healthy {}\n\n",
         i32::from(inference_metrics.healthy)
+    ));
+
+    // Security metrics
+    let security_metrics = metrics.security_metrics();
+
+    output.push_str(&format!(
+        "# HELP security_prompt_injection_attempts_total Prompt injection attempts detected\n\
+         # TYPE security_prompt_injection_attempts_total counter\n\
+         security_prompt_injection_attempts_total {}\n\n",
+        security_metrics.prompt_injection_attempts
+    ));
+
+    output.push_str(&format!(
+        "# HELP security_jailbreak_attempts_total Jailbreak attempts detected\n\
+         # TYPE security_jailbreak_attempts_total counter\n\
+         security_jailbreak_attempts_total {}\n\n",
+        security_metrics.jailbreak_attempts
+    ));
+
+    output.push_str(&format!(
+        "# HELP security_system_prompt_leak_attempts_total System prompt leak attempts\n\
+         # TYPE security_system_prompt_leak_attempts_total counter\n\
+         security_system_prompt_leak_attempts_total {}\n\n",
+        security_metrics.system_prompt_leak_attempts
+    ));
+
+    output.push_str(&format!(
+        "# HELP security_other_threats_total Other security threats detected\n\
+         # TYPE security_other_threats_total counter\n\
+         security_other_threats_total {}\n\n",
+        security_metrics.other_security_threats
+    ));
+
+    output.push_str(&format!(
+        "# HELP security_blocked_requests_total Requests blocked due to security threats\n\
+         # TYPE security_blocked_requests_total counter\n\
+         security_blocked_requests_total {}\n\n",
+        security_metrics.security_blocked_requests
+    ));
+
+    output.push_str(&format!(
+        "# HELP security_ips_blocked_total IPs blocked due to suspicious activity\n\
+         # TYPE security_ips_blocked_total counter\n\
+         security_ips_blocked_total {}\n\n",
+        security_metrics.ips_blocked
+    ));
+
+    output.push_str(&format!(
+        "# HELP security_prompt_analysis_avg_us Average prompt analysis time in microseconds\n\
+         # TYPE security_prompt_analysis_avg_us gauge\n\
+         security_prompt_analysis_avg_us {:.2}\n\n",
+        security_metrics.avg_prompt_analysis_time_us
+    ));
+
+    output.push_str(&format!(
+        "# HELP security_prompt_analyses_total Total prompt analyses performed\n\
+         # TYPE security_prompt_analyses_total counter\n\
+         security_prompt_analyses_total {}\n",
+        security_metrics.total_prompt_analyses
     ));
 
     output
@@ -780,6 +950,16 @@ mod tests {
             system: SystemMetrics {
                 memory_estimate_bytes: Some(1024 * 1024 * 100),
                 active_tasks: Some(10),
+            },
+            security: SecurityMetrics {
+                prompt_injection_attempts: 0,
+                jailbreak_attempts: 0,
+                system_prompt_leak_attempts: 0,
+                other_security_threats: 0,
+                security_blocked_requests: 0,
+                ips_blocked: 0,
+                avg_prompt_analysis_time_us: 0.0,
+                total_prompt_analyses: 0,
             },
         };
 

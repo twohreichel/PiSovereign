@@ -102,6 +102,9 @@ pub enum ApiError {
     #[error("Unauthorized: {0}")]
     Unauthorized(String),
 
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
     #[error("Not found: {0}")]
     NotFound(String),
 
@@ -144,6 +147,15 @@ impl IntoResponse for ApiError {
                     "Authentication required".to_string()
                 };
                 (StatusCode::UNAUTHORIZED, "unauthorized", sanitized, None)
+            },
+            Self::Forbidden(msg) => {
+                // Forbidden messages can hint at security policy but not leak details
+                let sanitized = if should_expose_details() {
+                    msg.clone()
+                } else {
+                    "Access denied".to_string()
+                };
+                (StatusCode::FORBIDDEN, "forbidden", sanitized, None)
             },
             Self::NotFound(msg) => (
                 StatusCode::NOT_FOUND,
@@ -203,6 +215,8 @@ impl From<ApplicationError> for ApiError {
             ApplicationError::Domain(e) => Self::BadRequest(e.to_string()),
             ApplicationError::RateLimited => Self::RateLimited,
             ApplicationError::NotAuthorized(msg) => Self::Unauthorized(msg),
+            ApplicationError::PromptSecurityViolation { reason, .. } => Self::Forbidden(reason),
+            ApplicationError::Blocked(msg) => Self::Forbidden(msg),
             ApplicationError::Inference(msg) | ApplicationError::ExternalService(msg) => {
                 Self::ServiceUnavailable(msg)
             },

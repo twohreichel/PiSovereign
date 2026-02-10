@@ -23,3 +23,6 @@ futures = "0.3"
 
 [dev-dependencies]
 tokio-test.workspace = true
+wiremock.workspace = true
+serde_json.workspace = true
+proptest.workspace = true

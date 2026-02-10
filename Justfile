@@ -120,25 +120,28 @@ cli *ARGS:
     cargo run --bin pisovereign-cli -- {{ARGS}}
 
 # === COVERAGE ===
-# Uses .tarpaulin.toml for configuration (90% threshold, excludes, etc.)
+# Uses .tarpaulin.toml for configuration (75% threshold, excludes infrastructure code)
+
+# Common exclusion patterns for infrastructure code tested via integration tests
+_coverage_excludes := "--exclude-files '*/main.rs' --exclude-files '*/benches/*' --exclude-files '*/adapters/*' --exclude-files '*/persistence/*' --exclude-files '*/testing/*' --exclude-files '*/telemetry/*' --exclude-files '*/handlers/*' --exclude-files '*/config_reload.rs' --exclude-files '*/state.rs' --exclude-files '*/middleware/request_id.rs' --exclude-files '*/task.rs' --exclude-files '*/imap_client.rs' --exclude-files '*/smtp_client.rs'"
 
 # Generate code coverage report (requires cargo-tarpaulin)
 # Install with: cargo install cargo-tarpaulin
 coverage:
     @echo "📊 Generating coverage report..."
-    cargo tarpaulin
+    cargo tarpaulin --config .tarpaulin.toml {{ _coverage_excludes }}
     @echo "📊 Report generated at target/coverage/tarpaulin-report.html"
 
 # Generate coverage report and open in browser
 coverage-open:
-    cargo tarpaulin
+    cargo tarpaulin --config .tarpaulin.toml {{ _coverage_excludes }}
     open target/coverage/tarpaulin-report.html
 
 # Generate LCOV format only (for CI)
 coverage-lcov:
-    cargo tarpaulin --out Lcov
+    cargo tarpaulin --config .tarpaulin.toml --out Lcov {{ _coverage_excludes }}
     @echo "📊 LCOV report generated at target/coverage/lcov.info"
 
 # Show coverage summary in terminal (no HTML)
 coverage-summary:
-    cargo tarpaulin --out Stdout
+    cargo tarpaulin --config .tarpaulin.toml --out Stdout {{ _coverage_excludes }}

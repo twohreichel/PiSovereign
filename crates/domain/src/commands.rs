@@ -58,6 +58,8 @@ pub enum AgentCommand {
         status: Option<TaskStatus>,
         /// Filter by priority
         priority: Option<Priority>,
+        /// Filter by list/calendar name
+        list: Option<String>,
     },
 
     /// Create a new task
@@ -70,6 +72,17 @@ pub enum AgentCommand {
         priority: Option<Priority>,
         /// Optional description
         description: Option<String>,
+        /// Target list/calendar (None for default)
+        list: Option<String>,
+    },
+
+    /// List available task lists/calendars
+    ListTaskLists,
+
+    /// Create a new task list/calendar
+    CreateTaskList {
+        /// Name of the new list
+        name: String,
     },
 
     /// Mark a task as completed
@@ -186,6 +199,7 @@ impl AgentCommand {
                 | Self::CompleteTask { .. }
                 | Self::UpdateTask { .. }
                 | Self::DeleteTask { .. }
+                | Self::CreateTaskList { .. }
                 | Self::System(SystemCommand::ReloadConfig | SystemCommand::SwitchModel { .. })
         )
     }
@@ -210,13 +224,20 @@ impl AgentCommand {
                     .map_or_else(|| "(no title change)".to_string(), |t| format!("'{t}'"));
                 format!("Update event {event_id} to {title_str}")
             },
-            Self::ListTasks { status, priority } => {
+            Self::ListTasks {
+                status,
+                priority,
+                list,
+            } => {
                 let mut filters = Vec::new();
                 if let Some(s) = status {
                     filters.push(format!("status={s}"));
                 }
                 if let Some(p) = priority {
                     filters.push(format!("priority={p}"));
+                }
+                if let Some(l) = list {
+                    filters.push(format!("list={l}"));
                 }
                 if filters.is_empty() {
                     "List all tasks".to_string()
@@ -225,11 +246,23 @@ impl AgentCommand {
                 }
             },
             Self::CreateTask {
-                title, due_date, ..
-            } => due_date.map_or_else(
-                || format!("Create task '{title}'"),
-                |d| format!("Create task '{title}' due {d}"),
-            ),
+                title,
+                due_date,
+                list,
+                ..
+            } => {
+                let list_str = list
+                    .as_ref()
+                    .map_or(String::new(), |l| format!(" on list '{l}'"));
+                due_date.map_or_else(
+                    || format!("Create task '{title}'{list_str}"),
+                    |d| format!("Create task '{title}' due {d}{list_str}"),
+                )
+            },
+            Self::ListTaskLists => "List all task lists".to_string(),
+            Self::CreateTaskList { name } => {
+                format!("Create task list '{name}'")
+            },
             Self::CompleteTask { task_id } => {
                 format!("Complete task {task_id}")
             },
@@ -638,5 +671,314 @@ mod tests {
         let json = serde_json::to_string(&cmd).unwrap();
         assert!(json.contains("web_search"));
         assert!(json.contains("rust"));
+    }
+
+    // === ListTasks Tests ===
+
+    #[test]
+    fn list_tasks_requires_approval() {
+        let cmd = AgentCommand::ListTasks {
+            status: None,
+            priority: None,
+            list: None,
+        };
+        assert!(!cmd.requires_approval());
+    }
+
+    #[test]
+    fn list_tasks_description_no_filters() {
+        let cmd = AgentCommand::ListTasks {
+            status: None,
+            priority: None,
+            list: None,
+        };
+        assert_eq!(cmd.description(), "List all tasks");
+    }
+
+    #[test]
+    fn list_tasks_description_with_status() {
+        use crate::value_objects::TaskStatus;
+        let cmd = AgentCommand::ListTasks {
+            status: Some(TaskStatus::InProgress),
+            priority: None,
+            list: None,
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("status="));
+        assert!(desc.contains("In Progress"));
+    }
+
+    #[test]
+    fn list_tasks_description_with_priority() {
+        use crate::value_objects::Priority;
+        let cmd = AgentCommand::ListTasks {
+            status: None,
+            priority: Some(Priority::High),
+            list: None,
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("priority="));
+        assert!(desc.contains("High"));
+    }
+
+    #[test]
+    fn list_tasks_description_with_both_filters() {
+        use crate::value_objects::{Priority, TaskStatus};
+        let cmd = AgentCommand::ListTasks {
+            status: Some(TaskStatus::NeedsAction),
+            priority: Some(Priority::Medium),
+            list: None,
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("status="));
+        assert!(desc.contains("priority="));
+    }
+
+    // === CreateTask Tests ===
+
+    #[test]
+    fn create_task_requires_approval() {
+        let cmd = AgentCommand::CreateTask {
+            title: "Test task".to_string(),
+            due_date: None,
+            priority: None,
+            description: None,
+            list: None,
+        };
+        assert!(cmd.requires_approval());
+    }
+
+    #[test]
+    fn create_task_description_without_due_date() {
+        let cmd = AgentCommand::CreateTask {
+            title: "Buy groceries".to_string(),
+            due_date: None,
+            priority: None,
+            description: None,
+            list: None,
+        };
+        assert_eq!(cmd.description(), "Create task 'Buy groceries'");
+    }
+
+    #[test]
+    fn create_task_description_with_due_date() {
+        let cmd = AgentCommand::CreateTask {
+            title: "Finish report".to_string(),
+            due_date: Some(NaiveDate::from_ymd_opt(2026, 2, 15).unwrap()),
+            priority: None,
+            description: None,
+            list: None,
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("Finish report"));
+        assert!(desc.contains("2026-02-15"));
+    }
+
+    // === CompleteTask Tests ===
+
+    #[test]
+    fn complete_task_requires_approval() {
+        let cmd = AgentCommand::CompleteTask {
+            task_id: "task-123".to_string(),
+        };
+        assert!(cmd.requires_approval());
+    }
+
+    #[test]
+    fn complete_task_description() {
+        let cmd = AgentCommand::CompleteTask {
+            task_id: "task-abc".to_string(),
+        };
+        assert_eq!(cmd.description(), "Complete task task-abc");
+    }
+
+    // === UpdateTask Tests ===
+
+    #[test]
+    fn update_task_requires_approval() {
+        let cmd = AgentCommand::UpdateTask {
+            task_id: "task-123".to_string(),
+            title: None,
+            due_date: None,
+            priority: None,
+            description: None,
+        };
+        assert!(cmd.requires_approval());
+    }
+
+    #[test]
+    fn update_task_description_with_title() {
+        let cmd = AgentCommand::UpdateTask {
+            task_id: "task-789".to_string(),
+            title: Some("New title".to_string()),
+            due_date: None,
+            priority: None,
+            description: None,
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("task-789"));
+        assert!(desc.contains("New title"));
+    }
+
+    #[test]
+    fn update_task_description_without_title() {
+        let cmd = AgentCommand::UpdateTask {
+            task_id: "task-xyz".to_string(),
+            title: None,
+            due_date: None,
+            priority: None,
+            description: None,
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("task-xyz"));
+        assert!(desc.contains("(no title change)"));
+    }
+
+    // === DeleteTask Tests ===
+
+    #[test]
+    fn delete_task_requires_approval() {
+        let cmd = AgentCommand::DeleteTask {
+            task_id: "task-delete".to_string(),
+        };
+        assert!(cmd.requires_approval());
+    }
+
+    #[test]
+    fn delete_task_description() {
+        let cmd = AgentCommand::DeleteTask {
+            task_id: "task-delete-me".to_string(),
+        };
+        assert_eq!(cmd.description(), "Delete task task-delete-me");
+    }
+
+    // === UpdateCalendarEvent Tests ===
+
+    #[test]
+    fn update_calendar_event_requires_approval() {
+        let cmd = AgentCommand::UpdateCalendarEvent {
+            event_id: "evt-123".to_string(),
+            date: None,
+            time: None,
+            title: None,
+            duration_minutes: None,
+            attendees: None,
+            location: None,
+        };
+        assert!(cmd.requires_approval());
+    }
+
+    #[test]
+    fn update_calendar_event_description_with_title() {
+        let cmd = AgentCommand::UpdateCalendarEvent {
+            event_id: "evt-456".to_string(),
+            date: None,
+            time: None,
+            title: Some("Updated Meeting".to_string()),
+            duration_minutes: None,
+            attendees: None,
+            location: None,
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("evt-456"));
+        assert!(desc.contains("Updated Meeting"));
+    }
+
+    #[test]
+    fn update_calendar_event_description_without_title() {
+        let cmd = AgentCommand::UpdateCalendarEvent {
+            event_id: "evt-789".to_string(),
+            date: None,
+            time: None,
+            title: None,
+            duration_minutes: None,
+            attendees: None,
+            location: None,
+        };
+        let desc = cmd.description();
+        assert!(desc.contains("evt-789"));
+        assert!(desc.contains("(no title change)"));
+    }
+
+    // === Serialization roundtrip tests ===
+
+    #[test]
+    fn create_task_serializes_and_deserializes() {
+        let cmd = AgentCommand::CreateTask {
+            title: "Test".to_string(),
+            due_date: Some(NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()),
+            priority: Some(crate::value_objects::Priority::High),
+            description: Some("Desc".to_string()),
+            list: None,
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn update_task_serializes_and_deserializes() {
+        let cmd = AgentCommand::UpdateTask {
+            task_id: "t-1".to_string(),
+            title: Some("Updated".to_string()),
+            due_date: Some(Some(NaiveDate::from_ymd_opt(2026, 4, 1).unwrap())),
+            priority: Some(crate::value_objects::Priority::Medium),
+            description: Some(Some("New description".to_string())),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn update_task_with_none_keeps_existing() {
+        // When all optional fields are None, they should remain None after roundtrip
+        let cmd = AgentCommand::UpdateTask {
+            task_id: "t-2".to_string(),
+            title: None,
+            due_date: None,
+            priority: None,
+            description: None,
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn list_tasks_serializes_and_deserializes() {
+        let cmd = AgentCommand::ListTasks {
+            status: Some(crate::value_objects::TaskStatus::Completed),
+            priority: Some(crate::value_objects::Priority::Low),
+            list: None,
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn morning_briefing_serializes_and_deserializes() {
+        let cmd = AgentCommand::MorningBriefing {
+            date: Some(NaiveDate::from_ymd_opt(2026, 2, 10).unwrap()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn create_calendar_event_serializes_and_deserializes() {
+        let cmd = AgentCommand::CreateCalendarEvent {
+            title: "Meeting".to_string(),
+            date: NaiveDate::from_ymd_opt(2026, 3, 15).unwrap(),
+            time: NaiveTime::from_hms_opt(14, 30, 0).unwrap(),
+            duration_minutes: Some(45),
+            attendees: Some(vec![EmailAddress::new("bob@test.com").unwrap()]),
+            location: Some("Room 101".to_string()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
     }
 }

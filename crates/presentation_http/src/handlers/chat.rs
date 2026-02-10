@@ -3,17 +3,22 @@
 use std::time::Duration;
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::State,
     response::sse::{Event, Sse},
 };
+use domain::entities::ThreatLevel;
 use futures::{StreamExt, stream::Stream};
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
+use tracing::{info, instrument, warn};
 use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::{error::ApiError, middleware::ValidatedJson, state::AppState};
+use crate::{
+    error::ApiError,
+    middleware::{ClientIp, ValidatedJson},
+    state::AppState,
+};
 
 /// Maximum allowed message length (10KB)
 pub const MAX_MESSAGE_LENGTH: u64 = 10_000;
@@ -72,6 +77,100 @@ pub struct ChatResponse {
     pub conversation_id: String,
 }
 
+/// Performs prompt security analysis and IP blocking checks
+///
+/// Returns `Ok(())` if the request is allowed, or an `ApiError` if blocked.
+async fn check_prompt_security(
+    state: &AppState,
+    message: &str,
+    client_ip: Option<std::net::IpAddr>,
+) -> Result<(), ApiError> {
+    use application::ports::ViolationRecord;
+
+    // Check if IP is blocked
+    if let (Some(tracker), Some(ip)) = (&state.suspicious_activity_tracker, client_ip) {
+        if tracker.is_blocked(ip).await {
+            warn!(client_ip = %ip, "Blocked request from blocked IP");
+            state.metrics.record_security_block();
+            return Err(ApiError::Forbidden(
+                "Your IP address has been temporarily blocked due to suspicious activity"
+                    .to_string(),
+            ));
+        }
+    }
+
+    // Run prompt security analysis
+    if let Some(sanitizer) = &state.prompt_sanitizer {
+        let analysis = sanitizer.analyze(message);
+
+        // Record analysis timing metrics
+        state
+            .metrics
+            .record_prompt_analysis(analysis.analysis_duration_us);
+
+        // Record metrics for all detected threats
+        for threat in &analysis.threats {
+            // Map category to metrics category string
+            let category_str = match threat.category {
+                domain::entities::ThreatCategory::PromptInjection => "prompt_injection",
+                domain::entities::ThreatCategory::JailbreakAttempt => "jailbreak_attempt",
+                domain::entities::ThreatCategory::SystemPromptLeak => "system_prompt_leak",
+                _ => "other",
+            };
+            state.metrics.record_security_threat(category_str);
+
+            // Log the security event
+            warn!(
+                category = ?threat.category,
+                level = ?threat.threat_level,
+                pattern = %threat.matched_pattern,
+                position = threat.position,
+                "Security threat detected in prompt"
+            );
+        }
+
+        // Handle suspicious activity
+        if !analysis.threats.is_empty() {
+            // Record violation for tracking
+            if let (Some(tracker), Some(ip)) = (&state.suspicious_activity_tracker, client_ip) {
+                let highest_level = analysis.highest_threat_level().unwrap_or(ThreatLevel::Low);
+
+                let violation = ViolationRecord::new(
+                    format!(
+                        "{:?}",
+                        analysis
+                            .threat_categories()
+                            .first()
+                            .unwrap_or(&domain::entities::ThreatCategory::PromptInjection)
+                    ),
+                    highest_level,
+                );
+                tracker.record_violation(ip, violation).await;
+
+                // Check if auto-blocking should occur
+                if highest_level == ThreatLevel::Critical || tracker.is_blocked(ip).await {
+                    state.metrics.record_ip_blocked();
+                    info!(
+                        client_ip = %ip,
+                        level = ?highest_level,
+                        "IP auto-blocked due to security violations"
+                    );
+                }
+            }
+
+            // Block if the analysis determined we should block
+            if analysis.should_block {
+                state.metrics.record_security_block();
+                return Err(ApiError::Forbidden(
+                    "Request blocked due to security policy violation".to_string(),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Handle a chat request
 ///
 /// Supports both stateless and contextual chat:
@@ -85,16 +184,24 @@ pub struct ChatResponse {
     responses(
         (status = 200, description = "Chat response", body = ChatResponse),
         (status = 400, description = "Invalid request", body = crate::error::ErrorResponse),
+        (status = 403, description = "Security policy violation", body = crate::error::ErrorResponse),
         (status = 429, description = "Rate limited", body = crate::error::ErrorResponse),
         (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
     ),
     security(("api_key" = []))
 )]
-#[instrument(skip(state, request), fields(message_len = request.message.len(), conv_id = ?request.conversation_id))]
+#[instrument(skip(state, request, client_ip), fields(message_len = request.message.len(), conv_id = ?request.conversation_id))]
 pub async fn chat(
     State(state): State<AppState>,
+    client_ip: Option<Extension<ClientIp>>,
     ValidatedJson(request): ValidatedJson<ChatRequest>,
 ) -> Result<Json<ChatResponse>, ApiError> {
+    // Extract client IP from extension
+    let ip = client_ip.map(|Extension(ClientIp(ip))| ip);
+
+    // Perform security checks before processing
+    check_prompt_security(&state, &request.message, ip).await?;
+
     let (response, conv_id) = state
         .chat_service
         .chat_with_context(&request.message, request.conversation_id.as_deref())
@@ -138,16 +245,24 @@ pub struct StreamChatRequest {
     responses(
         (status = 200, description = "SSE stream of chat chunks", content_type = "text/event-stream"),
         (status = 400, description = "Invalid request", body = crate::error::ErrorResponse),
+        (status = 403, description = "Security policy violation", body = crate::error::ErrorResponse),
         (status = 429, description = "Rate limited", body = crate::error::ErrorResponse),
         (status = 503, description = "Service unavailable", body = crate::error::ErrorResponse)
     ),
     security(("api_key" = []))
 )]
-#[instrument(skip(state, request), fields(message_len = request.message.len()))]
+#[instrument(skip(state, request, client_ip), fields(message_len = request.message.len()))]
 pub async fn chat_stream(
     State(state): State<AppState>,
+    client_ip: Option<Extension<ClientIp>>,
     ValidatedJson(request): ValidatedJson<StreamChatRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, ApiError>>>, ApiError> {
+    // Extract client IP from extension
+    let ip = client_ip.map(|Extension(ClientIp(ip))| ip);
+
+    // Perform security checks before processing
+    check_prompt_security(&state, &request.message, ip).await?;
+
     // Get streaming response from LLM
     let inference_stream = state.chat_service.chat_stream(&request.message).await?;
 

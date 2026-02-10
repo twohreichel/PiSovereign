@@ -114,6 +114,7 @@ toml = "0.8"
 # Testing
 tokio-test = "0.4"
 mockall = "0.13"
+tempfile = "3.15"
 
 # Database
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
@@ -164,6 +165,9 @@ argon2 = "0.5"
 
 # Secret management with zeroization
 secrecy = { version = "0.10", features = ["serde"] }
+
+# Encryption
+chacha20poly1305 = "0.10"
 
 # Timezone validation
 chrono-tz = "0.10"

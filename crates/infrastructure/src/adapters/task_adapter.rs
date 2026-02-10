@@ -1,7 +1,9 @@
 //! Task adapter - Implements TaskPort using integration_caldav
 
 use application::error::ApplicationError;
-use application::ports::{NewTask, Task, TaskPort, TaskQuery, TaskStatus, TaskUpdates};
+use application::ports::{
+    NewTask, Task, TaskListInfo, TaskPort, TaskQuery, TaskStatus, TaskUpdates,
+};
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::value_objects::{Priority, UserId};
@@ -353,6 +355,61 @@ impl<C: CalDavTaskClient + 'static> TaskPort for TaskAdapter<C> {
         debug!(id = task_id, "Deleted task");
         Ok(true)
     }
+
+    #[instrument(skip(self, user_id), fields(user = %user_id))]
+    async fn list_task_lists(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<TaskListInfo>, ApplicationError> {
+        self.check_circuit()?;
+
+        let calendars = self
+            .client
+            .list_calendars()
+            .await
+            .map_err(Self::map_error)?;
+
+        // Convert calendar paths to TaskListInfo
+        let lists = calendars
+            .into_iter()
+            .map(|path| {
+                // Extract display name from path (last segment)
+                let name = path
+                    .trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&path)
+                    .to_string();
+
+                TaskListInfo { id: path, name }
+            })
+            .collect();
+
+        debug!(user = %user_id, "Listed task lists");
+        Ok(lists)
+    }
+
+    #[instrument(skip(self, user_id), fields(user = %user_id, name))]
+    async fn create_task_list(
+        &self,
+        user_id: &UserId,
+        name: &str,
+    ) -> Result<TaskListInfo, ApplicationError> {
+        self.check_circuit()?;
+
+        let calendar_id = self
+            .client
+            .create_calendar(name)
+            .await
+            .map_err(Self::map_error)?;
+
+        debug!(user = %user_id, id = %calendar_id, "Created task list");
+
+        Ok(TaskListInfo {
+            id: calendar_id,
+            name: name.to_string(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -477,6 +534,14 @@ mod tests {
 
         async fn delete_task(&self, _calendar: &str, _task_id: &str) -> Result<(), CalDavError> {
             Ok(())
+        }
+
+        async fn list_calendars(&self) -> Result<Vec<String>, CalDavError> {
+            Ok(vec!["default".to_string()])
+        }
+
+        async fn create_calendar(&self, name: &str) -> Result<String, CalDavError> {
+            Ok(name.to_lowercase().replace(' ', "-"))
         }
     }
 

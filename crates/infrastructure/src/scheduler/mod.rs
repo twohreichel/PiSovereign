@@ -866,4 +866,161 @@ mod tests {
         assert_eq!(TaskStatus::Failed.to_string(), "failed");
         assert_eq!(TaskStatus::Paused.to_string(), "paused");
     }
+
+    #[test]
+    fn test_scheduler_error_display() {
+        let err = SchedulerError::InvalidCronExpression("bad cron".to_string());
+        assert!(format!("{err}").contains("Invalid cron expression"));
+
+        let err = SchedulerError::TaskNotFound("missing".to_string());
+        assert!(format!("{err}").contains("Task not found"));
+
+        let err = SchedulerError::StartupFailed("startup error".to_string());
+        assert!(format!("{err}").contains("failed to start"));
+
+        let err = SchedulerError::ExecutionFailed("exec error".to_string());
+        assert!(format!("{err}").contains("execution failed"));
+
+        let err = SchedulerError::NotRunning;
+        assert!(format!("{err}").contains("not running"));
+
+        let err = SchedulerError::Internal("internal error".to_string());
+        assert!(format!("{err}").contains("Internal"));
+    }
+
+    #[test]
+    fn test_scheduler_config_default() {
+        let config = SchedulerConfig::default();
+        assert!(config.auto_start);
+        assert_eq!(config.max_concurrent_tasks, 10);
+        assert_eq!(config.event_buffer_size, 100);
+    }
+
+    #[test]
+    fn test_scheduler_config_custom() {
+        let config = SchedulerConfig {
+            auto_start: false,
+            max_concurrent_tasks: 5,
+            event_buffer_size: 50,
+        };
+        assert!(!config.auto_start);
+        assert_eq!(config.max_concurrent_tasks, 5);
+        assert_eq!(config.event_buffer_size, 50);
+    }
+
+    #[test]
+    fn test_task_builder_all_methods() {
+        let builder = TaskBuilder::new()
+            .weather_schedule("0 */15 * * * *")
+            .calendar_schedule("0 */10 * * * *")
+            .morning_briefing_schedule("0 0 6 * * *")
+            .evening_briefing_schedule("0 0 21 * * *")
+            .backup_schedule("0 0 2 * * *");
+
+        assert_eq!(builder.weather_cron, "0 */15 * * * *");
+        assert_eq!(builder.calendar_cron, "0 */10 * * * *");
+        assert_eq!(builder.morning_briefing_cron, "0 0 6 * * *");
+        assert_eq!(builder.evening_briefing_cron, "0 0 21 * * *");
+        assert_eq!(builder.backup_cron, "0 0 2 * * *");
+    }
+
+    #[test]
+    fn test_task_builder_default() {
+        let builder = TaskBuilder::default();
+        assert_eq!(builder.weather_cron, schedules::EVERY_30_MINUTES);
+        assert_eq!(builder.calendar_cron, schedules::EVERY_15_MINUTES);
+        assert_eq!(builder.morning_briefing_cron, schedules::DAILY_7AM);
+        assert_eq!(builder.evening_briefing_cron, schedules::DAILY_8PM);
+        assert_eq!(builder.backup_cron, schedules::DAILY_MIDNIGHT);
+    }
+
+    #[test]
+    fn test_task_builder_debug() {
+        let builder = TaskBuilder::new();
+        let debug = format!("{builder:?}");
+        assert!(debug.contains("TaskBuilder"));
+        assert!(debug.contains("weather_cron"));
+    }
+
+    #[tokio::test]
+    async fn test_pause_nonexistent_task() {
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
+
+        let result = scheduler.pause_task("nonexistent");
+        assert!(matches!(result, Err(SchedulerError::TaskNotFound(_))));
+
+        scheduler.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_resume_nonexistent_task() {
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
+
+        let result = scheduler.resume_task("nonexistent");
+        assert!(matches!(result, Err(SchedulerError::TaskNotFound(_))));
+
+        scheduler.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_task_stats_nonexistent() {
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
+
+        let stats = scheduler.get_task_stats("nonexistent");
+        assert!(stats.is_none());
+
+        scheduler.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_debug() {
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
+
+        let debug = format!("{scheduler:?}");
+        assert!(debug.contains("TaskScheduler"));
+        assert!(debug.contains("running"));
+        assert!(debug.contains("task_count"));
+
+        scheduler.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_start_already_running() {
+        let scheduler = TaskScheduler::new(SchedulerConfig::default())
+            .await
+            .unwrap();
+
+        // Already running from auto_start
+        assert!(scheduler.is_running());
+
+        // Starting again should be ok (no-op)
+        scheduler.start().await.unwrap();
+        assert!(scheduler.is_running());
+
+        scheduler.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_stop_already_stopped() {
+        let config = SchedulerConfig {
+            auto_start: false,
+            ..Default::default()
+        };
+        let scheduler = TaskScheduler::new(config).await.unwrap();
+
+        // Already stopped
+        assert!(!scheduler.is_running());
+
+        // Stopping again should be ok (no-op)
+        scheduler.stop().await.unwrap();
+        assert!(!scheduler.is_running());
+    }
 }

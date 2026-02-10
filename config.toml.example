@@ -100,6 +100,31 @@ connection_timeout_secs = 30
 min_tls_version = "1.2"
 
 # ==============================
+# Prompt Security Settings
+# ==============================
+# Protects against prompt injection and other AI security threats
+[prompt_security]
+# Enable prompt security analysis
+enabled = true
+# Sensitivity level: "low", "medium", or "high"
+# - low: Only block high-confidence threats
+# - medium: Block medium and high confidence threats (recommended)
+# - high: Block all detected threats including low confidence
+sensitivity = "medium"
+# Block requests when security threats are detected
+block_on_detection = true
+# Maximum violations before auto-blocking an IP
+max_violations_before_block = 3
+# Time window for counting violations (seconds)
+violation_window_secs = 3600
+# How long to block an IP after exceeding max violations (seconds)
+block_duration_secs = 86400
+# Immediately block IPs that send critical-level threats
+auto_block_on_critical = true
+# Custom patterns to detect (in addition to built-in patterns)
+# custom_patterns = ["DROP TABLE", "eval("]
+
+# ==============================
 # Messenger Platform Selection
 # ==============================
 # Choose which messaging platform to use: "whatsapp", "signal", or "none"
@@ -181,6 +206,43 @@ timeout_ms = 30000
 # response_format = "mirror"
 # TTS speaking speed (0.25 to 4.0)
 # speed = 1.0
+
+# ==============================
+# Memory/Knowledge Storage
+# ==============================
+# Persistent AI memory for RAG-based context retrieval.
+# Stores interactions, facts, preferences, and corrections.
+# Uses embeddings for semantic similarity search.
+#
+# [memory]
+# Enable memory storage (default: true)
+# enabled = true
+# Enable RAG context retrieval (default: true)
+# enable_rag = true
+# Enable automatic learning from interactions (default: true)
+# enable_learning = true
+# Number of memories to retrieve for RAG context (default: 5)
+# rag_limit = 5
+# Minimum similarity threshold for RAG retrieval (0.0-1.0, default: 0.5)
+# rag_threshold = 0.5
+# Similarity threshold for memory deduplication (0.0-1.0, default: 0.85)
+# merge_threshold = 0.85
+# Minimum importance score to keep memories (default: 0.1)
+# min_importance = 0.1
+# Decay factor for memory importance over time (default: 0.95)
+# decay_factor = 0.95
+# Enable content encryption (default: true)
+# enable_encryption = true
+# Path to encryption key file (generated if not exists)
+# encryption_key_path = "memory_encryption.key"
+#
+# [memory.embedding]
+# Embedding model name (default: nomic-embed-text)
+# model = "nomic-embed-text"
+# Embedding dimension (default: 384 for nomic-embed-text)
+# dimension = 384
+# Request timeout in milliseconds (default: 30000)
+# timeout_ms = 30000
 
 # =====================
 # Database Settings

@@ -129,8 +129,8 @@ RUN mkdir -p /app/data /app/config /app/logs && \
 COPY --from=builder --chown=pisovereign:pisovereign /build/target/release/pisovereign-server /app/
 COPY --from=builder --chown=pisovereign:pisovereign /build/target/release/pisovereign-cli /app/
 
-# Copy default configuration
-COPY --chown=pisovereign:pisovereign config.toml /app/config/
+# Copy default configuration (using example config, users can override via volume mount)
+COPY --chown=pisovereign:pisovereign config.toml.example /app/config/config.toml
 
 # Set working directory
 WORKDIR /app

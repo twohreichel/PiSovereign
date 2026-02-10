@@ -113,6 +113,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub security: SecurityConfig,
 
+    /// Prompt security configuration (AI input validation)
+    #[serde(default)]
+    pub prompt_security: PromptSecurityConfig,
+
     /// WhatsApp configuration
     #[serde(default)]
     pub whatsapp: WhatsAppConfig,
@@ -164,6 +168,10 @@ pub struct AppConfig {
     /// Speech processing configuration (optional, for voice messages)
     #[serde(default)]
     pub speech: Option<SpeechConfig>,
+
+    /// Memory/knowledge storage configuration (optional)
+    #[serde(default)]
+    pub memory: Option<MemoryAppConfig>,
 }
 
 /// HTTP server configuration
@@ -366,6 +374,111 @@ impl SecurityConfig {
     #[must_use]
     pub fn has_api_keys(&self) -> bool {
         !self.api_keys.is_empty()
+    }
+}
+
+/// Prompt security configuration for AI input validation
+///
+/// Controls detection and blocking of prompt injection attacks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptSecurityConfig {
+    /// Whether prompt security analysis is enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Sensitivity level: "low", "medium", or "high"
+    #[serde(default = "default_sensitivity")]
+    pub sensitivity: String,
+
+    /// Whether to block requests when threats are detected
+    #[serde(default = "default_true")]
+    pub block_on_detection: bool,
+
+    /// Maximum violations before automatically blocking an IP
+    #[serde(default = "default_max_violations")]
+    pub max_violations_before_block: u32,
+
+    /// Time window for counting violations (in seconds)
+    #[serde(default = "default_violation_window")]
+    pub violation_window_secs: u64,
+
+    /// How long to block an IP after exceeding threshold (in seconds)
+    #[serde(default = "default_block_duration")]
+    pub block_duration_secs: u64,
+
+    /// Whether to auto-block on critical threats (without waiting for threshold)
+    #[serde(default = "default_true")]
+    pub auto_block_on_critical: bool,
+
+    /// Custom patterns to detect (in addition to built-in patterns)
+    #[serde(default)]
+    pub custom_patterns: Vec<String>,
+}
+
+fn default_sensitivity() -> String {
+    "medium".to_string()
+}
+
+const fn default_max_violations() -> u32 {
+    3
+}
+
+const fn default_violation_window() -> u64 {
+    3600 // 1 hour
+}
+
+const fn default_block_duration() -> u64 {
+    86400 // 24 hours
+}
+
+impl Default for PromptSecurityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sensitivity: default_sensitivity(),
+            block_on_detection: true,
+            max_violations_before_block: default_max_violations(),
+            violation_window_secs: default_violation_window(),
+            block_duration_secs: default_block_duration(),
+            auto_block_on_critical: true,
+            custom_patterns: Vec::new(),
+        }
+    }
+}
+
+impl PromptSecurityConfig {
+    /// Parse the sensitivity string into the application layer enum
+    #[must_use]
+    pub fn sensitivity_level(&self) -> application::services::SecuritySensitivity {
+        match self.sensitivity.to_lowercase().as_str() {
+            "low" => application::services::SecuritySensitivity::Low,
+            "high" => application::services::SecuritySensitivity::High,
+            _ => application::services::SecuritySensitivity::Medium,
+        }
+    }
+
+    /// Convert to the application layer config
+    #[must_use]
+    pub fn to_prompt_security_config(&self) -> application::services::PromptSecurityConfig {
+        application::services::PromptSecurityConfig {
+            enabled: self.enabled,
+            sensitivity: self.sensitivity_level(),
+            block_on_detection: self.block_on_detection,
+            min_confidence: self.sensitivity_level().confidence_threshold(),
+        }
+    }
+
+    /// Convert to the suspicious activity config
+    #[must_use]
+    pub const fn to_suspicious_activity_config(
+        &self,
+    ) -> application::ports::SuspiciousActivityConfig {
+        application::ports::SuspiciousActivityConfig {
+            max_violations_before_block: self.max_violations_before_block,
+            violation_window_secs: self.violation_window_secs,
+            block_duration_secs: self.block_duration_secs,
+            auto_block_on_critical: self.auto_block_on_critical,
+        }
     }
 }
 
@@ -1143,6 +1256,358 @@ mod tests {
         assert_eq!(ws.api_key, Some("BSA-test".to_string()));
         assert_eq!(ws.max_results, 3);
     }
+
+    // Additional tests for improved coverage
+
+    #[test]
+    fn telemetry_config_default() {
+        let config = TelemetryAppConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.otlp_endpoint, "http://localhost:4317");
+        assert_eq!(config.sample_ratio, Some(1.0));
+    }
+
+    #[test]
+    fn retry_config_default() {
+        let config = RetryAppConfig::default();
+        assert_eq!(config.initial_delay_ms, 100);
+        assert_eq!(config.max_delay_ms, 10_000);
+        assert!((config.multiplier - 2.0).abs() < f64::EPSILON);
+        assert_eq!(config.max_retries, 3);
+    }
+
+    #[test]
+    fn retry_config_to_retry_config() {
+        let config = RetryAppConfig {
+            initial_delay_ms: 200,
+            max_delay_ms: 5000,
+            multiplier: 1.5,
+            max_retries: 5,
+        };
+        let retry_config = config.to_retry_config();
+        assert_eq!(retry_config.initial_delay_ms, 200);
+        assert_eq!(retry_config.max_delay_ms, 5000);
+        assert!((retry_config.multiplier - 1.5).abs() < f64::EPSILON);
+        assert_eq!(retry_config.max_retries, 5);
+    }
+
+    #[test]
+    fn memory_config_default() {
+        let config = MemoryAppConfig::default();
+        assert!(config.enabled);
+        assert!(config.enable_rag);
+        assert!(config.enable_learning);
+        assert_eq!(config.rag_limit, 5);
+        assert!((config.rag_threshold - 0.5).abs() < 0.001);
+        assert!((config.merge_threshold - 0.85).abs() < 0.001);
+        assert!((config.min_importance - 0.1).abs() < 0.001);
+        assert!((config.decay_factor - 0.95).abs() < 0.001);
+        assert!(config.enable_encryption);
+    }
+
+    #[test]
+    fn memory_config_to_memory_service_config() {
+        let config = MemoryAppConfig {
+            rag_limit: 10,
+            rag_threshold: 0.6,
+            merge_threshold: 0.9,
+            min_importance: 0.2,
+            decay_factor: 0.9,
+            enable_encryption: false,
+            ..Default::default()
+        };
+        let service_config = config.to_memory_service_config();
+        assert_eq!(service_config.rag_limit, 10);
+        assert!((service_config.rag_threshold - 0.6).abs() < 0.001);
+        assert!((service_config.merge_threshold - 0.9).abs() < 0.001);
+        assert!(!service_config.enable_encryption);
+    }
+
+    #[test]
+    fn memory_config_to_enhanced_chat_config() {
+        let config = MemoryAppConfig {
+            enable_rag: true,
+            enable_learning: false,
+            ..Default::default()
+        };
+        let chat_config = config.to_enhanced_chat_config(Some("Test prompt".to_string()));
+        assert!(chat_config.enable_rag);
+        assert!(!chat_config.enable_learning);
+        assert_eq!(chat_config.system_prompt, Some("Test prompt".to_string()));
+        assert_eq!(chat_config.min_learning_length, 20);
+        assert!((chat_config.default_importance - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn memory_config_to_embedding_config() {
+        let config = MemoryAppConfig {
+            embedding: EmbeddingAppConfig {
+                model: "test-model".to_string(),
+                dimension: 768,
+                timeout_ms: 60000,
+            },
+            ..Default::default()
+        };
+        let embedding_config = config.to_embedding_config("http://localhost:11434");
+        assert_eq!(embedding_config.base_url, "http://localhost:11434");
+        assert_eq!(embedding_config.model, "test-model");
+        assert_eq!(embedding_config.dimensions, 768);
+        assert_eq!(embedding_config.timeout_ms, 60000);
+    }
+
+    #[test]
+    fn embedding_config_default() {
+        let config = EmbeddingAppConfig::default();
+        assert_eq!(config.model, "nomic-embed-text");
+        assert_eq!(config.dimension, 384);
+        assert_eq!(config.timeout_ms, 30000);
+    }
+
+    #[test]
+    fn geo_location_config_to_geo_location_valid() {
+        let config = GeoLocationConfig {
+            latitude: 52.52,
+            longitude: 13.405,
+        };
+        let geo = config.to_geo_location();
+        assert!(geo.is_some());
+        let g = geo.unwrap();
+        assert!((g.latitude() - 52.52).abs() < 0.001);
+        assert!((g.longitude() - 13.405).abs() < 0.001);
+    }
+
+    #[test]
+    fn geo_location_config_to_geo_location_invalid() {
+        let config = GeoLocationConfig {
+            latitude: 200.0, // Invalid
+            longitude: 13.405,
+        };
+        let geo = config.to_geo_location();
+        assert!(geo.is_none());
+    }
+
+    #[test]
+    fn weather_config_default() {
+        let config = WeatherConfig::default();
+        assert_eq!(config.base_url, "https://api.open-meteo.com/v1");
+        assert_eq!(config.timeout_secs, 30);
+        assert_eq!(config.forecast_days, 7);
+        assert_eq!(config.cache_ttl_minutes, 30);
+        assert!(config.default_location.is_none());
+    }
+
+    #[test]
+    fn health_config_default() {
+        let config = HealthAppConfig::default();
+        assert_eq!(config.global_timeout_secs, 5);
+        assert!(config.inference_timeout_secs.is_none());
+    }
+
+    #[test]
+    fn health_config_to_health_config() {
+        let config = HealthAppConfig {
+            global_timeout_secs: 30,
+            inference_timeout_secs: Some(5),
+            email_timeout_secs: Some(10),
+            calendar_timeout_secs: Some(8),
+            weather_timeout_secs: Some(15),
+        };
+        let health_config = config.to_health_config();
+        assert_eq!(health_config.global_timeout_secs, 30);
+        assert_eq!(health_config.service_timeouts.len(), 4);
+        assert_eq!(health_config.service_timeouts.get("inference"), Some(&5));
+        assert_eq!(health_config.service_timeouts.get("email"), Some(&10));
+    }
+
+    #[test]
+    fn degraded_mode_config_default() {
+        let config = DegradedModeAppConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.failure_threshold, 3);
+        assert_eq!(config.retry_cooldown_secs, 30);
+        assert_eq!(config.success_threshold, 2);
+    }
+
+    // Additional tests for default configurations
+
+    #[test]
+    fn whatsapp_config_default_test() {
+        let config = WhatsAppConfig::default();
+        assert!(config.access_token.is_none());
+        assert!(config.phone_number_id.is_none());
+        assert!(config.app_secret.is_none());
+        assert!(config.verify_token.is_none());
+        assert!(config.signature_required);
+    }
+
+    #[test]
+    fn prompt_security_config_default() {
+        let config = PromptSecurityConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.sensitivity, "medium");
+        assert!(config.block_on_detection);
+        assert_eq!(config.max_violations_before_block, 3);
+    }
+
+    #[test]
+    fn prompt_security_config_sensitivity_level() {
+        let config = PromptSecurityConfig {
+            sensitivity: "low".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.sensitivity_level(),
+            application::services::SecuritySensitivity::Low
+        );
+
+        let config = PromptSecurityConfig {
+            sensitivity: "medium".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.sensitivity_level(),
+            application::services::SecuritySensitivity::Medium
+        );
+
+        let config = PromptSecurityConfig {
+            sensitivity: "high".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.sensitivity_level(),
+            application::services::SecuritySensitivity::High
+        );
+
+        // Unknown defaults to medium
+        let config = PromptSecurityConfig {
+            sensitivity: "unknown".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.sensitivity_level(),
+            application::services::SecuritySensitivity::Medium
+        );
+    }
+
+    #[test]
+    fn prompt_security_config_to_prompt_security_config() {
+        let config = PromptSecurityConfig {
+            enabled: true,
+            sensitivity: "high".to_string(),
+            block_on_detection: false,
+            ..Default::default()
+        };
+        let converted = config.to_prompt_security_config();
+        assert!(converted.enabled);
+        assert!(!converted.block_on_detection);
+        assert_eq!(
+            converted.sensitivity,
+            application::services::SecuritySensitivity::High
+        );
+    }
+
+    #[test]
+    fn prompt_security_config_to_suspicious_activity_config() {
+        let config = PromptSecurityConfig {
+            max_violations_before_block: 5,
+            violation_window_secs: 7200,
+            block_duration_secs: 43200,
+            auto_block_on_critical: false,
+            ..Default::default()
+        };
+        let converted = config.to_suspicious_activity_config();
+        assert_eq!(converted.max_violations_before_block, 5);
+        assert_eq!(converted.violation_window_secs, 7200);
+        assert_eq!(converted.block_duration_secs, 43200);
+        assert!(!converted.auto_block_on_critical);
+    }
+
+    #[test]
+    fn security_config_additional_fields() {
+        let config = SecurityConfig::default();
+        assert_eq!(config.rate_limit_cleanup_interval_secs, 300);
+        assert_eq!(config.rate_limit_cleanup_max_age_secs, 600);
+        assert!(config.tls_verify_certs);
+        assert_eq!(config.connection_timeout_secs, 30);
+        assert_eq!(config.min_tls_version, "1.2");
+    }
+
+    #[test]
+    fn database_config_default() {
+        let config = DatabaseConfig::default();
+        assert_eq!(config.path, "pisovereign.db");
+        assert_eq!(config.max_connections, 5);
+        assert!(config.run_migrations);
+    }
+
+    #[test]
+    fn database_config_serialization() {
+        let config = DatabaseConfig {
+            path: "custom.db".to_string(),
+            max_connections: 10,
+            run_migrations: false,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: DatabaseConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.path, "custom.db");
+        assert_eq!(parsed.max_connections, 10);
+        assert!(!parsed.run_migrations);
+    }
+
+    #[test]
+    fn signal_config_serialization() {
+        let config = SignalConfig {
+            phone_number: "+1234567890".to_string(),
+            socket_path: "/custom/socket".to_string(),
+            data_path: Some("/data".to_string()),
+            timeout_ms: 60000,
+            whitelist: vec!["+11111111111".to_string()],
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: SignalConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.phone_number, "+1234567890");
+        assert_eq!(parsed.socket_path, "/custom/socket");
+        assert_eq!(parsed.data_path, Some("/data".to_string()));
+        assert_eq!(parsed.timeout_ms, 60000);
+        assert_eq!(parsed.whitelist.len(), 1);
+    }
+
+    #[test]
+    fn signal_config_debug() {
+        let config = SignalConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("SignalConfig"));
+        assert!(debug.contains("phone_number"));
+        assert!(debug.contains("socket_path"));
+    }
+
+    #[test]
+    fn whatsapp_config_access_token_str() {
+        use secrecy::SecretString;
+
+        let config = WhatsAppConfig {
+            access_token: Some(SecretString::from("test_token")),
+            ..Default::default()
+        };
+        assert_eq!(config.access_token_str(), Some("test_token"));
+
+        let config_no_token = WhatsAppConfig::default();
+        assert!(config_no_token.access_token_str().is_none());
+    }
+
+    #[test]
+    fn whatsapp_config_app_secret_str() {
+        use secrecy::SecretString;
+
+        let config = WhatsAppConfig {
+            app_secret: Some(SecretString::from("test_secret")),
+            ..Default::default()
+        };
+        assert_eq!(config.app_secret_str(), Some("test_secret"));
+
+        let config_no_secret = WhatsAppConfig::default();
+        assert!(config_no_secret.app_secret_str().is_none());
+    }
 }
 
 /// Weather service configuration
@@ -1695,4 +2160,182 @@ impl HealthAppConfig {
             service_timeouts,
         }
     }
+}
+
+// ==============================
+// Memory/Knowledge Storage Configuration
+// ==============================
+
+/// Memory storage configuration for AI knowledge persistence
+///
+/// Enables storage of AI interactions, facts, and context for RAG-based
+/// retrieval and self-improvement.
+#[allow(clippy::struct_excessive_bools)] // Configuration needs multiple boolean flags
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryAppConfig {
+    /// Enable memory storage (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Enable RAG context retrieval (default: true)
+    #[serde(default = "default_true")]
+    pub enable_rag: bool,
+
+    /// Enable automatic learning from interactions (default: true)
+    #[serde(default = "default_true")]
+    pub enable_learning: bool,
+
+    /// Number of memories to retrieve for RAG context (default: 5)
+    #[serde(default = "default_rag_limit")]
+    pub rag_limit: usize,
+
+    /// Minimum similarity threshold for RAG retrieval (0.0-1.0, default: 0.5)
+    #[serde(default = "default_rag_threshold")]
+    pub rag_threshold: f32,
+
+    /// Similarity threshold for memory deduplication (0.0-1.0, default: 0.85)
+    #[serde(default = "default_merge_threshold")]
+    pub merge_threshold: f32,
+
+    /// Minimum importance score to keep memories (default: 0.1)
+    #[serde(default = "default_min_importance")]
+    pub min_importance: f32,
+
+    /// Decay factor for memory importance over time (default: 0.95)
+    #[serde(default = "default_decay_factor")]
+    pub decay_factor: f32,
+
+    /// Enable content encryption (default: true)
+    #[serde(default = "default_true")]
+    pub enable_encryption: bool,
+
+    /// Path to encryption key file (generated if not exists)
+    #[serde(default = "default_encryption_key_path")]
+    pub encryption_key_path: String,
+
+    /// Embedding model configuration
+    #[serde(default)]
+    pub embedding: EmbeddingAppConfig,
+}
+
+impl Default for MemoryAppConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            enable_rag: true,
+            enable_learning: true,
+            rag_limit: default_rag_limit(),
+            rag_threshold: default_rag_threshold(),
+            merge_threshold: default_merge_threshold(),
+            min_importance: default_min_importance(),
+            decay_factor: default_decay_factor(),
+            enable_encryption: true,
+            encryption_key_path: default_encryption_key_path(),
+            embedding: EmbeddingAppConfig::default(),
+        }
+    }
+}
+
+/// Embedding model configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingAppConfig {
+    /// Embedding model name (default: nomic-embed-text)
+    #[serde(default = "default_embedding_model")]
+    pub model: String,
+
+    /// Embedding dimension (default: 384 for nomic-embed-text)
+    #[serde(default = "default_embedding_dimension")]
+    pub dimension: usize,
+
+    /// Request timeout in milliseconds (default: 30000)
+    #[serde(default = "default_embedding_timeout")]
+    pub timeout_ms: u64,
+}
+
+impl Default for EmbeddingAppConfig {
+    fn default() -> Self {
+        Self {
+            model: default_embedding_model(),
+            dimension: default_embedding_dimension(),
+            timeout_ms: default_embedding_timeout(),
+        }
+    }
+}
+
+impl MemoryAppConfig {
+    /// Convert to MemoryServiceConfig
+    #[must_use]
+    pub const fn to_memory_service_config(&self) -> application::MemoryServiceConfig {
+        application::MemoryServiceConfig {
+            rag_limit: self.rag_limit,
+            rag_threshold: self.rag_threshold,
+            merge_threshold: self.merge_threshold,
+            min_importance: self.min_importance,
+            decay_factor: self.decay_factor,
+            enable_encryption: self.enable_encryption,
+        }
+    }
+
+    /// Convert to MemoryEnhancedChatConfig
+    #[must_use]
+    pub const fn to_enhanced_chat_config(
+        &self,
+        system_prompt: Option<String>,
+    ) -> application::MemoryEnhancedChatConfig {
+        application::MemoryEnhancedChatConfig {
+            enable_rag: self.enable_rag,
+            enable_learning: self.enable_learning,
+            system_prompt,
+            min_learning_length: 20,
+            default_importance: 0.5,
+        }
+    }
+
+    /// Convert embedding config to ai_core::EmbeddingConfig
+    #[must_use]
+    pub fn to_embedding_config(&self, base_url: &str) -> ai_core::EmbeddingConfig {
+        ai_core::EmbeddingConfig {
+            base_url: base_url.to_string(),
+            model: self.embedding.model.clone(),
+            dimensions: self.embedding.dimension,
+            timeout_ms: self.embedding.timeout_ms,
+        }
+    }
+}
+
+// Default value functions for memory config
+const fn default_rag_limit() -> usize {
+    5
+}
+
+const fn default_rag_threshold() -> f32 {
+    0.5
+}
+
+const fn default_merge_threshold() -> f32 {
+    0.85
+}
+
+const fn default_min_importance() -> f32 {
+    0.1
+}
+
+const fn default_decay_factor() -> f32 {
+    0.95
+}
+
+fn default_encryption_key_path() -> String {
+    "memory_encryption.key".to_string()
+}
+
+fn default_embedding_model() -> String {
+    "nomic-embed-text".to_string()
+}
+
+const fn default_embedding_dimension() -> usize {
+    384
+}
+
+const fn default_embedding_timeout() -> u64 {
+    30000
 }

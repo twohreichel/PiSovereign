@@ -24,3 +24,5 @@ quick-xml = { version = "0.37", features = ["serialize"] }
 [dev-dependencies]
 tokio-test.workspace = true
 serde_json.workspace = true
+wiremock.workspace = true
+proptest.workspace = true

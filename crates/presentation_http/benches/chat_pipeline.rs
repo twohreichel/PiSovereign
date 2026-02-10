@@ -206,6 +206,8 @@ fn create_benchmark_state() -> AppState {
         voice_message_service: None,
         messenger_adapter: None,
         signal_client: None,
+        prompt_sanitizer: None,
+        suspicious_activity_tracker: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }

@@ -276,10 +276,17 @@ impl AgentService {
             },
 
             // List tasks - read-only, doesn't require approval
-            AgentCommand::ListTasks { status, priority } => {
-                self.handle_list_tasks(status.as_ref(), priority.as_ref())
+            AgentCommand::ListTasks {
+                status,
+                priority,
+                list,
+            } => {
+                self.handle_list_tasks(status.as_ref(), priority.as_ref(), list.as_deref())
                     .await
             },
+
+            // List task lists - read-only, doesn't require approval
+            AgentCommand::ListTaskLists => self.handle_list_task_lists().await,
 
             // Commands that require approval - should not reach here without approval
             AgentCommand::CreateCalendarEvent { .. }
@@ -288,6 +295,7 @@ impl AgentService {
             | AgentCommand::CompleteTask { .. }
             | AgentCommand::UpdateTask { .. }
             | AgentCommand::DeleteTask { .. }
+            | AgentCommand::CreateTaskList { .. }
             | AgentCommand::SendEmail { .. } => {
                 Err(ApplicationError::ApprovalRequired(command.description()))
             },
@@ -938,11 +946,12 @@ impl AgentService {
 
     /// Handle listing tasks
     ///
-    /// Lists tasks from the configured task service, optionally filtered by status and priority.
+    /// Lists tasks from the configured task service, optionally filtered by status, priority, and list.
     async fn handle_list_tasks(
         &self,
         status: Option<&domain::TaskStatus>,
         priority: Option<&domain::Priority>,
+        list: Option<&str>,
     ) -> Result<ExecutionResult, ApplicationError> {
         // Check if task service is configured
         let Some(ref task_service) = self.task_service else {
@@ -960,6 +969,7 @@ impl AgentService {
             status: status.copied(),
             priority: priority.copied(),
             include_completed: status.is_some_and(domain::TaskStatus::is_done),
+            list: list.map(ToString::to_string),
             ..Default::default()
         };
 
@@ -1010,9 +1020,44 @@ impl AgentService {
         let active_count = tasks.iter().filter(|t| t.status.is_active()).count();
         let completed_count = tasks.iter().filter(|t| t.status.is_done()).count();
         response.push_str(&format!(
-            "\n---\n*{} active task(s), {} completed*",
-            active_count, completed_count
+            "\n---\n*{active_count} active task(s), {completed_count} completed*"
         ));
+
+        Ok(ExecutionResult {
+            success: true,
+            response,
+        })
+    }
+
+    /// Handle listing task lists
+    ///
+    /// Lists all available task lists/calendars from the configured task service.
+    async fn handle_list_task_lists(&self) -> Result<ExecutionResult, ApplicationError> {
+        // Check if task service is configured
+        let Some(ref task_service) = self.task_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: "📋 Task lists are not available.\n\n\
+                          Task service is not configured. \
+                          Please set up CalDAV with task support in your configuration."
+                    .to_string(),
+            });
+        };
+
+        let user_id = UserId::default_user();
+        let lists = task_service.list_task_lists(&user_id).await?;
+
+        let mut response = String::from("📋 **Task Lists**\n\n");
+
+        if lists.is_empty() {
+            response.push_str("No task lists found.\n");
+        } else {
+            for list in &lists {
+                response.push_str(&format!("• **{}**\n  ID: `{}`\n", list.name, list.id));
+            }
+        }
+
+        response.push_str(&format!("\n---\n*{} list(s) available*", lists.len()));
 
         Ok(ExecutionResult {
             success: true,

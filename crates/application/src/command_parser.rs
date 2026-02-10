@@ -17,11 +17,13 @@ Possible intents:
 - "morning_briefing": Request morning briefing (e.g., "What's on today?", "Briefing")
 - "create_calendar_event": Create appointment (requires: date, time, title)
 - "update_calendar_event": Update existing appointment (requires: event_id; optional: date, time, title, location, duration_minutes)
-- "list_tasks": List tasks (optional: status, priority filters)
-- "create_task": Create a task (requires: title; optional: date for due date, priority, description)
+- "list_tasks": List tasks (optional: status, priority, list filters)
+- "create_task": Create a task (requires: title; optional: date for due date, priority, description, list)
 - "complete_task": Mark task done (requires: task_id)
 - "update_task": Update task (requires: task_id; optional: title, date, priority, description)
 - "delete_task": Delete task (requires: task_id)
+- "list_task_lists": List all available task lists/calendars
+- "create_task_list": Create a new task list (requires: name)
 - "summarize_inbox": Email summary (e.g., "What's new?", "Mails")
 - "draft_email": Draft email (requires: to, body; optional: subject)
 - "send_email": Send email (requires: draft_id)
@@ -39,6 +41,8 @@ Reply ONLY with valid JSON:
   "priority": "high|medium|low" (optional, for tasks),
   "status": "needs_action|in_progress|completed|cancelled" (optional, for list_tasks),
   "description": "..." (optional, for tasks),
+  "list": "..." (optional, for tasks - target list/calendar name),
+  "name": "..." (required for create_task_list),
   "location": "..." (optional, for appointments),
   "duration_minutes": 60 (optional, for appointments),
   "to": "email@example.com" (optional, for emails),
@@ -57,10 +61,14 @@ Examples:
 - "Move event abc123 to 15:00" → {"intent":"update_calendar_event","event_id":"abc123","time":"15:00"}
 - "What are my tasks?" → {"intent":"list_tasks"}
 - "Show high priority tasks" → {"intent":"list_tasks","priority":"high"}
+- "Tasks on list Work" → {"intent":"list_tasks","list":"Work"}
 - "Add task buy groceries" → {"intent":"create_task","title":"buy groceries"}
 - "Create task call mom due Friday priority high" → {"intent":"create_task","title":"call mom","date":"2025-02-07","priority":"high"}
+- "Add task meeting prep on list Work" → {"intent":"create_task","title":"meeting prep","list":"Work"}
 - "Mark task abc done" → {"intent":"complete_task","task_id":"abc"}
 - "Delete task xyz" → {"intent":"delete_task","task_id":"xyz"}
+- "What lists do I have?" → {"intent":"list_task_lists"}
+- "Create list Vacation" → {"intent":"create_task_list","name":"Vacation"}
 - "Summarize my mails" → {"intent":"summarize_inbox"}
 - "Search the internet for Rust async patterns" → {"intent":"web_search","query":"Rust async patterns"}
 - "What's the weather like?" → {"intent":"ask","question":"What's the weather like?"}"#;
@@ -105,6 +113,10 @@ struct ParsedIntent {
     status: Option<String>,
     #[serde(default)]
     description: Option<String>,
+    #[serde(default)]
+    list: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 /// Parser for converting natural language to AgentCommand
@@ -549,7 +561,11 @@ impl CommandParser {
                     })
                     .transpose()?;
 
-                Ok(AgentCommand::ListTasks { status, priority })
+                Ok(AgentCommand::ListTasks {
+                    status,
+                    priority,
+                    list: parsed.list.clone(),
+                })
             },
 
             "create_task" => {
@@ -586,7 +602,21 @@ impl CommandParser {
                     due_date,
                     priority,
                     description: parsed.description.clone(),
+                    list: parsed.list.clone(),
                 })
+            },
+
+            "list_task_lists" => Ok(AgentCommand::ListTaskLists),
+
+            "create_task_list" => {
+                let name = parsed
+                    .name
+                    .as_ref()
+                    .or(parsed.title.as_ref())
+                    .ok_or("Missing name for task list")?
+                    .clone();
+
+                Ok(AgentCommand::CreateTaskList { name })
             },
 
             "complete_task" => {
@@ -1402,6 +1432,336 @@ mod async_tests {
         assert!(INTENT_SYSTEM_PROMPT.contains("intent"));
         assert!(INTENT_SYSTEM_PROMPT.contains("JSON"));
         assert!(INTENT_SYSTEM_PROMPT.contains("web_search"));
+    }
+
+    // =========================================================================
+    // Task Management Tests
+    // =========================================================================
+
+    #[test]
+    fn parse_llm_response_list_tasks() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"list_tasks"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::ListTasks {
+            status, priority, ..
+        } = cmd
+        else {
+            unreachable!("Expected ListTasks")
+        };
+        assert!(status.is_none());
+        assert!(priority.is_none());
+    }
+
+    #[test]
+    fn parse_llm_response_list_tasks_with_status() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"list_tasks","status":"in_progress"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::ListTasks { status, .. } = cmd else {
+            unreachable!("Expected ListTasks")
+        };
+        assert!(status.is_some());
+        assert!(matches!(status.unwrap(), domain::TaskStatus::InProgress));
+    }
+
+    #[test]
+    fn parse_llm_response_list_tasks_with_priority() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"list_tasks","priority":"high"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::ListTasks { priority, .. } = cmd else {
+            unreachable!("Expected ListTasks")
+        };
+        assert!(priority.is_some());
+        assert!(matches!(priority.unwrap(), domain::Priority::High));
+    }
+
+    #[test]
+    fn parse_llm_response_list_tasks_medium_priority() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"list_tasks","priority":"medium"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::ListTasks { priority, .. } = cmd else {
+            unreachable!("Expected ListTasks")
+        };
+        assert!(matches!(priority.unwrap(), domain::Priority::Medium));
+    }
+
+    #[test]
+    fn parse_llm_response_list_tasks_med_priority() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"list_tasks","priority":"med"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::ListTasks { priority, .. } = cmd else {
+            unreachable!("Expected ListTasks")
+        };
+        assert!(matches!(priority.unwrap(), domain::Priority::Medium));
+    }
+
+    #[test]
+    fn parse_llm_response_list_tasks_invalid_priority() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"list_tasks","priority":"urgent"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid priority"));
+    }
+
+    #[test]
+    fn parse_llm_response_list_tasks_invalid_status() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"list_tasks","status":"unknown_status"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid task status"));
+    }
+
+    #[test]
+    fn parse_llm_response_create_task() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_task","title":"Buy groceries"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::CreateTask {
+            title,
+            due_date,
+            priority,
+            description,
+            ..
+        } = cmd
+        else {
+            unreachable!("Expected CreateTask")
+        };
+        assert_eq!(title, "Buy groceries");
+        assert!(due_date.is_none());
+        assert!(priority.is_none());
+        assert!(description.is_none());
+    }
+
+    #[test]
+    fn parse_llm_response_create_task_with_all_fields() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_task","title":"Call mom","date":"2025-02-15","priority":"high","description":"Discuss birthday plans"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::CreateTask {
+            title,
+            due_date,
+            priority,
+            description,
+            ..
+        } = cmd
+        else {
+            unreachable!("Expected CreateTask")
+        };
+        assert_eq!(title, "Call mom");
+        assert_eq!(due_date.unwrap().to_string(), "2025-02-15");
+        assert!(matches!(priority.unwrap(), domain::Priority::High));
+        assert_eq!(description.unwrap(), "Discuss birthday plans");
+    }
+
+    #[test]
+    fn parse_llm_response_create_task_missing_title() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_task","priority":"low"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing title"));
+    }
+
+    #[test]
+    fn parse_llm_response_create_task_invalid_date() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_task","title":"Test","date":"invalid-date"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid date format"));
+    }
+
+    #[test]
+    fn parse_llm_response_create_task_invalid_priority() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_task","title":"Test","priority":"super_high"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid priority"));
+    }
+
+    #[test]
+    fn parse_llm_response_complete_task() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"complete_task","task_id":"task-123"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::CompleteTask { task_id } = cmd else {
+            unreachable!("Expected CompleteTask")
+        };
+        assert_eq!(task_id, "task-123");
+    }
+
+    #[test]
+    fn parse_llm_response_complete_task_missing_id() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"complete_task"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing task_id"));
+    }
+
+    #[test]
+    fn parse_llm_response_update_task() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"update_task","task_id":"task-456","title":"Updated title"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::UpdateTask { task_id, title, .. } = cmd else {
+            unreachable!("Expected UpdateTask")
+        };
+        assert_eq!(task_id, "task-456");
+        assert_eq!(title.unwrap(), "Updated title");
+    }
+
+    #[test]
+    fn parse_llm_response_update_task_all_fields() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"update_task","task_id":"task-789","title":"New title","date":"2025-03-01","priority":"medium","description":"New description"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::UpdateTask {
+            task_id,
+            title,
+            due_date,
+            priority,
+            description,
+        } = cmd
+        else {
+            unreachable!("Expected UpdateTask")
+        };
+        assert_eq!(task_id, "task-789");
+        assert_eq!(title.unwrap(), "New title");
+        assert!(due_date.is_some());
+        assert!(matches!(priority.unwrap(), domain::Priority::Medium));
+        assert!(description.is_some());
+    }
+
+    #[test]
+    fn parse_llm_response_update_task_clear_date() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"update_task","task_id":"task-abc","date":"none"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::UpdateTask { due_date, .. } = cmd else {
+            unreachable!("Expected UpdateTask")
+        };
+        // Some(None) means clear the date
+        assert!(due_date.is_some());
+        assert!(due_date.unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_llm_response_update_task_clear_description() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"update_task","task_id":"task-def","description":"null"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::UpdateTask { description, .. } = cmd else {
+            unreachable!("Expected UpdateTask")
+        };
+        // Some(None) means clear the description
+        assert!(description.is_some());
+        assert!(description.unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_llm_response_update_task_missing_id() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"update_task","title":"Test"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing task_id"));
+    }
+
+    #[test]
+    fn parse_llm_response_delete_task() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"delete_task","task_id":"task-to-delete"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::DeleteTask { task_id } = cmd else {
+            unreachable!("Expected DeleteTask")
+        };
+        assert_eq!(task_id, "task-to-delete");
+    }
+
+    #[test]
+    fn parse_llm_response_delete_task_missing_id() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"delete_task"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing task_id"));
+    }
+
+    // =========================================================================
+    // Update Calendar Event Tests
+    // =========================================================================
+
+    #[test]
+    fn parse_llm_response_update_calendar_event() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"update_calendar_event","event_id":"evt-123","time":"15:00"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::UpdateCalendarEvent { event_id, time, .. } = cmd else {
+            unreachable!("Expected UpdateCalendarEvent")
+        };
+        assert_eq!(event_id, "evt-123");
+        assert_eq!(time.unwrap().to_string(), "15:00:00");
+    }
+
+    #[test]
+    fn parse_llm_response_update_calendar_event_all_fields() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"update_calendar_event","event_id":"evt-456","date":"2025-03-15","time":"10:30","title":"Team Standup","location":"Conference Room A","duration_minutes":30}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::UpdateCalendarEvent {
+            event_id,
+            date,
+            time,
+            title,
+            location,
+            duration_minutes,
+            ..
+        } = cmd
+        else {
+            unreachable!("Expected UpdateCalendarEvent")
+        };
+        assert_eq!(event_id, "evt-456");
+        assert_eq!(date.unwrap().to_string(), "2025-03-15");
+        assert_eq!(time.unwrap().to_string(), "10:30:00");
+        assert_eq!(title.unwrap(), "Team Standup");
+        assert_eq!(location.unwrap(), "Conference Room A");
+        assert_eq!(duration_minutes.unwrap(), 30);
+    }
+
+    #[test]
+    fn parse_llm_response_update_calendar_event_missing_event_id() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"update_calendar_event","time":"15:00"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing event_id"));
+    }
+
+    #[test]
+    fn parse_llm_response_update_calendar_event_invalid_date() {
+        let parser = CommandParser::new();
+        let response =
+            r#"{"intent":"update_calendar_event","event_id":"evt-123","date":"invalid"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid date format"));
+    }
+
+    #[test]
+    fn parse_llm_response_update_calendar_event_invalid_time() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"update_calendar_event","event_id":"evt-123","time":"noon"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid time format"));
     }
 
     #[test]
