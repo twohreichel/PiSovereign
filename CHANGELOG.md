@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2](https://github.com/twohreichel/PiSovereign/compare/v0.3.1...v0.3.2) (2026-02-10)
+
+
+### Features
+
+* enhance Docker workflow by integrating Buildx for multi-architecture manifest creation ([10a6691](https://github.com/twohreichel/PiSovereign/commit/10a669101c38af514443ec3585f019a0ce67c889))
+* enhance release binary build process for ARM64 cross-compilation ([66218d9](https://github.com/twohreichel/PiSovereign/commit/66218d96a1bdb884229e9dc522d7471aa753b61d))
+
+
+### Bug Fixes
+
+* lower coverage threshold to 80% for improved build stability ([343b47d](https://github.com/twohreichel/PiSovereign/commit/343b47ddf5dda696c0ce1f1b797ecdaa3fed9da9))
+
 ## [0.3.1](https://github.com/twohreichel/PiSovereign/compare/v0.3.0...v0.3.1) (2026-02-10)
 
 
