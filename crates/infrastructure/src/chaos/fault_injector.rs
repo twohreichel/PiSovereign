@@ -474,4 +474,198 @@ mod tests {
             "Injected timeout after 5s"
         );
     }
+
+    #[test]
+    fn injected_error_connection_reset() {
+        assert_eq!(
+            InjectedError::ConnectionReset.to_string(),
+            "Injected connection reset"
+        );
+    }
+
+    #[test]
+    fn injected_error_resource_exhausted() {
+        assert_eq!(
+            InjectedError::ResourceExhausted("memory".to_string()).to_string(),
+            "Injected resource exhaustion: memory"
+        );
+    }
+
+    #[test]
+    fn injected_error_rate_limited() {
+        assert_eq!(
+            InjectedError::RateLimited.to_string(),
+            "Injected rate limit"
+        );
+    }
+
+    #[test]
+    fn injected_error_from_io() {
+        let io_err = io::Error::new(io::ErrorKind::NotFound, "file not found");
+        let injected: InjectedError = io_err.into();
+        assert!(injected.to_string().contains("file not found"));
+    }
+
+    #[test]
+    fn config_enabled_method() {
+        let config = FaultInjectorConfig::enabled();
+        assert!(config.enabled);
+        assert!(config.cooldown.is_none());
+    }
+
+    #[test]
+    fn config_clone() {
+        let config = FaultInjectorConfig::enabled().with_cooldown(Duration::from_secs(10));
+        #[allow(clippy::redundant_clone)]
+        let cloned = config.clone();
+        assert_eq!(config.enabled, cloned.enabled);
+        assert_eq!(config.cooldown, cloned.cooldown);
+    }
+
+    #[test]
+    fn config_debug() {
+        let config = FaultInjectorConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("FaultInjectorConfig"));
+        assert!(debug.contains("enabled"));
+    }
+
+    #[test]
+    fn injector_debug() {
+        let injector = FaultInjector::new(FaultPolicy::never());
+        let debug = format!("{injector:?}");
+        assert!(debug.contains("FaultInjector"));
+    }
+
+    #[test]
+    fn injector_with_config() {
+        let config = FaultInjectorConfig::enabled().with_cooldown(Duration::from_secs(1));
+        let injector = FaultInjector::with_config(config, FaultPolicy::never());
+        assert_eq!(injector.stats().total_calls, 0);
+    }
+
+    #[test]
+    fn injector_remaining_faults_unlimited() {
+        let injector = FaultInjector::new(FaultPolicy::never());
+        assert!(injector.remaining_faults().is_none());
+    }
+
+    #[test]
+    fn injector_remaining_faults_limited() {
+        let injector = FaultInjector::with_max_faults(
+            FaultPolicy::always(FaultType::Error("test".to_string())),
+            5,
+        );
+        assert_eq!(injector.remaining_faults(), Some(5));
+    }
+
+    #[test]
+    fn error_from_fault_type_generic() {
+        let err = InjectedError::from_fault_type(&FaultType::Error("test error".to_string()));
+        assert!(matches!(err, InjectedError::Generic(msg) if msg == "test error"));
+    }
+
+    #[test]
+    fn error_from_fault_type_connection_refused() {
+        let err = InjectedError::from_fault_type(&FaultType::ConnectionRefused);
+        assert!(matches!(err, InjectedError::ConnectionRefused));
+    }
+
+    #[test]
+    fn error_from_fault_type_connection_reset() {
+        let err = InjectedError::from_fault_type(&FaultType::ConnectionReset);
+        assert!(matches!(err, InjectedError::ConnectionReset));
+    }
+
+    #[test]
+    fn error_from_fault_type_resource_exhausted() {
+        let err = InjectedError::from_fault_type(&FaultType::ResourceExhausted("cpu".to_string()));
+        assert!(matches!(err, InjectedError::ResourceExhausted(msg) if msg == "cpu"));
+    }
+
+    #[test]
+    fn error_from_fault_type_rate_limited() {
+        let err = InjectedError::from_fault_type(&FaultType::RateLimited);
+        assert!(matches!(err, InjectedError::RateLimited));
+    }
+
+    #[test]
+    fn error_from_fault_type_timeout() {
+        let err = InjectedError::from_fault_type(&FaultType::Timeout(Duration::from_secs(3)));
+        assert!(matches!(err, InjectedError::Timeout(d) if d == Duration::from_secs(3)));
+    }
+
+    #[test]
+    fn error_from_fault_type_custom() {
+        let err = InjectedError::from_fault_type(&FaultType::Custom("my_fault".to_string()));
+        assert!(matches!(err, InjectedError::Generic(msg) if msg.contains("my_fault")));
+    }
+
+    #[tokio::test]
+    async fn injector_wrap_connection_reset() {
+        let mut injector = FaultInjector::new(FaultPolicy::always(FaultType::ConnectionReset));
+
+        let result: Result<i32, InjectedError> = injector.wrap(async { Ok(42) }).await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), InjectedError::ConnectionReset));
+    }
+
+    #[tokio::test]
+    async fn injector_wrap_rate_limited() {
+        let mut injector = FaultInjector::new(FaultPolicy::always(FaultType::RateLimited));
+
+        let result: Result<i32, InjectedError> = injector.wrap(async { Ok(42) }).await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), InjectedError::RateLimited));
+    }
+
+    #[tokio::test]
+    async fn injector_wrap_resource_exhausted() {
+        let mut injector = FaultInjector::new(FaultPolicy::always(FaultType::ResourceExhausted(
+            "memory".to_string(),
+        )));
+
+        let result: Result<i32, InjectedError> = injector.wrap(async { Ok(42) }).await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            InjectedError::ResourceExhausted(msg) if msg == "memory"
+        ));
+    }
+
+    #[tokio::test]
+    async fn injector_wrap_timeout() {
+        use std::time::Instant;
+
+        let mut injector =
+            FaultInjector::new(FaultPolicy::always(FaultType::Timeout(Duration::from_millis(50))));
+
+        let start = Instant::now();
+        let result: Result<i32, InjectedError> = injector.wrap(async { Ok(42) }).await;
+
+        assert!(result.is_err());
+        assert!(start.elapsed() >= Duration::from_millis(50));
+        assert!(matches!(
+            result.unwrap_err(),
+            InjectedError::Timeout(d) if d == Duration::from_millis(50)
+        ));
+    }
+
+    #[tokio::test]
+    async fn injector_stats_tracking() {
+        let mut injector = FaultInjector::new(FaultPolicy::always(FaultType::ConnectionRefused));
+
+        // Make several calls
+        let _: Result<i32, InjectedError> = injector.wrap(async { Ok(1) }).await;
+        let _: Result<i32, InjectedError> = injector.wrap(async { Ok(2) }).await;
+        let _: Result<i32, InjectedError> = injector.wrap(async { Ok(3) }).await;
+
+        let stats = injector.stats();
+        assert_eq!(stats.total_calls, 3);
+        assert_eq!(stats.faults_injected, 3);
+        assert_eq!(stats.errors_injected, 3);
+    }
 }

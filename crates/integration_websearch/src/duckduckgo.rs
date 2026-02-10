@@ -438,4 +438,223 @@ mod tests {
         let results = DuckDuckGoClient::convert_response(response, "rust");
         assert!(results.is_empty());
     }
+
+    #[test]
+    fn test_convert_response_with_definition() {
+        let response = api::DuckDuckGoResponse {
+            abstract_text: String::new(),
+            abstract_source: String::new(),
+            abstract_url: String::new(),
+            heading: "Test Word".to_string(),
+            answer: String::new(),
+            answer_type: String::new(),
+            definition: "The meaning of test word".to_string(),
+            definition_source: "Dictionary".to_string(),
+            definition_url: "https://dictionary.com/test".to_string(),
+            related_topics: vec![],
+            results: vec![],
+            image: String::new(),
+            response_type: "D".to_string(),
+        };
+
+        let results = DuckDuckGoClient::convert_response(response, "test word");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].title.contains("Definition"));
+        assert!(results[0].snippet.contains("meaning"));
+    }
+
+    #[test]
+    fn test_convert_response_with_answer() {
+        let response = api::DuckDuckGoResponse {
+            abstract_text: String::new(),
+            abstract_source: String::new(),
+            abstract_url: String::new(),
+            heading: "Calculator".to_string(),
+            answer: "42".to_string(),
+            answer_type: "calc".to_string(),
+            definition: String::new(),
+            definition_source: String::new(),
+            definition_url: String::new(),
+            related_topics: vec![],
+            results: vec![],
+            image: String::new(),
+            response_type: "C".to_string(),
+        };
+
+        let results = DuckDuckGoClient::convert_response(response, "6*7");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].title.contains("Answer"));
+        assert!(results[0].snippet.contains("42"));
+    }
+
+    #[test]
+    fn test_convert_response_with_external_results() {
+        let response = api::DuckDuckGoResponse {
+            abstract_text: String::new(),
+            abstract_source: String::new(),
+            abstract_url: String::new(),
+            heading: String::new(),
+            answer: String::new(),
+            answer_type: String::new(),
+            definition: String::new(),
+            definition_source: String::new(),
+            definition_url: String::new(),
+            related_topics: vec![],
+            results: vec![
+                api::ExternalResult {
+                    first_url: "https://example.com/result1".to_string(),
+                    result: "Result 1 HTML".to_string(),
+                    text: "Result 1 Text".to_string(),
+                },
+                api::ExternalResult {
+                    first_url: "https://example.com/result2".to_string(),
+                    result: "Result 2 HTML".to_string(),
+                    text: String::new(), // Empty text
+                },
+            ],
+            image: String::new(),
+            response_type: "E".to_string(),
+        };
+
+        let results = DuckDuckGoClient::convert_response(response, "test");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "Result 1 Text");
+        assert_eq!(results[1].title, "External Result"); // Fallback title
+    }
+
+    #[test]
+    fn test_convert_response_all_components() {
+        // Test with multiple types of results
+        let response = api::DuckDuckGoResponse {
+            abstract_text: "Abstract text here".to_string(),
+            abstract_source: "Source".to_string(),
+            abstract_url: "https://source.com".to_string(),
+            heading: "Heading".to_string(),
+            answer: "Direct answer".to_string(),
+            answer_type: "calc".to_string(),
+            definition: "Definition text".to_string(),
+            definition_source: "Dictionary".to_string(),
+            definition_url: "https://dict.com".to_string(),
+            related_topics: vec![api::RelatedTopic {
+                text: "Related - Topic description".to_string(),
+                first_url: "https://related.com".to_string(),
+                icon: None,
+                result: String::new(),
+            }],
+            results: vec![api::ExternalResult {
+                first_url: "https://external.com".to_string(),
+                result: String::new(),
+                text: "External".to_string(),
+            }],
+            image: String::new(),
+            response_type: "A".to_string(),
+        };
+
+        let results = DuckDuckGoClient::convert_response(response, "query");
+        // Should have: abstract, definition, answer, related topic, external result
+        assert_eq!(results.len(), 5);
+        assert_eq!(results[0].position, 1);
+        assert_eq!(results[1].position, 2);
+        assert_eq!(results[2].position, 3);
+        assert_eq!(results[3].position, 4);
+        assert_eq!(results[4].position, 5);
+    }
+
+    #[test]
+    fn test_convert_response_empty_heading_uses_query() {
+        let response = api::DuckDuckGoResponse {
+            abstract_text: "Some abstract".to_string(),
+            abstract_source: "Source".to_string(),
+            abstract_url: "https://url.com".to_string(),
+            heading: String::new(), // Empty heading
+            answer: String::new(),
+            answer_type: String::new(),
+            definition: String::new(),
+            definition_source: String::new(),
+            definition_url: String::new(),
+            related_topics: vec![],
+            results: vec![],
+            image: String::new(),
+            response_type: "A".to_string(),
+        };
+
+        let results = DuckDuckGoClient::convert_response(response, "my_query");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "my_query"); // Uses query as fallback
+    }
+
+    #[test]
+    fn test_urlencoding_simple() {
+        let encoded = urlencoding::encode("hello world");
+        assert_eq!(encoded, "hello+world");
+    }
+
+    #[test]
+    fn test_urlencoding_special_chars() {
+        let encoded = urlencoding::encode("test@example.com");
+        assert!(encoded.contains("%40"));
+    }
+
+    #[test]
+    fn test_urlencoding_preserves_allowed() {
+        let encoded = urlencoding::encode("hello-world_test.file~name");
+        assert_eq!(encoded, "hello-world_test.file~name");
+    }
+
+    #[test]
+    fn test_urlencoding_unicode() {
+        let encoded = urlencoding::encode("Ü");
+        // Unicode characters get percent-encoded
+        assert!(encoded.starts_with('%'));
+    }
+
+    #[test]
+    fn test_client_new() {
+        let config = WebSearchConfig::default();
+        let client = DuckDuckGoClient::new(&config);
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_client_provider_name() {
+        let config = WebSearchConfig::default();
+        let client = DuckDuckGoClient::new(&config).unwrap();
+        assert_eq!(client.provider_name(), "duckduckgo");
+    }
+
+    #[test]
+    fn test_build_url_special_chars() {
+        let config = WebSearchConfig::default();
+        let client = DuckDuckGoClient::new(&config).unwrap();
+        let url = client.build_url("hello world");
+
+        assert!(url.contains("q=hello+world"));
+    }
+
+    #[test]
+    fn test_related_topic_without_url_skipped() {
+        let response = api::DuckDuckGoResponse {
+            abstract_text: String::new(),
+            abstract_source: String::new(),
+            abstract_url: String::new(),
+            heading: String::new(),
+            answer: String::new(),
+            answer_type: String::new(),
+            definition: String::new(),
+            definition_source: String::new(),
+            definition_url: String::new(),
+            related_topics: vec![api::RelatedTopic {
+                text: "Topic without URL".to_string(),
+                first_url: String::new(), // Empty URL
+                icon: None,
+                result: String::new(),
+            }],
+            results: vec![],
+            image: String::new(),
+            response_type: "D".to_string(),
+        };
+
+        let results = DuckDuckGoClient::convert_response(response, "test");
+        assert!(results.is_empty()); // Should be skipped
+    }
 }

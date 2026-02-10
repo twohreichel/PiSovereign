@@ -462,4 +462,134 @@ mod tests {
         assert!(config.should_retry(100));
         assert!(config.should_retry(u32::MAX - 1));
     }
+
+    #[test]
+    fn test_reconnect_config_clone() {
+        let config = ReconnectConfig {
+            initial_delay_ms: 500,
+            max_delay_ms: 10000,
+            max_retries: 3,
+            backoff_multiplier: 1.5,
+            jitter_factor: 0.2,
+        };
+        #[allow(clippy::redundant_clone)]
+        let cloned = config.clone();
+        assert_eq!(config.initial_delay_ms, cloned.initial_delay_ms);
+        assert_eq!(config.max_delay_ms, cloned.max_delay_ms);
+        assert_eq!(config.max_retries, cloned.max_retries);
+    }
+
+    #[test]
+    fn test_reconnect_config_debug() {
+        let config = ReconnectConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("ReconnectConfig"));
+        assert!(debug.contains("initial_delay_ms"));
+    }
+
+    #[test]
+    fn test_calculate_delay_high_exponent() {
+        let config = ReconnectConfig {
+            initial_delay_ms: 100,
+            max_delay_ms: 1000,
+            backoff_multiplier: 2.0,
+            jitter_factor: 0.0,
+            ..Default::default()
+        };
+
+        // Very high attempt should still be capped
+        let delay = config.calculate_delay(100);
+        assert_eq!(delay.as_millis(), 1000);
+    }
+
+    #[test]
+    fn test_calculate_delay_zero_jitter() {
+        let config = ReconnectConfig {
+            initial_delay_ms: 1000,
+            max_delay_ms: 60000,
+            backoff_multiplier: 2.0,
+            jitter_factor: 0.0,
+            ..Default::default()
+        };
+
+        // Without jitter, should be deterministic
+        let delay1 = config.calculate_delay(0);
+        let delay2 = config.calculate_delay(0);
+        assert_eq!(delay1, delay2);
+    }
+
+    #[test]
+    fn test_is_retryable_all_error_types() {
+        // Retryable errors
+        assert!(ReconnectingProtonClient::is_retryable(
+            &ProtonError::ConnectionFailed("network error".to_string())
+        ));
+        assert!(ReconnectingProtonClient::is_retryable(
+            &ProtonError::BridgeUnavailable("bridge down".to_string())
+        ));
+
+        // Non-retryable errors
+        assert!(!ReconnectingProtonClient::is_retryable(
+            &ProtonError::AuthenticationFailed
+        ));
+        assert!(!ReconnectingProtonClient::is_retryable(
+            &ProtonError::MailboxNotFound("inbox".to_string())
+        ));
+        assert!(!ReconnectingProtonClient::is_retryable(
+            &ProtonError::MessageNotFound("msg-123".to_string())
+        ));
+        assert!(!ReconnectingProtonClient::is_retryable(
+            &ProtonError::SmtpError("invalid recipient".to_string())
+        ));
+    }
+
+    #[test]
+    fn test_config_deserialization_partial() {
+        // Only some fields specified
+        let json = r#"{"initial_delay_ms":2000}"#;
+        let config: ReconnectConfig = serde_json::from_str(json).unwrap();
+
+        assert_eq!(config.initial_delay_ms, 2000);
+        // Defaults for the rest
+        assert_eq!(config.max_delay_ms, 60000);
+        assert_eq!(config.max_retries, 0);
+    }
+
+    #[test]
+    fn test_should_retry_boundary() {
+        let config = ReconnectConfig {
+            max_retries: 1,
+            ..Default::default()
+        };
+
+        // Only attempt 0 should be allowed
+        assert!(config.should_retry(0));
+        assert!(!config.should_retry(1));
+    }
+
+    #[test]
+    fn test_calculate_delay_different_multipliers() {
+        let config_2x = ReconnectConfig {
+            initial_delay_ms: 100,
+            max_delay_ms: 10000,
+            backoff_multiplier: 2.0,
+            jitter_factor: 0.0,
+            ..Default::default()
+        };
+
+        let config_3x = ReconnectConfig {
+            initial_delay_ms: 100,
+            max_delay_ms: 10000,
+            backoff_multiplier: 3.0,
+            jitter_factor: 0.0,
+            ..Default::default()
+        };
+
+        // At attempt 2: 2x = 400ms, 3x = 900ms
+        let delay_2x = config_2x.calculate_delay(2);
+        let delay_3x = config_3x.calculate_delay(2);
+
+        assert_eq!(delay_2x.as_millis(), 400);
+        assert_eq!(delay_3x.as_millis(), 900);
+    }
 }

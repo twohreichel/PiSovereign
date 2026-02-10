@@ -939,4 +939,180 @@ mod tests {
         };
         assert!(format!("{response:?}").contains("AssistantResponseData"));
     }
+
+    #[test]
+    fn test_template_context_clone() {
+        let mut ctx = TemplateContext::new();
+        ctx.insert("key", &"value");
+        #[allow(clippy::redundant_clone)]
+        let cloned = ctx.clone();
+        // Both contexts work independently
+        let inner = cloned.into_inner();
+        assert!(inner.contains_key("key"));
+    }
+
+    #[test]
+    fn test_template_context_default() {
+        let ctx = TemplateContext::default();
+        let inner = ctx.into_inner();
+        // Should be empty
+        assert!(!inner.contains_key("any_key"));
+    }
+
+    #[test]
+    fn test_render_nonexistent_template() {
+        let engine = TemplateEngine::new().unwrap();
+        let ctx = TemplateContext::new();
+        let result = engine.render("nonexistent/template.txt", &ctx);
+        assert!(matches!(result, Err(TemplateError::NotFound(_))));
+    }
+
+    #[test]
+    fn test_template_config_serialization() {
+        let config = TemplateConfig {
+            templates_dir: Some("/custom/templates".to_string()),
+            use_embedded_fallback: false,
+            auto_escape: false,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: TemplateConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.templates_dir, Some("/custom/templates".to_string()));
+        assert!(!parsed.use_embedded_fallback);
+        assert!(!parsed.auto_escape);
+    }
+
+    #[test]
+    fn test_email_draft_data_serialization() {
+        let data = EmailDraftData {
+            recipient: "John".to_string(),
+            recipient_email: "john@test.com".to_string(),
+            subject: "Test".to_string(),
+            body: "Body".to_string(),
+            sender: "Alice".to_string(),
+            cc: vec!["bob@test.com".to_string()],
+            attachments: vec!["file.pdf".to_string()],
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        let parsed: EmailDraftData = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.recipient, "John");
+        assert_eq!(parsed.cc.len(), 1);
+        assert_eq!(parsed.attachments.len(), 1);
+    }
+
+    #[test]
+    fn test_weather_report_data_serialization() {
+        let data = WeatherReportData {
+            location: "Berlin".to_string(),
+            temperature: 22.5,
+            unit: "C".to_string(),
+            condition: "Sunny".to_string(),
+            emoji: "☀️".to_string(),
+            humidity: 65,
+            wind_speed: 15.0,
+            forecast: vec![ForecastDay {
+                day: "Monday".to_string(),
+                high: 25.0,
+                low: 15.0,
+                condition: "Clear".to_string(),
+                emoji: "🌤️".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        let parsed: WeatherReportData = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.location, "Berlin");
+        assert_eq!(parsed.forecast.len(), 1);
+    }
+
+    #[test]
+    fn test_calendar_event_data_serialization() {
+        let data = CalendarEventData {
+            title: "Meeting".to_string(),
+            start_time: "10:00".to_string(),
+            end_time: "11:00".to_string(),
+            location: Some("Room A".to_string()),
+            description: Some("Important meeting".to_string()),
+            attendees: vec!["Alice".to_string(), "Bob".to_string()],
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        let parsed: CalendarEventData = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.title, "Meeting");
+        assert_eq!(parsed.attendees.len(), 2);
+    }
+
+    #[test]
+    fn test_assistant_response_data_serialization() {
+        let data = AssistantResponseData {
+            content: "Here's your answer".to_string(),
+            suggestions: vec!["Option 1".to_string(), "Option 2".to_string()],
+            requires_approval: true,
+            approval_command: Some("approve 123".to_string()),
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        let parsed: AssistantResponseData = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.content, "Here's your answer");
+        assert!(parsed.requires_approval);
+        assert_eq!(parsed.suggestions.len(), 2);
+    }
+
+    #[test]
+    fn test_forecast_day_serialization() {
+        let day = ForecastDay {
+            day: "Tuesday".to_string(),
+            high: 28.0,
+            low: 18.0,
+            condition: "Partly Cloudy".to_string(),
+            emoji: "⛅".to_string(),
+        };
+        let json = serde_json::to_string(&day).unwrap();
+        let parsed: ForecastDay = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.day, "Tuesday");
+        assert!((parsed.high - 28.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_truncate_words_filter_exact_count() {
+        let value = Value::String("one two three".to_string());
+        let mut args = HashMap::new();
+        args.insert("count".to_string(), Value::Number(3.into()));
+
+        let result = truncate_words_filter(&value, &args).unwrap();
+        // Exactly 3 words, no truncation
+        assert_eq!(result.as_str().unwrap(), "one two three");
+    }
+
+    #[test]
+    fn test_linebreaksbr_filter_multiple_newlines() {
+        let value = Value::String("Line 1\n\nLine 3\nLine 4".to_string());
+        let result = linebreaksbr_filter(&value, &HashMap::new()).unwrap();
+        assert_eq!(
+            result.as_str().unwrap(),
+            "Line 1<br>\n<br>\nLine 3<br>\nLine 4"
+        );
+    }
+
+    #[test]
+    fn test_email_draft_with_attachments() {
+        let engine = TemplateEngine::new().unwrap();
+
+        let data = EmailDraftData {
+            recipient: "John".to_string(),
+            recipient_email: "john@example.com".to_string(),
+            subject: "Files".to_string(),
+            body: "Please find attached.".to_string(),
+            sender: "Alice".to_string(),
+            cc: vec![],
+            attachments: vec!["doc1.pdf".to_string(), "doc2.xlsx".to_string()],
+        };
+
+        let result = engine.render_email_draft(&data, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_template_config_debug() {
+        let config = TemplateConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("TemplateConfig"));
+        assert!(debug.contains("templates_dir"));
+    }
 }

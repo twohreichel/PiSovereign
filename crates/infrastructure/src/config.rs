@@ -1448,6 +1448,128 @@ mod tests {
         assert!(config.block_on_detection);
         assert_eq!(config.max_violations_before_block, 3);
     }
+
+    #[test]
+    fn prompt_security_config_sensitivity_level() {
+        let mut config = PromptSecurityConfig::default();
+
+        config.sensitivity = "low".to_string();
+        assert_eq!(
+            config.sensitivity_level(),
+            application::services::SecuritySensitivity::Low
+        );
+
+        config.sensitivity = "medium".to_string();
+        assert_eq!(
+            config.sensitivity_level(),
+            application::services::SecuritySensitivity::Medium
+        );
+
+        config.sensitivity = "high".to_string();
+        assert_eq!(
+            config.sensitivity_level(),
+            application::services::SecuritySensitivity::High
+        );
+
+        // Unknown defaults to medium
+        config.sensitivity = "unknown".to_string();
+        assert_eq!(
+            config.sensitivity_level(),
+            application::services::SecuritySensitivity::Medium
+        );
+    }
+
+    #[test]
+    fn prompt_security_config_to_prompt_security_config() {
+        let config = PromptSecurityConfig {
+            enabled: true,
+            sensitivity: "high".to_string(),
+            block_on_detection: false,
+            ..Default::default()
+        };
+        let converted = config.to_prompt_security_config();
+        assert!(converted.enabled);
+        assert!(!converted.block_on_detection);
+        assert_eq!(
+            converted.sensitivity,
+            application::services::SecuritySensitivity::High
+        );
+    }
+
+    #[test]
+    fn prompt_security_config_to_suspicious_activity_config() {
+        let config = PromptSecurityConfig {
+            max_violations_before_block: 5,
+            violation_window_secs: 7200,
+            block_duration_secs: 43200,
+            auto_block_on_critical: false,
+            ..Default::default()
+        };
+        let converted = config.to_suspicious_activity_config();
+        assert_eq!(converted.max_violations_before_block, 5);
+        assert_eq!(converted.violation_window_secs, 7200);
+        assert_eq!(converted.block_duration_secs, 43200);
+        assert!(!converted.auto_block_on_critical);
+    }
+
+    #[test]
+    fn security_config_additional_fields() {
+        let config = SecurityConfig::default();
+        assert_eq!(config.rate_limit_cleanup_interval_secs, 300);
+        assert_eq!(config.rate_limit_cleanup_max_age_secs, 600);
+        assert!(config.tls_verify_certs);
+        assert_eq!(config.connection_timeout_secs, 30);
+        assert_eq!(config.min_tls_version, "1.2");
+    }
+
+    #[test]
+    fn database_config_default() {
+        let config = DatabaseConfig::default();
+        assert_eq!(config.path, "pisovereign.db");
+        assert_eq!(config.max_connections, 5);
+        assert!(config.run_migrations);
+    }
+
+    #[test]
+    fn database_config_serialization() {
+        let config = DatabaseConfig {
+            path: "custom.db".to_string(),
+            max_connections: 10,
+            run_migrations: false,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: DatabaseConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.path, "custom.db");
+        assert_eq!(parsed.max_connections, 10);
+        assert!(!parsed.run_migrations);
+    }
+
+    #[test]
+    fn signal_config_serialization() {
+        let config = SignalConfig {
+            phone_number: "+1234567890".to_string(),
+            socket_path: "/custom/socket".to_string(),
+            data_path: Some("/data".to_string()),
+            timeout_ms: 60000,
+            whitelist: vec!["+11111111111".to_string()],
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: SignalConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.phone_number, "+1234567890");
+        assert_eq!(parsed.socket_path, "/custom/socket");
+        assert_eq!(parsed.data_path, Some("/data".to_string()));
+        assert_eq!(parsed.timeout_ms, 60000);
+        assert_eq!(parsed.whitelist.len(), 1);
+    }
+
+    #[test]
+    fn signal_config_debug() {
+        let config = SignalConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("SignalConfig"));
+        assert!(debug.contains("phone_number"));
+        assert!(debug.contains("socket_path"));
+    }
 }
 
 /// Weather service configuration
