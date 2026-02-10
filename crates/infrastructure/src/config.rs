@@ -1256,6 +1256,177 @@ mod tests {
         assert_eq!(ws.api_key, Some("BSA-test".to_string()));
         assert_eq!(ws.max_results, 3);
     }
+
+    // Additional tests for improved coverage
+
+    #[test]
+    fn telemetry_config_default() {
+        let config = TelemetryAppConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.otlp_endpoint, "http://localhost:4317");
+        assert_eq!(config.sample_ratio, Some(1.0));
+    }
+
+    #[test]
+    fn retry_config_default() {
+        let config = RetryAppConfig::default();
+        assert_eq!(config.initial_delay_ms, 100);
+        assert_eq!(config.max_delay_ms, 10_000);
+        assert!((config.multiplier - 2.0).abs() < f64::EPSILON);
+        assert_eq!(config.max_retries, 3);
+    }
+
+    #[test]
+    fn retry_config_to_retry_config() {
+        let config = RetryAppConfig {
+            initial_delay_ms: 200,
+            max_delay_ms: 5000,
+            multiplier: 1.5,
+            max_retries: 5,
+        };
+        let retry_config = config.to_retry_config();
+        assert_eq!(retry_config.initial_delay_ms, 200);
+        assert_eq!(retry_config.max_delay_ms, 5000);
+        assert!((retry_config.multiplier - 1.5).abs() < f64::EPSILON);
+        assert_eq!(retry_config.max_retries, 5);
+    }
+
+    #[test]
+    fn memory_config_default() {
+        let config = MemoryAppConfig::default();
+        assert!(config.enabled);
+        assert!(config.enable_rag);
+        assert!(config.enable_learning);
+        assert_eq!(config.rag_limit, 5);
+        assert!((config.rag_threshold - 0.5).abs() < 0.001);
+        assert!((config.merge_threshold - 0.85).abs() < 0.001);
+        assert!((config.min_importance - 0.1).abs() < 0.001);
+        assert!((config.decay_factor - 0.95).abs() < 0.001);
+        assert!(config.enable_encryption);
+    }
+
+    #[test]
+    fn memory_config_to_memory_service_config() {
+        let config = MemoryAppConfig {
+            rag_limit: 10,
+            rag_threshold: 0.6,
+            merge_threshold: 0.9,
+            min_importance: 0.2,
+            decay_factor: 0.9,
+            enable_encryption: false,
+            ..Default::default()
+        };
+        let service_config = config.to_memory_service_config();
+        assert_eq!(service_config.rag_limit, 10);
+        assert!((service_config.rag_threshold - 0.6).abs() < 0.001);
+        assert!((service_config.merge_threshold - 0.9).abs() < 0.001);
+        assert!(!service_config.enable_encryption);
+    }
+
+    #[test]
+    fn memory_config_to_enhanced_chat_config() {
+        let config = MemoryAppConfig {
+            enable_rag: true,
+            enable_learning: false,
+            ..Default::default()
+        };
+        let chat_config = config.to_enhanced_chat_config(Some("Test prompt".to_string()));
+        assert!(chat_config.enable_rag);
+        assert!(!chat_config.enable_learning);
+        assert_eq!(chat_config.system_prompt, Some("Test prompt".to_string()));
+        assert_eq!(chat_config.min_learning_length, 20);
+        assert!((chat_config.default_importance - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn memory_config_to_embedding_config() {
+        let config = MemoryAppConfig {
+            embedding: EmbeddingAppConfig {
+                model: "test-model".to_string(),
+                dimension: 768,
+                timeout_ms: 60000,
+            },
+            ..Default::default()
+        };
+        let embedding_config = config.to_embedding_config("http://localhost:11434");
+        assert_eq!(embedding_config.base_url, "http://localhost:11434");
+        assert_eq!(embedding_config.model, "test-model");
+        assert_eq!(embedding_config.dimensions, 768);
+        assert_eq!(embedding_config.timeout_ms, 60000);
+    }
+
+    #[test]
+    fn embedding_config_default() {
+        let config = EmbeddingAppConfig::default();
+        assert_eq!(config.model, "nomic-embed-text");
+        assert_eq!(config.dimension, 384);
+        assert_eq!(config.timeout_ms, 30000);
+    }
+
+    #[test]
+    fn geo_location_config_to_geo_location_valid() {
+        let config = GeoLocationConfig {
+            latitude: 52.52,
+            longitude: 13.405,
+        };
+        let geo = config.to_geo_location();
+        assert!(geo.is_some());
+        let g = geo.unwrap();
+        assert!((g.latitude() - 52.52).abs() < 0.001);
+        assert!((g.longitude() - 13.405).abs() < 0.001);
+    }
+
+    #[test]
+    fn geo_location_config_to_geo_location_invalid() {
+        let config = GeoLocationConfig {
+            latitude: 200.0, // Invalid
+            longitude: 13.405,
+        };
+        let geo = config.to_geo_location();
+        assert!(geo.is_none());
+    }
+
+    #[test]
+    fn weather_config_default() {
+        let config = WeatherConfig::default();
+        assert_eq!(config.base_url, "https://api.open-meteo.com/v1");
+        assert_eq!(config.timeout_secs, 30);
+        assert_eq!(config.forecast_days, 7);
+        assert_eq!(config.cache_ttl_minutes, 30);
+        assert!(config.default_location.is_none());
+    }
+
+    #[test]
+    fn health_config_default() {
+        let config = HealthAppConfig::default();
+        assert_eq!(config.global_timeout_secs, 5);
+        assert!(config.inference_timeout_secs.is_none());
+    }
+
+    #[test]
+    fn health_config_to_health_config() {
+        let config = HealthAppConfig {
+            global_timeout_secs: 30,
+            inference_timeout_secs: Some(5),
+            email_timeout_secs: Some(10),
+            calendar_timeout_secs: Some(8),
+            weather_timeout_secs: Some(15),
+        };
+        let health_config = config.to_health_config();
+        assert_eq!(health_config.global_timeout_secs, 30);
+        assert_eq!(health_config.service_timeouts.len(), 4);
+        assert_eq!(health_config.service_timeouts.get("inference"), Some(&5));
+        assert_eq!(health_config.service_timeouts.get("email"), Some(&10));
+    }
+
+    #[test]
+    fn degraded_mode_config_default() {
+        let config = DegradedModeAppConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.failure_threshold, 3);
+        assert_eq!(config.retry_cooldown_secs, 30);
+        assert_eq!(config.success_threshold, 2);
+    }
 }
 
 /// Weather service configuration
