@@ -67,6 +67,17 @@ pub struct TaskQuery {
     pub include_completed: bool,
     /// Maximum number of tasks to return
     pub limit: Option<usize>,
+    /// Filter by list/calendar name
+    pub list: Option<String>,
+}
+
+/// Information about a task list
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskListInfo {
+    /// List/calendar identifier (usually URL path or name)
+    pub id: String,
+    /// Human-readable display name
+    pub name: String,
 }
 
 /// Port for task/todo operations
@@ -107,6 +118,19 @@ pub trait TaskPort: Send + Sync {
 
     /// Delete a task
     async fn delete_task(&self, user_id: &UserId, task_id: &str) -> Result<bool, ApplicationError>;
+
+    /// List available task lists/calendars
+    async fn list_task_lists(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<TaskListInfo>, ApplicationError>;
+
+    /// Create a new task list/calendar
+    async fn create_task_list(
+        &self,
+        user_id: &UserId,
+        name: &str,
+    ) -> Result<TaskListInfo, ApplicationError>;
 
     /// Get tasks due today
     async fn get_tasks_due_today(&self, user_id: &UserId) -> Result<Vec<Task>, ApplicationError> {

@@ -288,6 +288,12 @@ pub trait CalDavTaskClient: Send + Sync {
 
     /// Delete a task
     async fn delete_task(&self, calendar: &str, task_id: &str) -> Result<(), CalDavError>;
+
+    /// List available calendars/task lists
+    async fn list_calendars(&self) -> Result<Vec<String>, CalDavError>;
+
+    /// Create a new calendar/task list
+    async fn create_calendar(&self, name: &str) -> Result<String, CalDavError>;
 }
 
 impl HttpCalDavClient {
@@ -669,6 +675,18 @@ impl CalDavTaskClient for HttpCalDavClient {
             },
             status => Err(CalDavError::RequestFailed(format!("HTTP {status}"))),
         }
+    }
+
+    #[instrument(skip(self))]
+    async fn list_calendars(&self) -> Result<Vec<String>, CalDavError> {
+        // Delegate to the CalDavClient implementation
+        <Self as crate::client::CalDavClient>::list_calendars(self).await
+    }
+
+    #[instrument(skip(self))]
+    async fn create_calendar(&self, name: &str) -> Result<String, CalDavError> {
+        // Delegate to the CalDavClient implementation
+        <Self as crate::client::CalDavClient>::create_calendar(self, name).await
     }
 }
 

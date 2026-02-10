@@ -351,6 +351,8 @@ fn command_type_name(command: &AgentCommand) -> String {
         AgentCommand::CompleteTask { .. } => "complete_task",
         AgentCommand::UpdateTask { .. } => "update_task",
         AgentCommand::DeleteTask { .. } => "delete_task",
+        AgentCommand::ListTaskLists => "list_task_lists",
+        AgentCommand::CreateTaskList { .. } => "create_task_list",
         AgentCommand::Echo { .. } => "echo",
         AgentCommand::Help { .. } => "help",
         AgentCommand::System(sys) => match sys {

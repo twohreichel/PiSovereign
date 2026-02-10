@@ -17,11 +17,13 @@ Possible intents:
 - "morning_briefing": Request morning briefing (e.g., "What's on today?", "Briefing")
 - "create_calendar_event": Create appointment (requires: date, time, title)
 - "update_calendar_event": Update existing appointment (requires: event_id; optional: date, time, title, location, duration_minutes)
-- "list_tasks": List tasks (optional: status, priority filters)
-- "create_task": Create a task (requires: title; optional: date for due date, priority, description)
+- "list_tasks": List tasks (optional: status, priority, list filters)
+- "create_task": Create a task (requires: title; optional: date for due date, priority, description, list)
 - "complete_task": Mark task done (requires: task_id)
 - "update_task": Update task (requires: task_id; optional: title, date, priority, description)
 - "delete_task": Delete task (requires: task_id)
+- "list_task_lists": List all available task lists/calendars
+- "create_task_list": Create a new task list (requires: name)
 - "summarize_inbox": Email summary (e.g., "What's new?", "Mails")
 - "draft_email": Draft email (requires: to, body; optional: subject)
 - "send_email": Send email (requires: draft_id)
@@ -39,6 +41,8 @@ Reply ONLY with valid JSON:
   "priority": "high|medium|low" (optional, for tasks),
   "status": "needs_action|in_progress|completed|cancelled" (optional, for list_tasks),
   "description": "..." (optional, for tasks),
+  "list": "..." (optional, for tasks - target list/calendar name),
+  "name": "..." (required for create_task_list),
   "location": "..." (optional, for appointments),
   "duration_minutes": 60 (optional, for appointments),
   "to": "email@example.com" (optional, for emails),
@@ -57,10 +61,14 @@ Examples:
 - "Move event abc123 to 15:00" → {"intent":"update_calendar_event","event_id":"abc123","time":"15:00"}
 - "What are my tasks?" → {"intent":"list_tasks"}
 - "Show high priority tasks" → {"intent":"list_tasks","priority":"high"}
+- "Tasks on list Work" → {"intent":"list_tasks","list":"Work"}
 - "Add task buy groceries" → {"intent":"create_task","title":"buy groceries"}
 - "Create task call mom due Friday priority high" → {"intent":"create_task","title":"call mom","date":"2025-02-07","priority":"high"}
+- "Add task meeting prep on list Work" → {"intent":"create_task","title":"meeting prep","list":"Work"}
 - "Mark task abc done" → {"intent":"complete_task","task_id":"abc"}
 - "Delete task xyz" → {"intent":"delete_task","task_id":"xyz"}
+- "What lists do I have?" → {"intent":"list_task_lists"}
+- "Create list Vacation" → {"intent":"create_task_list","name":"Vacation"}
 - "Summarize my mails" → {"intent":"summarize_inbox"}
 - "Search the internet for Rust async patterns" → {"intent":"web_search","query":"Rust async patterns"}
 - "What's the weather like?" → {"intent":"ask","question":"What's the weather like?"}"#;
@@ -105,6 +113,10 @@ struct ParsedIntent {
     status: Option<String>,
     #[serde(default)]
     description: Option<String>,
+    #[serde(default)]
+    list: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 /// Parser for converting natural language to AgentCommand
@@ -549,7 +561,11 @@ impl CommandParser {
                     })
                     .transpose()?;
 
-                Ok(AgentCommand::ListTasks { status, priority })
+                Ok(AgentCommand::ListTasks {
+                    status,
+                    priority,
+                    list: parsed.list.clone(),
+                })
             },
 
             "create_task" => {
@@ -586,7 +602,21 @@ impl CommandParser {
                     due_date,
                     priority,
                     description: parsed.description.clone(),
+                    list: parsed.list.clone(),
                 })
+            },
+
+            "list_task_lists" => Ok(AgentCommand::ListTaskLists),
+
+            "create_task_list" => {
+                let name = parsed
+                    .name
+                    .as_ref()
+                    .or(parsed.title.as_ref())
+                    .ok_or("Missing name for task list")?
+                    .clone();
+
+                Ok(AgentCommand::CreateTaskList { name })
             },
 
             "complete_task" => {
@@ -1413,7 +1443,10 @@ mod async_tests {
         let parser = CommandParser::new();
         let response = r#"{"intent":"list_tasks"}"#;
         let cmd = parser.parse_llm_response(response, "").unwrap();
-        let AgentCommand::ListTasks { status, priority } = cmd else {
+        let AgentCommand::ListTasks {
+            status, priority, ..
+        } = cmd
+        else {
             unreachable!("Expected ListTasks")
         };
         assert!(status.is_none());
@@ -1494,6 +1527,7 @@ mod async_tests {
             due_date,
             priority,
             description,
+            ..
         } = cmd
         else {
             unreachable!("Expected CreateTask")
@@ -1514,6 +1548,7 @@ mod async_tests {
             due_date,
             priority,
             description,
+            ..
         } = cmd
         else {
             unreachable!("Expected CreateTask")

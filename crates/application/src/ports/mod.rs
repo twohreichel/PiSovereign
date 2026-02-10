@@ -67,7 +67,7 @@ pub use suspicious_activity_port::{
 };
 #[cfg(test)]
 pub use task_port::MockTaskPort;
-pub use task_port::{NewTask, Task, TaskPort, TaskQuery, TaskStatus, TaskUpdates};
+pub use task_port::{NewTask, Task, TaskListInfo, TaskPort, TaskQuery, TaskStatus, TaskUpdates};
 pub use user_profile_store::UserProfileStore;
 #[cfg(test)]
 pub use weather_port::MockWeatherPort;

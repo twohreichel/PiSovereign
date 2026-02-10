@@ -107,6 +107,9 @@ pub trait CalDavClient: Send + Sync {
 
     /// Delete an event
     async fn delete_event(&self, calendar: &str, event_id: &str) -> Result<(), CalDavError>;
+
+    /// Create a new calendar (MKCALENDAR)
+    async fn create_calendar(&self, name: &str) -> Result<String, CalDavError>;
 }
 
 /// HTTP-based CalDAV client implementation
@@ -327,6 +330,71 @@ impl HttpCalDavClient {
         ical.push_str("END:VCALENDAR\r\n");
         ical
     }
+
+    /// Fallback calendar creation using MKCOL for servers that don't support MKCALENDAR
+    async fn create_calendar_mkcol(&self, path: &str, name: &str) -> Result<String, CalDavError> {
+        // First create the collection with MKCOL
+        let response = self
+            .build_request("MKCOL", path)
+            .send()
+            .await
+            .map_err(|e| CalDavError::ConnectionFailed(e.to_string()))?;
+
+        match response.status() {
+            StatusCode::UNAUTHORIZED => return Err(CalDavError::AuthenticationFailed),
+            StatusCode::CREATED | StatusCode::NO_CONTENT | StatusCode::OK => {},
+            status => {
+                let body = response.text().await.unwrap_or_default();
+                return Err(CalDavError::RequestFailed(format!(
+                    "MKCOL HTTP {status}: {body}"
+                )));
+            },
+        }
+
+        // Then set properties with PROPPATCH
+        let proppatch_body = format!(
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propertyupdate xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:set>
+    <D:prop>
+      <D:resourcetype>
+        <D:collection/>
+        <C:calendar/>
+      </D:resourcetype>
+      <D:displayname>{}</D:displayname>
+    </D:prop>
+  </D:set>
+</D:propertyupdate>"#,
+            name
+        );
+
+        let response = self
+            .build_request("PROPPATCH", path)
+            .body(proppatch_body)
+            .send()
+            .await
+            .map_err(|e| CalDavError::ConnectionFailed(e.to_string()))?;
+
+        match response.status() {
+            StatusCode::MULTI_STATUS | StatusCode::OK | StatusCode::NO_CONTENT => {
+                // Extract slug from path
+                let slug = path
+                    .trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(name)
+                    .to_string();
+                debug!(calendar = %slug, "Calendar created via MKCOL+PROPPATCH");
+                Ok(slug)
+            },
+            status => {
+                let body = response.text().await.unwrap_or_default();
+                Err(CalDavError::RequestFailed(format!(
+                    "PROPPATCH HTTP {status}: {body}"
+                )))
+            },
+        }
+    }
 }
 
 #[async_trait]
@@ -516,6 +584,67 @@ impl CalDavClient for HttpCalDavClient {
                 Ok(())
             },
             status => Err(CalDavError::RequestFailed(format!("HTTP {status}"))),
+        }
+    }
+
+    #[instrument(skip(self))]
+    async fn create_calendar(&self, name: &str) -> Result<String, CalDavError> {
+        // Generate a URL-safe slug from the name
+        let slug: String = name
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+            .replace("--", "-")
+            .trim_matches('-')
+            .to_string();
+
+        let calendar_path = format!("{}/{}/", self.config.server_url.trim_end_matches('/'), slug);
+
+        // MKCALENDAR request body
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:set>
+    <D:prop>
+      <D:displayname>{}</D:displayname>
+      <C:supported-calendar-component-set>
+        <C:comp name="VTODO"/>
+        <C:comp name="VEVENT"/>
+      </C:supported-calendar-component-set>
+    </D:prop>
+  </D:set>
+</C:mkcalendar>"#,
+            name
+        );
+
+        let response = self
+            .build_request("MKCALENDAR", &calendar_path)
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| CalDavError::ConnectionFailed(e.to_string()))?;
+
+        match response.status() {
+            StatusCode::UNAUTHORIZED => Err(CalDavError::AuthenticationFailed),
+            StatusCode::CREATED | StatusCode::NO_CONTENT | StatusCode::OK => {
+                debug!(calendar = %slug, "Calendar created successfully");
+                Ok(slug)
+            },
+            StatusCode::METHOD_NOT_ALLOWED => {
+                // Some servers don't support MKCALENDAR, try MKCOL as fallback
+                debug!("MKCALENDAR not supported, trying MKCOL");
+                self.create_calendar_mkcol(&calendar_path, name).await
+            },
+            status => {
+                let body = response.text().await.unwrap_or_default();
+                Err(CalDavError::RequestFailed(format!("HTTP {status}: {body}")))
+            },
         }
     }
 }

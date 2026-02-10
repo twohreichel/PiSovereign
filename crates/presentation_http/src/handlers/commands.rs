@@ -153,6 +153,8 @@ fn command_type_name(cmd: &AgentCommand) -> String {
         AgentCommand::CompleteTask { .. } => "complete_task",
         AgentCommand::UpdateTask { .. } => "update_task",
         AgentCommand::DeleteTask { .. } => "delete_task",
+        AgentCommand::ListTaskLists => "list_task_lists",
+        AgentCommand::CreateTaskList { .. } => "create_task_list",
         AgentCommand::SummarizeInbox { .. } => "summarize_inbox",
         AgentCommand::DraftEmail { .. } => "draft_email",
         AgentCommand::SendEmail { .. } => "send_email",

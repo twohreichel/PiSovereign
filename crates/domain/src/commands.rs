@@ -58,6 +58,8 @@ pub enum AgentCommand {
         status: Option<TaskStatus>,
         /// Filter by priority
         priority: Option<Priority>,
+        /// Filter by list/calendar name
+        list: Option<String>,
     },
 
     /// Create a new task
@@ -70,6 +72,17 @@ pub enum AgentCommand {
         priority: Option<Priority>,
         /// Optional description
         description: Option<String>,
+        /// Target list/calendar (None for default)
+        list: Option<String>,
+    },
+
+    /// List available task lists/calendars
+    ListTaskLists,
+
+    /// Create a new task list/calendar
+    CreateTaskList {
+        /// Name of the new list
+        name: String,
     },
 
     /// Mark a task as completed
@@ -186,6 +199,7 @@ impl AgentCommand {
                 | Self::CompleteTask { .. }
                 | Self::UpdateTask { .. }
                 | Self::DeleteTask { .. }
+                | Self::CreateTaskList { .. }
                 | Self::System(SystemCommand::ReloadConfig | SystemCommand::SwitchModel { .. })
         )
     }
@@ -210,13 +224,20 @@ impl AgentCommand {
                     .map_or_else(|| "(no title change)".to_string(), |t| format!("'{t}'"));
                 format!("Update event {event_id} to {title_str}")
             },
-            Self::ListTasks { status, priority } => {
+            Self::ListTasks {
+                status,
+                priority,
+                list,
+            } => {
                 let mut filters = Vec::new();
                 if let Some(s) = status {
                     filters.push(format!("status={s}"));
                 }
                 if let Some(p) = priority {
                     filters.push(format!("priority={p}"));
+                }
+                if let Some(l) = list {
+                    filters.push(format!("list={l}"));
                 }
                 if filters.is_empty() {
                     "List all tasks".to_string()
@@ -225,11 +246,23 @@ impl AgentCommand {
                 }
             },
             Self::CreateTask {
-                title, due_date, ..
-            } => due_date.map_or_else(
-                || format!("Create task '{title}'"),
-                |d| format!("Create task '{title}' due {d}"),
-            ),
+                title,
+                due_date,
+                list,
+                ..
+            } => {
+                let list_str = list
+                    .as_ref()
+                    .map_or(String::new(), |l| format!(" on list '{l}'"));
+                due_date.map_or_else(
+                    || format!("Create task '{title}'{list_str}"),
+                    |d| format!("Create task '{title}' due {d}{list_str}"),
+                )
+            },
+            Self::ListTaskLists => "List all task lists".to_string(),
+            Self::CreateTaskList { name } => {
+                format!("Create task list '{name}'")
+            },
             Self::CompleteTask { task_id } => {
                 format!("Complete task {task_id}")
             },
@@ -647,6 +680,7 @@ mod tests {
         let cmd = AgentCommand::ListTasks {
             status: None,
             priority: None,
+            list: None,
         };
         assert!(!cmd.requires_approval());
     }
@@ -656,6 +690,7 @@ mod tests {
         let cmd = AgentCommand::ListTasks {
             status: None,
             priority: None,
+            list: None,
         };
         assert_eq!(cmd.description(), "List all tasks");
     }
@@ -666,6 +701,7 @@ mod tests {
         let cmd = AgentCommand::ListTasks {
             status: Some(TaskStatus::InProgress),
             priority: None,
+            list: None,
         };
         let desc = cmd.description();
         assert!(desc.contains("status="));
@@ -678,6 +714,7 @@ mod tests {
         let cmd = AgentCommand::ListTasks {
             status: None,
             priority: Some(Priority::High),
+            list: None,
         };
         let desc = cmd.description();
         assert!(desc.contains("priority="));
@@ -690,6 +727,7 @@ mod tests {
         let cmd = AgentCommand::ListTasks {
             status: Some(TaskStatus::NeedsAction),
             priority: Some(Priority::Medium),
+            list: None,
         };
         let desc = cmd.description();
         assert!(desc.contains("status="));
@@ -705,6 +743,7 @@ mod tests {
             due_date: None,
             priority: None,
             description: None,
+            list: None,
         };
         assert!(cmd.requires_approval());
     }
@@ -716,6 +755,7 @@ mod tests {
             due_date: None,
             priority: None,
             description: None,
+            list: None,
         };
         assert_eq!(cmd.description(), "Create task 'Buy groceries'");
     }
@@ -727,6 +767,7 @@ mod tests {
             due_date: Some(NaiveDate::from_ymd_opt(2026, 2, 15).unwrap()),
             priority: None,
             description: None,
+            list: None,
         };
         let desc = cmd.description();
         assert!(desc.contains("Finish report"));
@@ -868,6 +909,7 @@ mod tests {
             due_date: Some(NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()),
             priority: Some(crate::value_objects::Priority::High),
             description: Some("Desc".to_string()),
+            list: None,
         };
         let json = serde_json::to_string(&cmd).unwrap();
         let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
@@ -908,6 +950,7 @@ mod tests {
         let cmd = AgentCommand::ListTasks {
             status: Some(crate::value_objects::TaskStatus::Completed),
             priority: Some(crate::value_objects::Priority::Low),
+            list: None,
         };
         let json = serde_json::to_string(&cmd).unwrap();
         let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
