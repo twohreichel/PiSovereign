@@ -1427,6 +1427,27 @@ mod tests {
         assert_eq!(config.retry_cooldown_secs, 30);
         assert_eq!(config.success_threshold, 2);
     }
+
+    // Additional tests for default configurations
+
+    #[test]
+    fn whatsapp_config_default_test() {
+        let config = WhatsAppConfig::default();
+        assert!(config.access_token.is_none());
+        assert!(config.phone_number_id.is_none());
+        assert!(config.app_secret.is_none());
+        assert!(config.verify_token.is_none());
+        assert!(config.signature_required);
+    }
+
+    #[test]
+    fn prompt_security_config_default() {
+        let config = PromptSecurityConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.sensitivity, "medium");
+        assert!(config.block_on_detection);
+        assert_eq!(config.max_violations_before_block, 3);
+    }
 }
 
 /// Weather service configuration
