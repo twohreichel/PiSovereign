@@ -186,29 +186,29 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Create and push manifest
         run: |
           IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           SHA=${{ github.sha }}
           VERSION=${{ steps.version.outputs.version }}
           
-          # Create manifest for version tag
-          docker manifest create ${IMAGE}:${VERSION} \
+          # Create manifest for version tag (using buildx imagetools which supports manifest lists)
+          docker buildx imagetools create -t ${IMAGE}:${VERSION} \
             ${IMAGE}:amd64-${SHA} \
             ${IMAGE}:arm64-${SHA}
-          docker manifest push ${IMAGE}:${VERSION}
           
           # Create manifest for latest tag
-          docker manifest create ${IMAGE}:latest \
+          docker buildx imagetools create -t ${IMAGE}:latest \
             ${IMAGE}:amd64-${SHA} \
             ${IMAGE}:arm64-${SHA}
-          docker manifest push ${IMAGE}:latest
           
           # Create manifest for SHA tag
-          docker manifest create ${IMAGE}:sha-${SHA:0:7} \
+          docker buildx imagetools create -t ${IMAGE}:sha-${SHA:0:7} \
             ${IMAGE}:amd64-${SHA} \
             ${IMAGE}:arm64-${SHA}
-          docker manifest push ${IMAGE}:sha-${SHA:0:7}
 
       - name: Output image info
         run: |

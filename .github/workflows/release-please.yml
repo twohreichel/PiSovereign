@@ -168,17 +168,25 @@ jobs:
           OPENSSL_LIB_DIR: /usr/lib/aarch64-linux-gnu
           OPENSSL_INCLUDE_DIR: /usr/include
 
-      - name: Build release binaries
+      - name: Build release binaries (native)
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        run: |
+          cargo build --release --target ${{ matrix.target }} \
+            -p presentation_cli \
+            -p presentation_http
+
+      - name: Build release binaries (ARM64 cross-compile)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           cargo build --release --target ${{ matrix.target }} \
             -p presentation_cli \
             -p presentation_http
         env:
-          PKG_CONFIG_ALLOW_CROSS: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '1' || '' }}
-          PKG_CONFIG_PATH: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/lib/aarch64-linux-gnu/pkgconfig' || '' }}
-          OPENSSL_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr' || '' }}
-          OPENSSL_LIB_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/lib/aarch64-linux-gnu' || '' }}
-          OPENSSL_INCLUDE_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/include' || '' }}
+          PKG_CONFIG_ALLOW_CROSS: "1"
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
+          OPENSSL_DIR: /usr
+          OPENSSL_LIB_DIR: /usr/lib/aarch64-linux-gnu
+          OPENSSL_INCLUDE_DIR: /usr/include
 
       - name: Package binaries
         run: |
