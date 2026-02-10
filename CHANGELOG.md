@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1](https://github.com/twohreichel/PiSovereign/compare/v0.3.0...v0.3.1) (2026-02-10)
+
+
+### Features
+
+* add task list management commands and update command parser ([9d03b39](https://github.com/twohreichel/PiSovereign/commit/9d03b398b6abf1432a8cdbc70487f553dfd8518a))
+* **ai_core:** add Ollama embedding engine ([04dfa87](https://github.com/twohreichel/PiSovereign/commit/04dfa87693436015b961e9e181431a55096d4c58))
+* **application:** add memory, embedding, and encryption ports ([af43c92](https://github.com/twohreichel/PiSovereign/commit/af43c924f3f4dbfef1762ce47145e02917e6d766))
+* **application:** add MemoryEnhancedChat for RAG integration ([e393114](https://github.com/twohreichel/PiSovereign/commit/e393114820cb7bfeb6a6bb19c30f30734d809aed))
+* **application:** add MemoryService for AI memory management ([43ab0f8](https://github.com/twohreichel/PiSovereign/commit/43ab0f849dc00df5729634b9946fad9d64040d55))
+* **dependencies:** add chacha20poly1305 for encryption support ([9eb4e7c](https://github.com/twohreichel/PiSovereign/commit/9eb4e7c808dce745faea0d696ccd9c4793849967))
+* **domain:** add Memory entity and MemoryId value object ([29cb85a](https://github.com/twohreichel/PiSovereign/commit/29cb85ad0a328c1f0c596557ba99c33920246b22))
+* **infrastructure:** add memory storage configuration ([820c388](https://github.com/twohreichel/PiSovereign/commit/820c3880fb991761294d879c69a84e25b90327d2))
+* **infrastructure:** add memory store and encryption adapter ([e50e2d8](https://github.com/twohreichel/PiSovereign/commit/e50e2d84181660747b9e6cbd72327aabfabb4607))
+* **security:** add prompt injection prevention system ([09b16ba](https://github.com/twohreichel/PiSovereign/commit/09b16bac609a3320cbf8eb35e06a575c370eea67))
+
+
+### Bug Fixes
+
+* copy config.toml.example in Docker build ([472efb1](https://github.com/twohreichel/PiSovereign/commit/472efb1d1ee3b50b6cd2e20af5f2ee771e021864))
+
+
+### Documentation
+
+* add AI memory system documentation ([13e9c01](https://github.com/twohreichel/PiSovereign/commit/13e9c01dd63f2a09736f07761158cf2862be7765))
+
 ## [0.3.0](https://github.com/twohreichel/PiSovereign/compare/v0.2.2...v0.3.0) (2026-02-08)
 
 
