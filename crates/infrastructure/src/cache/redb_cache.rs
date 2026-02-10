@@ -576,16 +576,25 @@ mod tests {
     #[tokio::test]
     async fn test_stats_entries_count() {
         let cache = RedbCache::in_memory().unwrap();
-        
+
         // Initially empty
         let stats = cache.stats();
         assert_eq!(stats.entries, 0);
-        
+
         // Add some entries
-        cache.set("key1", &"value1".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("key2", &"value2".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("key3", &"value3".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+        cache
+            .set("key1", &"value1".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+        cache
+            .set("key2", &"value2".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+        cache
+            .set("key3", &"value3".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+
         let stats = cache.stats();
         assert_eq!(stats.entries, 3);
     }
@@ -593,8 +602,11 @@ mod tests {
     #[tokio::test]
     async fn test_stats_memory_estimation() {
         let cache = RedbCache::in_memory().unwrap();
-        cache.set("key", &"value".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+        cache
+            .set("key", &"value".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+
         let stats = cache.stats();
         // Memory is estimated as entries * 256
         assert_eq!(stats.memory_bytes, 256);
@@ -603,19 +615,28 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_expired_removes_old_entries() {
         let cache = RedbCache::in_memory().unwrap();
-        
+
         // Set entries with very short TTL
-        cache.set("expired1", &"val1".to_string(), Duration::from_millis(1)).await.unwrap();
-        cache.set("expired2", &"val2".to_string(), Duration::from_millis(1)).await.unwrap();
-        cache.set("valid", &"val3".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+        cache
+            .set("expired1", &"val1".to_string(), Duration::from_millis(1))
+            .await
+            .unwrap();
+        cache
+            .set("expired2", &"val2".to_string(), Duration::from_millis(1))
+            .await
+            .unwrap();
+        cache
+            .set("valid", &"val3".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+
         // Wait for expiration
         tokio::time::sleep(Duration::from_millis(50)).await;
-        
+
         // Cleanup expired entries
         let removed = cache.cleanup_expired().unwrap();
         assert_eq!(removed, 2);
-        
+
         // Valid entry should still exist
         assert!(cache.exists("valid").await.unwrap());
     }
@@ -623,15 +644,21 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_no_expired_entries() {
         let cache = RedbCache::in_memory().unwrap();
-        
+
         // Set entries with long TTL
-        cache.set("key1", &"value1".to_string(), Duration::from_secs(3600)).await.unwrap();
-        cache.set("key2", &"value2".to_string(), Duration::from_secs(3600)).await.unwrap();
-        
+        cache
+            .set("key1", &"value1".to_string(), Duration::from_secs(3600))
+            .await
+            .unwrap();
+        cache
+            .set("key2", &"value2".to_string(), Duration::from_secs(3600))
+            .await
+            .unwrap();
+
         // Cleanup should remove nothing
         let removed = cache.cleanup_expired().unwrap();
         assert_eq!(removed, 0);
-        
+
         // All entries should still exist
         assert!(cache.exists("key1").await.unwrap());
         assert!(cache.exists("key2").await.unwrap());
@@ -640,10 +667,16 @@ mod tests {
     #[tokio::test]
     async fn test_overwrite_existing_key() {
         let cache = RedbCache::in_memory().unwrap();
-        
-        cache.set("key", &"original".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("key", &"updated".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+
+        cache
+            .set("key", &"original".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+        cache
+            .set("key", &"updated".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+
         let result: Option<String> = cache.get("key").await.unwrap();
         assert_eq!(result, Some("updated".to_string()));
     }
@@ -652,9 +685,12 @@ mod tests {
     async fn test_get_bytes_and_set_bytes_directly() {
         let cache = RedbCache::in_memory().unwrap();
         let data = b"raw binary data";
-        
-        cache.set_bytes("binary_key", data.to_vec(), Duration::from_secs(60)).await.unwrap();
-        
+
+        cache
+            .set_bytes("binary_key", data.to_vec(), Duration::from_secs(60))
+            .await
+            .unwrap();
+
         let result = cache.get_bytes("binary_key").await.unwrap();
         assert_eq!(result, Some(data.to_vec()));
     }
@@ -662,7 +698,7 @@ mod tests {
     #[tokio::test]
     async fn test_invalidate_nonexistent_key() {
         let cache = RedbCache::in_memory().unwrap();
-        
+
         // Invalidating a nonexistent key should not error
         cache.invalidate("nonexistent").await.unwrap();
     }
@@ -670,11 +706,14 @@ mod tests {
     #[tokio::test]
     async fn test_invalidate_pattern_no_matches() {
         let cache = RedbCache::in_memory().unwrap();
-        cache.set("other_key", &"value".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+        cache
+            .set("other_key", &"value".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+
         let count = cache.invalidate_pattern("nomatch:*").await.unwrap();
         assert_eq!(count, 0);
-        
+
         // Original key should still exist
         assert!(cache.exists("other_key").await.unwrap());
     }
@@ -683,13 +722,16 @@ mod tests {
     async fn test_file_based_cache() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test_cache.redb");
-        
+
         // Create and use file-based cache
         {
             let cache = RedbCache::new(&db_path).unwrap();
-            cache.set("persistent_key", &42i32, Duration::from_secs(3600)).await.unwrap();
+            cache
+                .set("persistent_key", &42i32, Duration::from_secs(3600))
+                .await
+                .unwrap();
         }
-        
+
         // Reopen and verify data persists
         {
             let cache = RedbCache::new(&db_path).unwrap();
@@ -704,11 +746,11 @@ mod tests {
             data: vec![1, 2, 3, 4, 5],
             expires_at: 1000,
         };
-        
+
         let config = bincode::config::standard();
         let encoded = bincode::encode_to_vec(&entry, config).unwrap();
         let (decoded, _): (CacheEntry, _) = bincode::decode_from_slice(&encoded, config).unwrap();
-        
+
         assert_eq!(decoded.data, entry.data);
         assert_eq!(decoded.expires_at, entry.expires_at);
     }
@@ -720,7 +762,7 @@ mod tests {
             expires_at: 0, // Already expired (Unix epoch)
         };
         assert!(RedbCache::is_expired(&expired_entry));
-        
+
         let future_entry = CacheEntry {
             data: vec![],
             expires_at: u64::MAX, // Far in the future
@@ -738,14 +780,17 @@ mod tests {
     #[tokio::test]
     async fn test_entry_count_matches_stats() {
         let cache = RedbCache::in_memory().unwrap();
-        
+
         for i in 0..10 {
-            cache.set(&format!("key_{i}"), &i, Duration::from_secs(60)).await.unwrap();
+            cache
+                .set(&format!("key_{i}"), &i, Duration::from_secs(60))
+                .await
+                .unwrap();
         }
-        
+
         let count = cache.entry_count();
         let stats = cache.stats();
-        
+
         assert_eq!(count, 10);
         assert_eq!(stats.entries, count);
     }
@@ -753,17 +798,20 @@ mod tests {
     #[tokio::test]
     async fn test_expired_entry_increments_miss() {
         let cache = RedbCache::in_memory().unwrap();
-        
+
         // Set with very short TTL
-        cache.set("key", &"value".to_string(), Duration::from_millis(1)).await.unwrap();
-        
+        cache
+            .set("key", &"value".to_string(), Duration::from_millis(1))
+            .await
+            .unwrap();
+
         // Wait for expiration
         tokio::time::sleep(Duration::from_millis(50)).await;
-        
+
         // Get should return None and count as miss
         let result: Option<String> = cache.get("key").await.unwrap();
         assert!(result.is_none());
-        
+
         let stats = cache.stats();
         assert_eq!(stats.misses, 1);
         assert_eq!(stats.hits, 0);
@@ -772,16 +820,32 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_patterns() {
         let cache = RedbCache::in_memory().unwrap();
-        
-        cache.set("user:1:name", &"Alice".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("user:1:email", &"alice@test.com".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("user:2:name", &"Bob".to_string(), Duration::from_secs(60)).await.unwrap();
-        cache.set("session:abc", &"data".to_string(), Duration::from_secs(60)).await.unwrap();
-        
+
+        cache
+            .set("user:1:name", &"Alice".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+        cache
+            .set(
+                "user:1:email",
+                &"alice@test.com".to_string(),
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        cache
+            .set("user:2:name", &"Bob".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+        cache
+            .set("session:abc", &"data".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+
         // Invalidate all user:1 entries
         let count = cache.invalidate_pattern("user:1:*").await.unwrap();
         assert_eq!(count, 2);
-        
+
         // user:2 and session should remain
         assert!(cache.exists("user:2:name").await.unwrap());
         assert!(cache.exists("session:abc").await.unwrap());
@@ -790,27 +854,36 @@ mod tests {
     #[tokio::test]
     async fn test_complex_data_serialization() {
         let cache = RedbCache::in_memory().unwrap();
-        
+
         #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
         struct ComplexData {
             nested: Vec<TestData>,
             map: std::collections::HashMap<String, i32>,
         }
-        
+
         let mut map = std::collections::HashMap::new();
         map.insert("a".to_string(), 1);
         map.insert("b".to_string(), 2);
-        
+
         let complex = ComplexData {
             nested: vec![
-                TestData { value: "x".to_string(), count: 10 },
-                TestData { value: "y".to_string(), count: 20 },
+                TestData {
+                    value: "x".to_string(),
+                    count: 10,
+                },
+                TestData {
+                    value: "y".to_string(),
+                    count: 20,
+                },
             ],
             map,
         };
-        
-        cache.set("complex", &complex, Duration::from_secs(60)).await.unwrap();
-        
+
+        cache
+            .set("complex", &complex, Duration::from_secs(60))
+            .await
+            .unwrap();
+
         let result: Option<ComplexData> = cache.get("complex").await.unwrap();
         assert_eq!(result, Some(complex));
     }

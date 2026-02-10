@@ -672,12 +672,15 @@ mod tests {
             jitter_enabled: true,
             jitter_factor: 0.1, // 10% jitter
         };
-        
+
         // Take multiple samples and verify they're within expected range
         for _ in 0..20 {
             let delay_ms = config.delay_for_attempt(0).as_millis();
             // With 10% jitter on 1000ms, should be between 900 and 1100
-            assert!(delay_ms >= 900 && delay_ms <= 1100, "delay_ms={delay_ms} out of range");
+            assert!(
+                delay_ms >= 900 && delay_ms <= 1100,
+                "delay_ms={delay_ms} out of range"
+            );
         }
     }
 

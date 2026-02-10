@@ -667,7 +667,10 @@ mod tests {
 
     #[test]
     fn test_cache_stats_debug() {
-        let stats = ConversationCacheStats { total: 10, dirty: 3 };
+        let stats = ConversationCacheStats {
+            total: 10,
+            dirty: 3,
+        };
         let debug = format!("{stats:?}");
         assert!(debug.contains("ConversationCacheStats"));
         assert!(debug.contains("10"));
@@ -690,7 +693,7 @@ mod tests {
     async fn test_get_or_create_loads_from_storage() {
         let store = Arc::new(MockStore::new());
         let config = ConversationContextConfig::default();
-        
+
         // Pre-populate the store with a conversation
         let id = ConversationId::new();
         let mut conversation = Conversation::new();
@@ -702,7 +705,7 @@ mod tests {
         }
 
         let service = ConversationContextService::new(Arc::clone(&store), config);
-        
+
         // Should load from storage
         let loaded = service.get_or_create(&id).await.unwrap();
         assert_eq!(loaded.id, id);
@@ -779,10 +782,13 @@ mod tests {
         let service = ConversationContextService::new(Arc::clone(&store), config);
 
         let ids: Vec<_> = (0..5).map(|_| ConversationId::new()).collect();
-        
+
         for id in &ids {
             let _ = service.get_or_create(id).await.unwrap();
-            service.add_message(id, ChatMessage::user("Test")).await.unwrap();
+            service
+                .add_message(id, ChatMessage::user("Test"))
+                .await
+                .unwrap();
         }
 
         let stats = service.cache_stats();
@@ -801,13 +807,15 @@ mod tests {
         // Create first conversation and add unpersisted message via cache manipulation
         let id1 = ConversationId::new();
         let _ = service.get_or_create(&id1).await.unwrap();
-        
+
         // Mark entry as dirty
         {
             let mut cache = service.cache.write();
             if let Some(entry) = cache.get_mut(&id1) {
                 entry.dirty = true;
-                entry.conversation.add_message(ChatMessage::user("Unpersisted"));
+                entry
+                    .conversation
+                    .add_message(ChatMessage::user("Unpersisted"));
             }
         }
 
@@ -829,7 +837,7 @@ mod tests {
             retention_days: 1,
             ..Default::default()
         };
-        
+
         // Create an old conversation in the store
         let old_id = ConversationId::new();
         let mut old_conversation = Conversation::new();
@@ -841,13 +849,13 @@ mod tests {
         }
 
         let service = ConversationContextService::new(Arc::clone(&store), config);
-        
+
         // Load the old conversation into cache
         let _ = service.get_or_create(&old_id).await.unwrap();
-        
+
         // Cleanup should remove the old conversation from cache
         let deleted = service.cleanup_old_conversations().await.unwrap();
-        
+
         // The conversation should have been cleaned up from storage
         assert_eq!(store.cleanup_count(), 1);
         assert_eq!(deleted, 1);
@@ -862,13 +870,25 @@ mod tests {
         let id = ConversationId::new();
         let _ = service.get_or_create(&id).await.unwrap();
 
-        service.add_message(&id, ChatMessage::user("Hello")).await.unwrap();
-        service.add_message(&id, ChatMessage::assistant("Hi there!")).await.unwrap();
+        service
+            .add_message(&id, ChatMessage::user("Hello"))
+            .await
+            .unwrap();
+        service
+            .add_message(&id, ChatMessage::assistant("Hi there!"))
+            .await
+            .unwrap();
 
         let context = service.get_context(&id, 10).await.unwrap();
         assert_eq!(context.len(), 2);
-        assert!(matches!(context[0].role, domain::entities::MessageRole::User));
-        assert!(matches!(context[1].role, domain::entities::MessageRole::Assistant));
+        assert!(matches!(
+            context[0].role,
+            domain::entities::MessageRole::User
+        ));
+        assert!(matches!(
+            context[1].role,
+            domain::entities::MessageRole::Assistant
+        ));
     }
 
     #[tokio::test]
@@ -890,13 +910,13 @@ mod tests {
 
         let id = ConversationId::new();
         let _ = service.get_or_create(&id).await.unwrap();
-        
+
         // Small delay to ensure time difference
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         // Access again
         let _ = service.get_or_create(&id).await.unwrap();
-        
+
         // Verify last_accessed was updated (implicitly tested through cache behavior)
         let stats = service.cache_stats();
         assert_eq!(stats.total, 1);

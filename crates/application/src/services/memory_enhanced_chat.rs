@@ -789,7 +789,7 @@ mod tests {
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
         let user_id = UserId::new();
         let response = chat.chat(&user_id, "Hello").await.unwrap();
-        
+
         assert!(!response.content.is_empty());
     }
 
@@ -806,7 +806,7 @@ mod tests {
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
         let user_id = UserId::new();
         let response = chat.chat(&user_id, "Test message").await.unwrap();
-        
+
         assert!(response.content.contains("System response"));
     }
 
@@ -822,8 +822,11 @@ mod tests {
 
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
         let user_id = UserId::new();
-        
-        let response = chat.chat(&user_id, "A longer message for testing purposes").await.unwrap();
+
+        let response = chat
+            .chat(&user_id, "A longer message for testing purposes")
+            .await
+            .unwrap();
         assert!(!response.content.is_empty());
     }
 
@@ -840,8 +843,11 @@ mod tests {
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
         let user_id = UserId::new();
         let conversation = Conversation::new();
-        
-        let response = chat.chat_in_conversation(&user_id, &conversation, "Hello").await.unwrap();
+
+        let response = chat
+            .chat_in_conversation(&user_id, &conversation, "Hello")
+            .await
+            .unwrap();
         assert!(response.content.contains("Context response"));
     }
 
@@ -859,15 +865,18 @@ mod tests {
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
         let user_id = UserId::new();
         let conversation = Conversation::new();
-        
-        let response = chat.chat_in_conversation(&user_id, &conversation, "Test").await.unwrap();
+
+        let response = chat
+            .chat_in_conversation(&user_id, &conversation, "Test")
+            .await
+            .unwrap();
         assert!(!response.content.is_empty());
     }
 
     #[tokio::test]
     async fn test_memory_stats() {
         let inference = Arc::new(MockInference::new());
-        
+
         // Setup mock with expectation
         let mut mock_store = MockMemoryStore::new();
         mock_store.expect_stats().returning(|_| {
@@ -878,7 +887,7 @@ mod tests {
                 with_embeddings: 3,
             })
         });
-        
+
         let store = Arc::new(mock_store);
         let embedding = Arc::new(MockEmbeddingPort::new());
         let encryption = Arc::new(NoOpEncryption);
@@ -891,7 +900,7 @@ mod tests {
 
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
         let user_id = UserId::new();
-        
+
         let stats = chat.memory_stats(&user_id).await.unwrap();
         assert_eq!(stats.total_count, 5);
     }
@@ -899,11 +908,11 @@ mod tests {
     #[tokio::test]
     async fn test_apply_memory_decay() {
         let inference = Arc::new(MockInference::new());
-        
+
         // Setup mock with expectation
         let mut mock_store = MockMemoryStore::new();
         mock_store.expect_apply_decay().returning(|_| Ok(vec![]));
-        
+
         let store = Arc::new(mock_store);
         let embedding = Arc::new(MockEmbeddingPort::new());
         let encryption = Arc::new(NoOpEncryption);
@@ -915,7 +924,7 @@ mod tests {
         let config = MemoryEnhancedChatConfig::default();
 
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
-        
+
         let decayed = chat.apply_memory_decay().await.unwrap();
         assert!(decayed.is_empty());
     }
@@ -923,11 +932,13 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_memories() {
         let inference = Arc::new(MockInference::new());
-        
+
         // Setup mock with expectation
         let mut mock_store = MockMemoryStore::new();
-        mock_store.expect_cleanup_below_threshold().returning(|_| Ok(0));
-        
+        mock_store
+            .expect_cleanup_below_threshold()
+            .returning(|_| Ok(0));
+
         let store = Arc::new(mock_store);
         let embedding = Arc::new(MockEmbeddingPort::new());
         let encryption = Arc::new(NoOpEncryption);
@@ -939,7 +950,7 @@ mod tests {
         let config = MemoryEnhancedChatConfig::default();
 
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
-        
+
         let cleaned = chat.cleanup_memories().await.unwrap();
         assert_eq!(cleaned, 0);
     }
@@ -951,7 +962,7 @@ mod tests {
         let config = MemoryEnhancedChatConfig::default();
 
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
-        
+
         // Access inference directly to test list_available_models
         let models = chat.inference.list_available_models().await.unwrap();
         assert!(!models.is_empty());
@@ -964,7 +975,7 @@ mod tests {
         let config = MemoryEnhancedChatConfig::default();
 
         let chat = MemoryEnhancedChat::new(inference, memory_service, config);
-        
+
         // Should not error
         chat.inference.switch_model("new-model").await.unwrap();
     }

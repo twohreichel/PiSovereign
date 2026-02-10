@@ -865,7 +865,10 @@ mod tests {
             subject: "Update".to_string(),
             body: "Please review.".to_string(),
             sender: "Alice".to_string(),
-            cc: vec!["bob@example.com".to_string(), "carol@example.com".to_string()],
+            cc: vec![
+                "bob@example.com".to_string(),
+                "carol@example.com".to_string(),
+            ],
             attachments: vec![],
         };
 
