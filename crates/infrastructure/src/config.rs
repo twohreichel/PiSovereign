@@ -1570,6 +1570,34 @@ mod tests {
         assert!(debug.contains("phone_number"));
         assert!(debug.contains("socket_path"));
     }
+
+    #[test]
+    fn whatsapp_config_access_token_str() {
+        use secrecy::SecretString;
+
+        let config = WhatsAppConfig {
+            access_token: Some(SecretString::from("test_token")),
+            ..Default::default()
+        };
+        assert_eq!(config.access_token_str(), Some("test_token"));
+
+        let config_no_token = WhatsAppConfig::default();
+        assert!(config_no_token.access_token_str().is_none());
+    }
+
+    #[test]
+    fn whatsapp_config_app_secret_str() {
+        use secrecy::SecretString;
+
+        let config = WhatsAppConfig {
+            app_secret: Some(SecretString::from("test_secret")),
+            ..Default::default()
+        };
+        assert_eq!(config.app_secret_str(), Some("test_secret"));
+
+        let config_no_secret = WhatsAppConfig::default();
+        assert!(config_no_secret.app_secret_str().is_none());
+    }
 }
 
 /// Weather service configuration
