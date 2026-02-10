@@ -85,19 +85,22 @@ Usage: $0 [OPTIONS]
 Options:
     --docker        Use Docker containers (default for development)
     --native        Build from source and install native binaries
+    --monitoring    Install Prometheus + Grafana monitoring stack
     --branch NAME   Git branch to build from (default: main)
     --skip-build    Skip building (use pre-built binaries from GitHub releases)
     -h, --help      Show this help message
 
 Examples:
-    $0                  # Docker deployment (recommended for Mac)
-    $0 --native         # Native build
-    $0 --branch develop # Build from develop branch
+    $0                      # Docker deployment (recommended for Mac)
+    $0 --monitoring         # With Prometheus + Grafana monitoring
+    $0 --native             # Native build
+    $0 --branch develop     # Build from develop branch
 
 Environment Variables:
     DEPLOY_MODE         docker or native (default: docker)
     PISOVEREIGN_VERSION Version tag to install (default: latest)
     PISOVEREIGN_BRANCH  Git branch for source builds (default: main)
+    INSTALL_MONITORING  true or false (default: false)
 
 EOF
     exit 0
@@ -105,6 +108,7 @@ EOF
 
 parse_args() {
     SKIP_BUILD=false
+    INSTALL_MONITORING=${INSTALL_MONITORING:-false}
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -114,6 +118,10 @@ parse_args() {
                 ;;
             --docker)
                 DEPLOY_MODE="docker"
+                shift
+                ;;
+            --monitoring)
+                INSTALL_MONITORING=true
                 shift
                 ;;
             --branch)
@@ -1060,6 +1068,109 @@ EOF
 }
 
 # =============================================================================
+# Monitoring Stack Setup (Prometheus + Grafana)
+# =============================================================================
+
+setup_monitoring_stack() {
+    if [[ "$INSTALL_MONITORING" != "true" ]]; then
+        return 0
+    fi
+    
+    step "Setting up Monitoring Stack (Prometheus + Grafana)"
+    
+    # Create monitoring directories
+    mkdir -p "$PISOVEREIGN_DIR/grafana"/{dashboards,provisioning/datasources,provisioning/dashboards}
+    mkdir -p "$PISOVEREIGN_DIR/prometheus"
+    
+    # Get the source directory (where the script is located)
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local repo_grafana_dir="$(dirname "$script_dir")/grafana"
+    
+    # Copy Prometheus config
+    if [[ -f "$repo_grafana_dir/prometheus.yml" ]]; then
+        # Adjust localhost to host.docker.internal for Docker networking on Mac
+        sed 's/localhost:8080/host.docker.internal:8080/g; s/localhost:9090/prometheus:9090/g; s/localhost:9100/host.docker.internal:9100/g' \
+            "$repo_grafana_dir/prometheus.yml" > "$PISOVEREIGN_DIR/prometheus/prometheus.yml"
+        info "Copied prometheus.yml (adjusted for Docker networking)"
+    else
+        warn "prometheus.yml not found in repo, creating minimal config"
+        cat > "$PISOVEREIGN_DIR/prometheus/prometheus.yml" << 'PROMEOF'
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "pisovereign"
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+    metrics_path: "/metrics/prometheus"
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+PROMEOF
+    fi
+    
+    # Copy alerting rules if available
+    if [[ -f "$repo_grafana_dir/alerting_rules.yml" ]]; then
+        cp "$repo_grafana_dir/alerting_rules.yml" "$PISOVEREIGN_DIR/prometheus/"
+        # Update prometheus config to include rules
+        if ! grep -q "rule_files:" "$PISOVEREIGN_DIR/prometheus/prometheus.yml" || \
+           grep -q "rule_files: \[\]" "$PISOVEREIGN_DIR/prometheus/prometheus.yml"; then
+            sed -i '' 's|rule_files: \[\]|rule_files:\n  - "/etc/prometheus/rules/*.yml"|' "$PISOVEREIGN_DIR/prometheus/prometheus.yml" 2>/dev/null || true
+        fi
+        info "Copied alerting_rules.yml"
+    fi
+    
+    # Copy Grafana datasources config
+    if [[ -f "$repo_grafana_dir/datasources.yml" ]]; then
+        cp "$repo_grafana_dir/datasources.yml" "$PISOVEREIGN_DIR/grafana/provisioning/datasources/"
+        info "Copied datasources.yml"
+    else
+        cat > "$PISOVEREIGN_DIR/grafana/provisioning/datasources/datasources.yml" << 'DSEOF'
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+DSEOF
+    fi
+    
+    # Copy dashboard provisioning config
+    if [[ -f "$repo_grafana_dir/dashboards/dashboards.yml" ]]; then
+        cp "$repo_grafana_dir/dashboards/dashboards.yml" "$PISOVEREIGN_DIR/grafana/provisioning/dashboards/"
+        info "Copied dashboards provisioning config"
+    else
+        cat > "$PISOVEREIGN_DIR/grafana/provisioning/dashboards/dashboards.yml" << 'DBEOF'
+apiVersion: 1
+providers:
+  - name: 'PiSovereign'
+    orgId: 1
+    folder: 'PiSovereign'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards
+DBEOF
+    fi
+    
+    # Copy the actual dashboard JSON
+    if [[ -f "$repo_grafana_dir/dashboards/pisovereign.json" ]]; then
+        cp "$repo_grafana_dir/dashboards/pisovereign.json" "$PISOVEREIGN_DIR/grafana/dashboards/"
+        info "Copied PiSovereign dashboard"
+    else
+        warn "Dashboard JSON not found - Grafana will start without pre-configured dashboard"
+    fi
+    
+    success "Monitoring configuration prepared"
+}
+
+# =============================================================================
 # Docker Compose Setup
 # =============================================================================
 
@@ -1067,6 +1178,11 @@ setup_docker_compose() {
     step "Setting up Docker Compose"
     
     mkdir -p "$PISOVEREIGN_DIR"/{data,logs}
+    
+    # Setup monitoring configs first if enabled
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        setup_monitoring_stack
+    fi
     
     # Create docker-compose.yml for development
     cat > "$PISOVEREIGN_DIR/docker-compose.yml" << EOF
@@ -1098,6 +1214,70 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+EOF
+
+    # Add monitoring services if enabled
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        cat >> "$PISOVEREIGN_DIR/docker-compose.yml" << 'EOF'
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerting_rules.yml:/etc/prometheus/rules/alerting_rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.retention.size=1GB'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-pisovereign}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  prometheus_data:
+  grafana_data:
+EOF
+        info "Added Prometheus and Grafana services to docker-compose.yml"
+    fi
+
+    # Add networks section
+    cat >> "$PISOVEREIGN_DIR/docker-compose.yml" << 'EOF'
 
 networks:
   default:
@@ -1326,6 +1506,21 @@ verify_installation() {
         fi
     fi
     
+    # Check Monitoring Stack (if installed)
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        if curl -sf http://localhost:9090/-/healthy &>/dev/null; then
+            success "Prometheus: OK"
+        else
+            warn "Prometheus: Starting..."
+        fi
+        
+        if curl -sf http://localhost:3001/api/health &>/dev/null; then
+            success "Grafana: OK"
+        else
+            warn "Grafana: Starting..."
+        fi
+    fi
+    
     # Check auto-update
     if [[ "$DEPLOY_MODE" == "native" ]]; then
         if launchctl list | grep -q "com.pisovereign.update"; then
@@ -1358,6 +1553,11 @@ print_summary() {
     echo -e "${CYAN}Services:${NC}"
     echo "  - PiSovereign API: http://localhost:3000"
     echo "  - Ollama: http://localhost:11434"
+    
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        echo "  - Prometheus:      http://localhost:9090"
+        echo "  - Grafana:         http://localhost:3001 (admin/${GRAFANA_ADMIN_PASSWORD:-pisovereign})"
+    fi
     echo
     
     if [[ "$DEPLOY_MODE" == "native" ]]; then
@@ -1372,6 +1572,14 @@ print_summary() {
         echo "  cd $PISOVEREIGN_DIR && docker compose logs -f    # View logs"
         echo "  cd $PISOVEREIGN_DIR && docker compose restart    # Restart services"
         echo "  launchctl list | grep pisovereign                # Check auto-update"
+    fi
+    
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        echo
+        echo -e "${CYAN}Monitoring:${NC}"
+        echo "  Open Grafana:       open http://localhost:3001"
+        echo "  PiSovereign Dashboard is pre-loaded in 'PiSovereign' folder"
+        echo "  Prometheus Targets: http://localhost:9090/targets"
     fi
     
     echo
