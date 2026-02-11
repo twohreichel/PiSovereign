@@ -139,19 +139,15 @@ impl<R: ReminderPort> ReminderService<R> {
         }
 
         // Parse event start time
-        let event_time: DateTime<Utc> = event
-            .start
-            .parse()
-            .map_err(|e| {
-                ApplicationError::Internal(format!(
-                    "Cannot parse event start time '{}': {e}",
-                    event.start
-                ))
-            })?;
+        let event_time: DateTime<Utc> = event.start.parse().map_err(|e| {
+            ApplicationError::Internal(format!(
+                "Cannot parse event start time '{}': {e}",
+                event.start
+            ))
+        })?;
 
         // Create first reminder (1 hour before)
-        let first_remind_at =
-            event_time - Duration::minutes(self.config.first_reminder_minutes);
+        let first_remind_at = event_time - Duration::minutes(self.config.first_reminder_minutes);
         if first_remind_at > Utc::now() {
             let mut reminder = Reminder::new(
                 user_id,
@@ -175,8 +171,7 @@ impl<R: ReminderPort> ReminderService<R> {
         }
 
         // Create second reminder (15 minutes before)
-        let second_remind_at =
-            event_time - Duration::minutes(self.config.second_reminder_minutes);
+        let second_remind_at = event_time - Duration::minutes(self.config.second_reminder_minutes);
         if second_remind_at > Utc::now() {
             let mut reminder = Reminder::new(
                 user_id,
@@ -202,20 +197,14 @@ impl<R: ReminderPort> ReminderService<R> {
 
     /// Get all active reminders for a user
     #[instrument(skip(self))]
-    pub async fn list_active(
-        &self,
-        user_id: UserId,
-    ) -> Result<Vec<Reminder>, ApplicationError> {
+    pub async fn list_active(&self, user_id: UserId) -> Result<Vec<Reminder>, ApplicationError> {
         let query = ReminderQuery::active_for_user(user_id);
         self.reminder_store.query(&query).await
     }
 
     /// Get all reminders for a user (including done/cancelled)
     #[instrument(skip(self))]
-    pub async fn list_all(
-        &self,
-        user_id: UserId,
-    ) -> Result<Vec<Reminder>, ApplicationError> {
+    pub async fn list_all(&self, user_id: UserId) -> Result<Vec<Reminder>, ApplicationError> {
         let query = ReminderQuery {
             user_id: Some(user_id),
             include_terminal: true,
@@ -237,13 +226,9 @@ impl<R: ReminderPort> ReminderService<R> {
         reminder_id: &ReminderId,
         duration_minutes: Option<i64>,
     ) -> Result<Reminder, ApplicationError> {
-        let mut reminder = self
-            .reminder_store
-            .get(reminder_id)
-            .await?
-            .ok_or_else(|| {
-                ApplicationError::NotFound(format!("Reminder {reminder_id} not found"))
-            })?;
+        let mut reminder = self.reminder_store.get(reminder_id).await?.ok_or_else(|| {
+            ApplicationError::NotFound(format!("Reminder {reminder_id} not found"))
+        })?;
 
         let snooze_minutes = duration_minutes.unwrap_or(self.config.default_snooze_minutes);
         let new_time = Utc::now() + Duration::minutes(snooze_minutes);
@@ -266,13 +251,9 @@ impl<R: ReminderPort> ReminderService<R> {
         &self,
         reminder_id: &ReminderId,
     ) -> Result<Reminder, ApplicationError> {
-        let mut reminder = self
-            .reminder_store
-            .get(reminder_id)
-            .await?
-            .ok_or_else(|| {
-                ApplicationError::NotFound(format!("Reminder {reminder_id} not found"))
-            })?;
+        let mut reminder = self.reminder_store.get(reminder_id).await?.ok_or_else(|| {
+            ApplicationError::NotFound(format!("Reminder {reminder_id} not found"))
+        })?;
 
         reminder.acknowledge();
         self.reminder_store.update(&reminder).await?;
@@ -282,17 +263,10 @@ impl<R: ReminderPort> ReminderService<R> {
 
     /// Mark a sent reminder as sent
     #[instrument(skip(self))]
-    pub async fn mark_sent(
-        &self,
-        reminder_id: &ReminderId,
-    ) -> Result<(), ApplicationError> {
-        let mut reminder = self
-            .reminder_store
-            .get(reminder_id)
-            .await?
-            .ok_or_else(|| {
-                ApplicationError::NotFound(format!("Reminder {reminder_id} not found"))
-            })?;
+    pub async fn mark_sent(&self, reminder_id: &ReminderId) -> Result<(), ApplicationError> {
+        let mut reminder = self.reminder_store.get(reminder_id).await?.ok_or_else(|| {
+            ApplicationError::NotFound(format!("Reminder {reminder_id} not found"))
+        })?;
 
         reminder.mark_sent();
         self.reminder_store.update(&reminder).await?;
@@ -302,17 +276,10 @@ impl<R: ReminderPort> ReminderService<R> {
 
     /// Delete/cancel a reminder
     #[instrument(skip(self))]
-    pub async fn delete(
-        &self,
-        reminder_id: &ReminderId,
-    ) -> Result<(), ApplicationError> {
-        let mut reminder = self
-            .reminder_store
-            .get(reminder_id)
-            .await?
-            .ok_or_else(|| {
-                ApplicationError::NotFound(format!("Reminder {reminder_id} not found"))
-            })?;
+    pub async fn delete(&self, reminder_id: &ReminderId) -> Result<(), ApplicationError> {
+        let mut reminder = self.reminder_store.get(reminder_id).await?.ok_or_else(|| {
+            ApplicationError::NotFound(format!("Reminder {reminder_id} not found"))
+        })?;
 
         reminder.cancel();
         self.reminder_store.update(&reminder).await?;
@@ -324,10 +291,7 @@ impl<R: ReminderPort> ReminderService<R> {
     ///
     /// Fetches upcoming events and creates reminders for those without one.
     #[instrument(skip(self))]
-    pub async fn sync_calendar_reminders(
-        &self,
-        user_id: UserId,
-    ) -> Result<u32, ApplicationError> {
+    pub async fn sync_calendar_reminders(&self, user_id: UserId) -> Result<u32, ApplicationError> {
         let calendar = self.calendar_port.as_ref().ok_or_else(|| {
             ApplicationError::InvalidOperation("Calendar port not configured".to_string())
         })?;
@@ -363,10 +327,7 @@ impl<R: ReminderPort> ReminderService<R> {
     }
 
     /// Count active reminders for a user
-    pub async fn count_active(
-        &self,
-        user_id: &UserId,
-    ) -> Result<u64, ApplicationError> {
+    pub async fn count_active(&self, user_id: &UserId) -> Result<u64, ApplicationError> {
         self.reminder_store.count_active(user_id).await
     }
 }
@@ -374,7 +335,6 @@ impl<R: ReminderPort> ReminderService<R> {
 #[cfg(test)]
 mod tests {
     use domain::entities::ReminderStatus;
-    use mockall::predicate::*;
 
     use super::*;
     use crate::ports::MockReminderPort;
@@ -390,9 +350,7 @@ mod tests {
     #[tokio::test]
     async fn create_custom_reminder_success() {
         let mut mock = MockReminderPort::new();
-        mock.expect_save()
-            .times(1)
-            .returning(|_| Ok(()));
+        mock.expect_save().times(1).returning(|_| Ok(()));
 
         let service = ReminderService::new(Arc::new(mock), default_config());
         let remind_at = Utc::now() + Duration::hours(1);
@@ -436,9 +394,7 @@ mod tests {
         mock.expect_get()
             .times(1)
             .returning(move |_| Ok(Some(reminder_clone.clone())));
-        mock.expect_update()
-            .times(1)
-            .returning(|_| Ok(()));
+        mock.expect_update().times(1).returning(|_| Ok(()));
 
         let service = ReminderService::new(Arc::new(mock), default_config());
         let result = service.snooze(&rid, Some(15)).await;
@@ -452,9 +408,7 @@ mod tests {
     #[tokio::test]
     async fn snooze_not_found() {
         let mut mock = MockReminderPort::new();
-        mock.expect_get()
-            .times(1)
-            .returning(|_| Ok(None));
+        mock.expect_get().times(1).returning(|_| Ok(None));
 
         let service = ReminderService::new(Arc::new(mock), default_config());
         let result = service.snooze(&ReminderId::new(), Some(15)).await;
@@ -465,21 +419,14 @@ mod tests {
     #[tokio::test]
     async fn acknowledge_reminder() {
         let mut mock = MockReminderPort::new();
-        let reminder = Reminder::new(
-            user_id(),
-            ReminderSource::Custom,
-            "Test",
-            Utc::now(),
-        );
+        let reminder = Reminder::new(user_id(), ReminderSource::Custom, "Test", Utc::now());
         let rid = reminder.id;
         let reminder_clone = reminder.clone();
 
         mock.expect_get()
             .times(1)
             .returning(move |_| Ok(Some(reminder_clone.clone())));
-        mock.expect_update()
-            .times(1)
-            .returning(|_| Ok(()));
+        mock.expect_update().times(1).returning(|_| Ok(()));
 
         let service = ReminderService::new(Arc::new(mock), default_config());
         let result = service.acknowledge(&rid).await;
@@ -491,21 +438,14 @@ mod tests {
     #[tokio::test]
     async fn delete_cancels_reminder() {
         let mut mock = MockReminderPort::new();
-        let reminder = Reminder::new(
-            user_id(),
-            ReminderSource::Custom,
-            "Test",
-            Utc::now(),
-        );
+        let reminder = Reminder::new(user_id(), ReminderSource::Custom, "Test", Utc::now());
         let rid = reminder.id;
         let reminder_clone = reminder.clone();
 
         mock.expect_get()
             .times(1)
             .returning(move |_| Ok(Some(reminder_clone.clone())));
-        mock.expect_update()
-            .times(1)
-            .returning(|_| Ok(()));
+        mock.expect_update().times(1).returning(|_| Ok(()));
 
         let service = ReminderService::new(Arc::new(mock), default_config());
         let result = service.delete(&rid).await;
@@ -516,9 +456,7 @@ mod tests {
     #[tokio::test]
     async fn list_active_delegates_to_store() {
         let mut mock = MockReminderPort::new();
-        mock.expect_query()
-            .times(1)
-            .returning(|_| Ok(vec![]));
+        mock.expect_query().times(1).returning(|_| Ok(vec![]));
 
         let service = ReminderService::new(Arc::new(mock), default_config());
         let result = service.list_active(user_id()).await;
@@ -543,9 +481,7 @@ mod tests {
     #[tokio::test]
     async fn cleanup_old_reminders() {
         let mut mock = MockReminderPort::new();
-        mock.expect_cleanup_old()
-            .times(1)
-            .returning(|_| Ok(5));
+        mock.expect_cleanup_old().times(1).returning(|_| Ok(5));
 
         let service = ReminderService::new(Arc::new(mock), default_config());
         let result = service.cleanup_old_reminders().await;

@@ -73,16 +73,16 @@ pub use suspicious_activity_port::{
 #[cfg(test)]
 pub use task_port::MockTaskPort;
 pub use task_port::{NewTask, Task, TaskListInfo, TaskPort, TaskQuery, TaskStatus, TaskUpdates};
-pub use user_profile_store::UserProfileStore;
-#[cfg(test)]
-pub use weather_port::MockWeatherPort;
-pub use weather_port::{CurrentWeather, DailyForecast, WeatherCondition, WeatherPort};
 #[cfg(test)]
 pub use transit_port::MockTransitPort;
 pub use transit_port::{
     TransitConnection, TransitLeg, TransitMode, TransitPort, TransitQuery, format_connections,
     format_connections_detailed,
 };
+pub use user_profile_store::UserProfileStore;
+#[cfg(test)]
+pub use weather_port::MockWeatherPort;
+pub use weather_port::{CurrentWeather, DailyForecast, WeatherCondition, WeatherPort};
 #[cfg(test)]
 pub use websearch_port::MockWebSearchPort;
 pub use websearch_port::{SafeSearchLevel, SearchOptions, WebSearchPort};

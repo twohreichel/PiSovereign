@@ -2356,6 +2356,7 @@ const fn default_embedding_timeout() -> u64 {
 /// Public transit configuration for ÖPNV connections
 ///
 /// Configures the transport.rest API integration for German public transit.
+#[allow(clippy::struct_excessive_bools)] // Configuration needs multiple boolean flags
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransitAppConfig {
     /// Base URL for transport.rest API (default: v6.db.transport.rest)

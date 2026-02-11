@@ -15,7 +15,7 @@ fn config_for_mock(base_url: &str) -> TransitConfig {
     }
 }
 
-fn sample_journeys_json() -> &'static str {
+const fn sample_journeys_json() -> &'static str {
     r#"{
         "earlierRef": "e1",
         "laterRef": "l1",
@@ -51,7 +51,7 @@ fn sample_journeys_json() -> &'static str {
     }"#
 }
 
-fn sample_locations_json() -> &'static str {
+const fn sample_locations_json() -> &'static str {
     r#"[
         {
             "id": "900100003",
@@ -98,9 +98,7 @@ async fn test_search_journeys_rate_limited() {
 
     Mock::given(method("GET"))
         .and(path("/journeys"))
-        .respond_with(
-            ResponseTemplate::new(429).insert_header("retry-after", "30"),
-        )
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "30"))
         .mount(&server)
         .await;
 
@@ -188,9 +186,7 @@ async fn test_empty_journeys_response() {
 
     Mock::given(method("GET"))
         .and(path("/journeys"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(r#"{ "journeys": [] }"#),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{ "journeys": [] }"#))
         .mount(&server)
         .await;
 

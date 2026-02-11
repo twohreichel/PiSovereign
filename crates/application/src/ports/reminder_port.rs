@@ -105,10 +105,7 @@ pub trait ReminderPort: Send + Sync {
     async fn count_active(&self, user_id: &UserId) -> Result<u64, ApplicationError>;
 
     /// Delete all expired/completed reminders older than a given threshold
-    async fn cleanup_old(
-        &self,
-        older_than: DateTime<Utc>,
-    ) -> Result<u64, ApplicationError>;
+    async fn cleanup_old(&self, older_than: DateTime<Utc>) -> Result<u64, ApplicationError>;
 }
 
 #[cfg(test)]

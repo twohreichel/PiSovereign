@@ -361,11 +361,10 @@ impl HttpCalDavClient {
         <D:collection/>
         <C:calendar/>
       </D:resourcetype>
-      <D:displayname>{}</D:displayname>
+      <D:displayname>{name}</D:displayname>
     </D:prop>
   </D:set>
-</D:propertyupdate>"#,
-            name
+</D:propertyupdate>"#
         );
 
         let response = self
@@ -612,15 +611,14 @@ impl CalDavClient for HttpCalDavClient {
 <C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <D:set>
     <D:prop>
-      <D:displayname>{}</D:displayname>
+      <D:displayname>{name}</D:displayname>
       <C:supported-calendar-component-set>
         <C:comp name="VTODO"/>
         <C:comp name="VEVENT"/>
       </C:supported-calendar-component-set>
     </D:prop>
   </D:set>
-</C:mkcalendar>"#,
-            name
+</C:mkcalendar>"#
         );
 
         let response = self

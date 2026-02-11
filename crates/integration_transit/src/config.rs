@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the public transit service (transport.rest / HAFAS)
+#[allow(clippy::struct_excessive_bools)] // Configuration needs multiple boolean flags
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransitConfig {
     /// Base URL for the transport.rest API

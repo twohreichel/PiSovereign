@@ -1,12 +1,10 @@
 //! Transit adapter - Implements TransitPort using integration_transit
 
 use application::error::ApplicationError;
-use application::ports::{
-    TransitConnection, TransitLeg, TransitMode, TransitPort, TransitQuery,
-};
+use application::ports::{TransitConnection, TransitLeg, TransitMode, TransitPort, TransitQuery};
 use async_trait::async_trait;
-use domain::value_objects::GeoLocation;
 use chrono::{DateTime, Utc};
+use domain::value_objects::GeoLocation;
 use integration_transit::{
     GeocodingClient, HafasTransitClient, NominatimGeocodingClient, TransitClient,
     TransitMode as IntegrationMode,
@@ -41,7 +39,7 @@ impl TransitAdapter {
     /// # Errors
     ///
     /// Returns an error if the HTTP clients fail to initialize.
-    pub fn new(
+    pub const fn new(
         transit_client: HafasTransitClient,
         geocoding_client: NominatimGeocodingClient,
     ) -> Self {
@@ -79,7 +77,7 @@ impl TransitAdapter {
     }
 
     /// Convert an integration transit mode to app-layer transit mode
-    fn convert_mode(mode: IntegrationMode) -> TransitMode {
+    const fn convert_mode(mode: IntegrationMode) -> TransitMode {
         match mode {
             IntegrationMode::NationalExpress => TransitMode::NationalExpress,
             IntegrationMode::National => TransitMode::National,
@@ -131,10 +129,7 @@ impl TransitPort for TransitAdapter {
                         TransitLeg {
                             mode,
                             line_name: leg.line.as_ref().map(|l| l.name.clone()),
-                            direction: leg
-                                .line
-                                .as_ref()
-                                .and_then(|l| l.direction.clone()),
+                            direction: leg.line.as_ref().and_then(|l| l.direction.clone()),
                             from_stop: leg.origin.name.clone(),
                             to_stop: leg.destination.name.clone(),
                             departure: leg.departure,
@@ -145,30 +140,19 @@ impl TransitPort for TransitAdapter {
                     })
                     .collect();
 
-                let delay_info = journey
-                    .legs
-                    .first()
-                    .and_then(|l| {
-                        l.departure_delay.and_then(|d| {
-                            if d > 0 {
-                                Some(format!("⚠️ +{}min", d / 60))
-                            } else {
-                                None
-                            }
-                        })
-                    });
+                let delay_info = journey.legs.first().and_then(|l| {
+                    l.departure_delay.and_then(|d| {
+                        if d > 0 {
+                            Some(format!("⚠️ +{}min", d / 60))
+                        } else {
+                            None
+                        }
+                    })
+                });
 
                 TransitConnection {
-                    departure_time: journey
-                        .legs
-                        .first()
-                        .map(|l| l.departure)
-                        .unwrap_or_else(Utc::now),
-                    arrival_time: journey
-                        .legs
-                        .last()
-                        .map(|l| l.arrival)
-                        .unwrap_or_else(Utc::now),
+                    departure_time: journey.legs.first().map_or_else(Utc::now, |l| l.departure),
+                    arrival_time: journey.legs.last().map_or_else(Utc::now, |l| l.arrival),
                     duration_minutes: journey.duration_minutes(),
                     transfers: journey.transfers(),
                     legs,
@@ -196,13 +180,11 @@ impl TransitPort for TransitAdapter {
             .await
             .map_err(|e| {
                 warn!(%to_address, %e, "Failed to geocode address");
-                ApplicationError::ExternalService(format!(
-                    "Failed to geocode '{to_address}': {e}"
-                ))
+                ApplicationError::ExternalService(format!("Failed to geocode '{to_address}': {e}"))
             })?;
 
         let query = TransitQuery {
-            from: from.clone(),
+            from: *from,
             to: to_location,
             departure,
             max_results,

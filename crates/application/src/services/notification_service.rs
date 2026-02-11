@@ -49,7 +49,7 @@ impl Default for NotificationConfig {
 impl NotificationConfig {
     /// Check if home coordinates are configured
     #[must_use]
-    pub fn has_home_location(&self) -> bool {
+    pub const fn has_home_location(&self) -> bool {
         self.home_latitude.is_some() && self.home_longitude.is_some()
     }
 }
@@ -125,14 +125,14 @@ impl<R: ReminderPort> NotificationService<R> {
                         reminder: reminder.clone(),
                         message,
                     });
-                }
+                },
                 Err(e) => {
                     warn!(
                         reminder_id = %reminder.id,
                         error = %e,
                         "Failed to format reminder notification"
                     );
-                }
+                },
             }
         }
 
@@ -141,10 +141,7 @@ impl<R: ReminderPort> NotificationService<R> {
     }
 
     /// Format a single reminder into a notification message
-    async fn format_notification(
-        &self,
-        reminder: &Reminder,
-    ) -> Result<String, ApplicationError> {
+    async fn format_notification(&self, reminder: &Reminder) -> Result<String, ApplicationError> {
         // Only fetch transit for calendar events with a location
         let transit_connections = if self.should_fetch_transit(reminder) {
             self.fetch_transit_connections(reminder).await
@@ -199,7 +196,7 @@ impl<R: ReminderPort> NotificationService<R> {
                 } else {
                     Some(connections)
                 }
-            }
+            },
             Err(e) => {
                 warn!(
                     reminder_id = %reminder.id,
@@ -207,7 +204,7 @@ impl<R: ReminderPort> NotificationService<R> {
                     "Failed to fetch transit connections"
                 );
                 None
-            }
+            },
         }
     }
 }
@@ -248,10 +245,7 @@ mod tests {
             .expect_get_due_reminders()
             .returning(|| Ok(vec![]));
 
-        let service = NotificationService::new(
-            Arc::new(mock_port),
-            NotificationConfig::default(),
-        );
+        let service = NotificationService::new(Arc::new(mock_port), NotificationConfig::default());
 
         let result = service.process_due_reminders().await.unwrap();
         assert!(result.is_empty());
@@ -266,14 +260,9 @@ mod tests {
         mock_port
             .expect_get_due_reminders()
             .returning(move || Ok(vec![reminder_clone.clone()]));
-        mock_port
-            .expect_update()
-            .returning(|_| Ok(()));
+        mock_port.expect_update().returning(|_| Ok(()));
 
-        let service = NotificationService::new(
-            Arc::new(mock_port),
-            NotificationConfig::default(),
-        );
+        let service = NotificationService::new(Arc::new(mock_port), NotificationConfig::default());
 
         let result = service.process_due_reminders().await.unwrap();
         assert_eq!(result.len(), 1);
@@ -290,9 +279,7 @@ mod tests {
         mock_port
             .expect_get_due_reminders()
             .returning(move || Ok(vec![reminder_clone.clone()]));
-        mock_port
-            .expect_update()
-            .returning(|_| Ok(()));
+        mock_port.expect_update().returning(|_| Ok(()));
 
         // No transit port configured
         let config = NotificationConfig {
@@ -319,15 +306,9 @@ mod tests {
         mock_port
             .expect_get_due_reminders()
             .returning(move || Ok(vec![r1_clone.clone(), r2_clone.clone()]));
-        mock_port
-            .expect_update()
-            .times(2)
-            .returning(|_| Ok(()));
+        mock_port.expect_update().times(2).returning(|_| Ok(()));
 
-        let service = NotificationService::new(
-            Arc::new(mock_port),
-            NotificationConfig::default(),
-        );
+        let service = NotificationService::new(Arc::new(mock_port), NotificationConfig::default());
 
         let result = service.process_due_reminders().await.unwrap();
         assert_eq!(result.len(), 2);
@@ -342,10 +323,7 @@ mod tests {
             home_longitude: Some(13.41),
             ..Default::default()
         };
-        let service = NotificationService::new(
-            Arc::new(MockReminderPort::new()),
-            config,
-        );
+        let service = NotificationService::new(Arc::new(MockReminderPort::new()), config);
 
         assert!(!service.should_fetch_transit(&reminder));
     }
@@ -360,11 +338,8 @@ mod tests {
             ..Default::default()
         };
         let mock_transit = MockTransitPort::new();
-        let service = NotificationService::new(
-            Arc::new(MockReminderPort::new()),
-            config,
-        )
-        .with_transit(Arc::new(mock_transit));
+        let service = NotificationService::new(Arc::new(MockReminderPort::new()), config)
+            .with_transit(Arc::new(mock_transit));
 
         assert!(service.should_fetch_transit(&reminder));
     }
@@ -378,10 +353,7 @@ mod tests {
             home_longitude: Some(13.41),
             ..Default::default()
         };
-        let service = NotificationService::new(
-            Arc::new(MockReminderPort::new()),
-            config,
-        );
+        let service = NotificationService::new(Arc::new(MockReminderPort::new()), config);
 
         assert!(!service.should_fetch_transit(&reminder));
     }
@@ -396,11 +368,8 @@ mod tests {
             ..Default::default()
         };
         let mock_transit = MockTransitPort::new();
-        let service = NotificationService::new(
-            Arc::new(MockReminderPort::new()),
-            config,
-        )
-        .with_transit(Arc::new(mock_transit));
+        let service = NotificationService::new(Arc::new(MockReminderPort::new()), config)
+            .with_transit(Arc::new(mock_transit));
 
         assert!(!service.should_fetch_transit(&reminder));
     }

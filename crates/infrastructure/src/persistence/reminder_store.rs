@@ -327,6 +327,7 @@ impl ReminderPort for SqliteReminderStore {
                 )
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
+            #[allow(clippy::cast_sign_loss)] // COUNT(*) is always non-negative
             Ok(count as u64)
         })
         .await
@@ -334,10 +335,7 @@ impl ReminderPort for SqliteReminderStore {
     }
 
     #[instrument(skip(self))]
-    async fn cleanup_old(
-        &self,
-        older_than: DateTime<Utc>,
-    ) -> Result<u64, ApplicationError> {
+    async fn cleanup_old(&self, older_than: DateTime<Utc>) -> Result<u64, ApplicationError> {
         let pool = Arc::clone(&self.pool);
         let threshold = older_than.to_rfc3339();
 
@@ -356,6 +354,7 @@ impl ReminderPort for SqliteReminderStore {
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
 
             debug!(deleted, "Cleaned up old reminders");
+            #[allow(clippy::cast_sign_loss)] // DELETE count is always non-negative
             Ok(deleted as u64)
         })
         .await
@@ -380,10 +379,8 @@ fn row_to_reminder(row: &Row<'_>) -> rusqlite::Result<Reminder> {
     let created_at_str: String = row.get(12)?;
     let updated_at_str: String = row.get(13)?;
 
-    let id = ReminderId::parse(&id_str)
-        .unwrap_or_else(|_| ReminderId::from(Uuid::new_v4()));
-    let user_id = UserId::parse(&user_id_str)
-        .unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
+    let id = ReminderId::parse(&id_str).unwrap_or_else(|_| ReminderId::from(Uuid::new_v4()));
+    let user_id = UserId::parse(&user_id_str).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
 
     let source = str_to_source(&source_str);
     let status = str_to_status(&status_str);
@@ -411,7 +408,9 @@ fn row_to_reminder(row: &Row<'_>) -> rusqlite::Result<Reminder> {
         remind_at,
         location,
         status,
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // DB values are validated
         snooze_count: snooze_count as u8,
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // DB values are validated
         max_snooze: max_snooze as u8,
         created_at,
         updated_at,
@@ -449,6 +448,7 @@ const fn status_to_str(status: ReminderStatus) -> &'static str {
 }
 
 /// Convert a database string to a `ReminderStatus`
+#[allow(clippy::match_same_arms)] // Fallback to Pending is intentional
 fn str_to_status(s: &str) -> ReminderStatus {
     match s {
         "pending" => ReminderStatus::Pending,
@@ -512,7 +512,10 @@ mod tests {
         let r = retrieved.unwrap();
         assert_eq!(r.id, reminder.id);
         assert_eq!(r.title, "Buy milk");
-        assert_eq!(r.description.as_deref(), Some("From the store on the corner"));
+        assert_eq!(
+            r.description.as_deref(),
+            Some("From the store on the corner")
+        );
         assert_eq!(r.source, ReminderSource::Custom);
         assert_eq!(r.status, ReminderStatus::Pending);
     }

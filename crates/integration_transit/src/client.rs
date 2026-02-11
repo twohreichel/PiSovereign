@@ -38,8 +38,7 @@ pub trait TransitClient: Send + Sync {
     ) -> Result<Vec<Stop>, TransitError>;
 
     /// Search for stops by name
-    async fn search_stops(&self, query: &str, max_results: u8)
-        -> Result<Vec<Stop>, TransitError>;
+    async fn search_stops(&self, query: &str, max_results: u8) -> Result<Vec<Stop>, TransitError>;
 
     /// Check if the transit service is reachable
     async fn is_healthy(&self) -> bool;
@@ -136,10 +135,9 @@ impl HafasTransitClient {
 
     /// Convert a raw stop to a typed stop
     fn convert_stop(raw: RawStop) -> Stop {
-        let (latitude, longitude) = raw
-            .location
-            .map(|loc| (Some(loc.latitude), Some(loc.longitude)))
-            .unwrap_or((None, None));
+        let (latitude, longitude) = raw.location.map_or((None, None), |loc| {
+            (Some(loc.latitude), Some(loc.longitude))
+        });
 
         Stop {
             id: raw.id.unwrap_or_default(),
@@ -233,9 +231,7 @@ impl TransitClient for HafasTransitClient {
         }
 
         if !status.is_success() {
-            return Err(TransitError::RequestFailed(format!(
-                "HTTP {status}"
-            )));
+            return Err(TransitError::RequestFailed(format!("HTTP {status}")));
         }
 
         let body = response
@@ -304,11 +300,7 @@ impl TransitClient for HafasTransitClient {
     }
 
     #[instrument(skip(self))]
-    async fn search_stops(
-        &self,
-        query: &str,
-        max_results: u8,
-    ) -> Result<Vec<Stop>, TransitError> {
+    async fn search_stops(&self, query: &str, max_results: u8) -> Result<Vec<Stop>, TransitError> {
         if query.trim().is_empty() {
             return Err(TransitError::InvalidLocation(
                 "Search query must not be empty".to_string(),

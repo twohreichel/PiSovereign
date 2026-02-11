@@ -25,10 +25,7 @@ pub fn format_calendar_event_reminder(
     // Event time
     if let Some(event_time) = reminder.event_time {
         parts.push(format!("🕐 {}", format_event_time(event_time)));
-        parts.push(format!(
-            "⏰ {}",
-            format_time_until(event_time)
-        ));
+        parts.push(format!("⏰ {}", format_time_until(event_time)));
     }
 
     // Description
@@ -123,7 +120,7 @@ pub fn format_reminder(
     match reminder.source {
         ReminderSource::CalendarEvent => {
             format_calendar_event_reminder(reminder, transit_connections)
-        }
+        },
         ReminderSource::CalendarTask => format_calendar_task_reminder(reminder),
         ReminderSource::Custom => format_custom_reminder(reminder),
     }
@@ -172,15 +169,11 @@ pub fn format_morning_briefing(data: &MorningBriefingData) -> String {
     }
 
     // Events
+    parts.push(String::new());
     if data.events.is_empty() {
-        parts.push(String::new());
         parts.push("📋 Keine Termine heute.".to_string());
     } else {
-        parts.push(String::new());
-        parts.push(format!(
-            "📋 *{} Termin(e) heute:*",
-            data.events.len()
-        ));
+        parts.push(format!("📋 *{} Termin(e) heute:*", data.events.len()));
         for event in &data.events {
             let mut event_line = format!(
                 "  • {} – {} {}",
@@ -197,10 +190,7 @@ pub fn format_morning_briefing(data: &MorningBriefingData) -> String {
     // Reminders
     if data.reminder_count > 0 {
         parts.push(String::new());
-        parts.push(format!(
-            "⏰ {} aktive Erinnerung(en)",
-            data.reminder_count
-        ));
+        parts.push(format!("⏰ {} aktive Erinnerung(en)", data.reminder_count));
     }
 
     parts.join("\n")
@@ -210,10 +200,7 @@ pub fn format_morning_briefing(data: &MorningBriefingData) -> String {
 
 /// Format a snooze confirmation message
 #[must_use]
-pub fn format_snooze_confirmation(
-    reminder: &Reminder,
-    new_time: DateTime<Utc>,
-) -> String {
+pub fn format_snooze_confirmation(reminder: &Reminder, new_time: DateTime<Utc>) -> String {
     format!(
         "💤 *Verschoben:* {}\n⏰ Neue Erinnerung: {}",
         reminder.title,
@@ -235,10 +222,7 @@ pub fn format_reminder_list(reminders: &[Reminder]) -> String {
     }
 
     let mut parts = Vec::new();
-    parts.push(format!(
-        "📋 *{} Erinnerung(en):*",
-        reminders.len()
-    ));
+    parts.push(format!("📋 *{} Erinnerung(en):*", reminders.len()));
 
     for reminder in reminders {
         let source_emoji = match reminder.source {
@@ -246,15 +230,10 @@ pub fn format_reminder_list(reminders: &[Reminder]) -> String {
             ReminderSource::CalendarTask => "📋",
             ReminderSource::Custom => "⏰",
         };
-        let time_str = if let Some(event_time) = reminder.event_time {
-            format_event_time(event_time)
-        } else {
-            format_event_time(reminder.remind_at)
-        };
-        parts.push(format!(
-            "  {source_emoji} {time_str} — {}",
-            reminder.title
-        ));
+        let time_str = reminder
+            .event_time
+            .map_or_else(|| format_event_time(reminder.remind_at), format_event_time);
+        parts.push(format!("  {source_emoji} {time_str} — {}", reminder.title));
     }
 
     parts.join("\n")
@@ -350,12 +329,13 @@ mod tests {
 
     #[test]
     fn format_calendar_event_with_location_and_transit() {
+        use crate::ports::TransitConnection;
+
         let event_time = Utc::now() + chrono::Duration::hours(2);
         let reminder = make_reminder(ReminderSource::CalendarEvent, "Conference")
             .with_event_time(event_time)
             .with_location("TU Berlin, Straße des 17. Juni 135");
 
-        use crate::ports::TransitConnection;
         let connections = vec![TransitConnection {
             departure_time: Utc::now() + chrono::Duration::hours(1),
             arrival_time: event_time,
@@ -408,7 +388,10 @@ mod tests {
     fn format_time_until_hours() {
         let t = Utc::now() + chrono::Duration::hours(3);
         let output = format_time_until(t);
-        assert!(output.contains('h') || output.contains("Stunde"), "Got: {output}");
+        assert!(
+            output.contains('h') || output.contains("Stunde"),
+            "Got: {output}"
+        );
     }
 
     #[test]

@@ -263,8 +263,8 @@ async fn main() -> anyhow::Result<()> {
                 integration_transit::NominatimGeocodingClient::new(&geocoding_config),
             ) {
                 (Ok(transit_client), Ok(geocoding_client)) => {
-                    let adapter =
-                        TransitAdapter::new(transit_client, geocoding_client).with_circuit_breaker();
+                    let adapter = TransitAdapter::new(transit_client, geocoding_client)
+                        .with_circuit_breaker();
                     info!("🚇 Transit adapter initialized");
                     Some(Arc::new(adapter) as Arc<dyn TransitPort>)
                 },
@@ -284,7 +284,7 @@ async fn main() -> anyhow::Result<()> {
         .transit
         .as_ref()
         .and_then(|t| t.home_location.as_ref())
-        .and_then(|loc| loc.to_geo_location());
+        .and_then(infrastructure::config::GeoLocationConfig::to_geo_location);
 
     // Initialize database connection pool
     let (approval_service, conversation_store, database_health_port, reminder_port) =

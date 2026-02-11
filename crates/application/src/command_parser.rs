@@ -185,6 +185,7 @@ impl CommandParser {
     }
 
     /// Build the list of quick patterns
+    #[allow(clippy::too_many_lines)] // Pattern list is comprehensive by design
     fn build_quick_patterns() -> Vec<QuickPattern> {
         vec![
             // Echo command
@@ -322,11 +323,7 @@ impl CommandParser {
             },
             // List reminders
             QuickPattern {
-                keywords: vec![
-                    "erinnerungen",
-                    "reminders",
-                    "was steht an",
-                ],
+                keywords: vec!["erinnerungen", "reminders", "was steht an"],
                 builder: |input| {
                     let lower = input.to_lowercase();
                     if lower.contains("erinnerungen")
@@ -1262,8 +1259,15 @@ mod tests {
     #[test]
     fn parses_transit_german_wie_komme_ich() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("Wie komme ich nach Berlin Hauptbahnhof?").unwrap();
-        let AgentCommand::SearchTransit { from, to, departure } = cmd else {
+        let cmd = parser
+            .parse_quick("Wie komme ich nach Berlin Hauptbahnhof?")
+            .unwrap();
+        let AgentCommand::SearchTransit {
+            from,
+            to,
+            departure,
+        } = cmd
+        else {
             unreachable!("Expected SearchTransit")
         };
         assert!(from.is_empty()); // Default from home
@@ -1275,7 +1279,7 @@ mod tests {
     fn parses_transit_german_verbindung_nach() {
         let parser = CommandParser::new();
         let cmd = parser.parse_quick("verbindung nach München").unwrap();
-        let AgentCommand::SearchTransit { from, to, .. } = cmd else {
+        let AgentCommand::SearchTransit { from: _, to, .. } = cmd else {
             unreachable!("Expected SearchTransit")
         };
         assert_eq!(to, "München");
@@ -1284,7 +1288,9 @@ mod tests {
     #[test]
     fn parses_transit_english_how_do_i_get_to() {
         let parser = CommandParser::new();
-        let cmd = parser.parse_quick("how do i get to Central Station?").unwrap();
+        let cmd = parser
+            .parse_quick("how do i get to Central Station?")
+            .unwrap();
         let AgentCommand::SearchTransit { to, .. } = cmd else {
             unreachable!("Expected SearchTransit")
         };
@@ -1672,7 +1678,8 @@ mod async_tests {
     #[test]
     fn parse_llm_response_create_reminder() {
         let parser = CommandParser::new();
-        let response = r#"{"intent":"create_reminder","title":"Call mom","remind_at":"2025-02-20T18:00:00"}"#;
+        let response =
+            r#"{"intent":"create_reminder","title":"Call mom","remind_at":"2025-02-20T18:00:00"}"#;
         let cmd = parser.parse_llm_response(response, "").unwrap();
         let AgentCommand::CreateReminder {
             title,
@@ -1693,9 +1700,7 @@ mod async_tests {
         let response = r#"{"intent":"create_reminder","title":"Meeting","remind_at":"2025-02-20T14:00","description":"Preparation needed"}"#;
         let cmd = parser.parse_llm_response(response, "").unwrap();
         let AgentCommand::CreateReminder {
-            title,
-            description,
-            ..
+            title, description, ..
         } = cmd
         else {
             unreachable!("Expected CreateReminder")
@@ -1763,7 +1768,8 @@ mod async_tests {
     #[test]
     fn parse_llm_response_snooze_reminder_with_duration() {
         let parser = CommandParser::new();
-        let response = r#"{"intent":"snooze_reminder","reminder_id":"rem-123","duration_minutes":30}"#;
+        let response =
+            r#"{"intent":"snooze_reminder","reminder_id":"rem-123","duration_minutes":30}"#;
         let cmd = parser.parse_llm_response(response, "").unwrap();
         let AgentCommand::SnoozeReminder {
             reminder_id,
@@ -1850,7 +1856,8 @@ mod async_tests {
     #[test]
     fn parse_llm_response_search_transit_with_from() {
         let parser = CommandParser::new();
-        let response = r#"{"intent":"search_transit","from":"Alexanderplatz","to_address":"Potsdamer Platz"}"#;
+        let response =
+            r#"{"intent":"search_transit","from":"Alexanderplatz","to_address":"Potsdamer Platz"}"#;
         let cmd = parser.parse_llm_response(response, "").unwrap();
         let AgentCommand::SearchTransit { from, to, .. } = cmd else {
             unreachable!("Expected SearchTransit")

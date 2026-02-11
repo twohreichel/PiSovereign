@@ -57,10 +57,7 @@ impl ReminderStatus {
     /// Check if this status is terminal (no further transitions)
     #[must_use]
     pub const fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            Self::Acknowledged | Self::Cancelled | Self::Expired
-        )
+        matches!(self, Self::Acknowledged | Self::Cancelled | Self::Expired)
     }
 
     /// Check if this reminder is still actionable
@@ -197,7 +194,7 @@ impl Reminder {
 
     /// Check if this reminder can be snoozed
     #[must_use]
-    pub fn can_snooze(&self) -> bool {
+    pub const fn can_snooze(&self) -> bool {
         self.snooze_count < self.max_snooze && !self.status.is_terminal()
     }
 
@@ -242,28 +239,19 @@ impl Reminder {
     /// Minutes until the event (if event_time is set)
     #[must_use]
     pub fn minutes_until_event(&self) -> Option<i64> {
-        self.event_time
-            .map(|et| (et - Utc::now()).num_minutes())
+        self.event_time.map(|et| (et - Utc::now()).num_minutes())
     }
 
     /// Check if the event has a location
     #[must_use]
     pub fn has_location(&self) -> bool {
-        self.location
-            .as_ref()
-            .is_some_and(|l| !l.trim().is_empty())
+        self.location.as_ref().is_some_and(|l| !l.trim().is_empty())
     }
 }
 
 impl std::fmt::Display for Reminder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "[{}] {} ({})",
-            self.source,
-            self.title,
-            self.status
-        )
+        write!(f, "[{}] {} ({})", self.source, self.title, self.status)
     }
 }
 
@@ -337,24 +325,16 @@ mod tests {
 
     #[test]
     fn mark_sent() {
-        let mut reminder = Reminder::new(
-            sample_user_id(),
-            ReminderSource::Custom,
-            "Test",
-            Utc::now(),
-        );
+        let mut reminder =
+            Reminder::new(sample_user_id(), ReminderSource::Custom, "Test", Utc::now());
         reminder.mark_sent();
         assert_eq!(reminder.status, ReminderStatus::Sent);
     }
 
     #[test]
     fn acknowledge() {
-        let mut reminder = Reminder::new(
-            sample_user_id(),
-            ReminderSource::Custom,
-            "Test",
-            Utc::now(),
-        );
+        let mut reminder =
+            Reminder::new(sample_user_id(), ReminderSource::Custom, "Test", Utc::now());
         reminder.acknowledge();
         assert_eq!(reminder.status, ReminderStatus::Acknowledged);
         assert!(reminder.status.is_terminal());
@@ -362,12 +342,8 @@ mod tests {
 
     #[test]
     fn cancel() {
-        let mut reminder = Reminder::new(
-            sample_user_id(),
-            ReminderSource::Custom,
-            "Test",
-            Utc::now(),
-        );
+        let mut reminder =
+            Reminder::new(sample_user_id(), ReminderSource::Custom, "Test", Utc::now());
         reminder.cancel();
         assert_eq!(reminder.status, ReminderStatus::Cancelled);
         assert!(reminder.status.is_terminal());
@@ -375,12 +351,8 @@ mod tests {
 
     #[test]
     fn expire() {
-        let mut reminder = Reminder::new(
-            sample_user_id(),
-            ReminderSource::Custom,
-            "Test",
-            Utc::now(),
-        );
+        let mut reminder =
+            Reminder::new(sample_user_id(), ReminderSource::Custom, "Test", Utc::now());
         reminder.expire();
         assert_eq!(reminder.status, ReminderStatus::Expired);
         assert!(reminder.status.is_terminal());
@@ -423,12 +395,8 @@ mod tests {
 
     #[test]
     fn cannot_snooze_terminal_status() {
-        let mut reminder = Reminder::new(
-            sample_user_id(),
-            ReminderSource::Custom,
-            "Done",
-            Utc::now(),
-        );
+        let mut reminder =
+            Reminder::new(sample_user_id(), ReminderSource::Custom, "Done", Utc::now());
         reminder.acknowledge();
         let new_time = Utc::now() + Duration::minutes(15);
         assert!(!reminder.snooze(new_time));
@@ -445,12 +413,7 @@ mod tests {
         .with_location("Berlin Hbf");
         assert!(with_loc.has_location());
 
-        let without = Reminder::new(
-            sample_user_id(),
-            ReminderSource::Custom,
-            "Call",
-            Utc::now(),
-        );
+        let without = Reminder::new(sample_user_id(), ReminderSource::Custom, "Call", Utc::now());
         assert!(!without.has_location());
 
         let empty = Reminder::new(
@@ -517,7 +480,10 @@ mod tests {
 
         assert_eq!(deserialized.title, "Serde test");
         assert_eq!(deserialized.source, ReminderSource::Custom);
-        assert_eq!(deserialized.description.as_deref(), Some("Testing serialization"));
+        assert_eq!(
+            deserialized.description.as_deref(),
+            Some("Testing serialization")
+        );
         assert_eq!(deserialized.location.as_deref(), Some("Home"));
     }
 }

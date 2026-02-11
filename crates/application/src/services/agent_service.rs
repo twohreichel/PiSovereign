@@ -3,7 +3,9 @@
 use std::{fmt, fmt::Write as _, sync::Arc, time::Instant};
 
 use chrono::Utc;
-use domain::{AgentCommand, GeoLocation, PersistedEmailDraft, ReminderId, SystemCommand, TaskItem, UserId};
+use domain::{
+    AgentCommand, GeoLocation, PersistedEmailDraft, ReminderId, SystemCommand, TaskItem, UserId,
+};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{
@@ -356,7 +358,10 @@ impl AgentService {
             AgentCommand::SnoozeReminder {
                 reminder_id,
                 duration_minutes,
-            } => self.handle_snooze_reminder(reminder_id, *duration_minutes).await,
+            } => {
+                self.handle_snooze_reminder(reminder_id, *duration_minutes)
+                    .await
+            },
             AgentCommand::AcknowledgeReminder { reminder_id } => {
                 self.handle_acknowledge_reminder(reminder_id).await
             },
@@ -369,7 +374,10 @@ impl AgentService {
                 from,
                 to,
                 departure,
-            } => self.handle_search_transit(from, to, departure.as_deref()).await,
+            } => {
+                self.handle_search_transit(from, to, departure.as_deref())
+                    .await
+            },
         }
     }
 
@@ -1036,9 +1044,7 @@ impl AgentService {
             .or_else(|_| {
                 // Try parsing with common formats
                 chrono::NaiveDateTime::parse_from_str(remind_at, "%Y-%m-%dT%H:%M:%S")
-                    .or_else(|_| {
-                        chrono::NaiveDateTime::parse_from_str(remind_at, "%Y-%m-%dT%H:%M")
-                    })
+                    .or_else(|_| chrono::NaiveDateTime::parse_from_str(remind_at, "%Y-%m-%dT%H:%M"))
                     .map(|ndt| ndt.and_utc())
             })
             .map_err(|_| {
@@ -1236,13 +1242,14 @@ impl AgentService {
         // Determine the origin - use home location if "from" is empty
         let from_location = if from.is_empty() {
             match &self.home_location {
-                Some(loc) => loc.clone(),
+                Some(loc) => *loc,
                 None => {
                     return Ok(ExecutionResult {
                         success: false,
-                        response: "🚆 Keine Startadresse angegeben und keine Heimadresse konfiguriert.\n\
+                        response:
+                            "🚆 Keine Startadresse angegeben und keine Heimadresse konfiguriert.\n\
                                    Bitte geben Sie einen Startpunkt an."
-                            .to_string(),
+                                .to_string(),
                     });
                 },
             }
@@ -1270,6 +1277,7 @@ impl AgentService {
         };
 
         // Parse departure time if provided
+        #[allow(clippy::option_if_let_else)] // Complex parsing chain doesn't simplify well
         let departure_time = if let Some(dep) = departure {
             chrono::DateTime::parse_from_rfc3339(dep)
                 .map(|dt| dt.with_timezone(&Utc))

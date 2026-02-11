@@ -85,8 +85,7 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                 });
                                 migrated += 1;
                                 println!(
-                                    "  ✅ Migrated legacy api_key → api_keys[0] (user_id: {})",
-                                    default_user_id
+                                    "  ✅ Migrated legacy api_key → api_keys[0] (user_id: {default_user_id})"
                                 );
                             },
                             Err(e) => {
@@ -173,8 +172,7 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                         });
                                         migrated += 1;
                                         println!(
-                                            "  ✅ Migrated plaintext hash → proper hash (user_id: {})",
-                                            user_id
+                                            "  ✅ Migrated plaintext hash → proper hash (user_id: {user_id})"
                                         );
                                     },
                                     Err(e) => {
@@ -285,10 +283,9 @@ rate_limit_enabled = true
 rate_limit_enabled = true
 
 [[security.api_keys]]
-hash = "{}"
+hash = "{hash}"
 user_id = "550e8400-e29b-41d4-a716-446655440001"
-"#,
-            hash
+"#
         );
         let file = create_temp_config(&config);
         let result = migrate_config(file.path(), true).unwrap();

@@ -19,7 +19,7 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 use tracing::{debug, instrument};
 
-use serde::{Serialize};
+use serde::Serialize;
 
 /// Configuration for the Nominatim geocoding service
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,9 +159,7 @@ impl NominatimGeocodingClient {
             client,
             config: config.clone(),
             cache,
-            last_request: Arc::new(Mutex::new(
-                Instant::now() - Duration::from_secs(2),
-            )),
+            last_request: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(2))),
         })
     }
 
@@ -170,7 +168,7 @@ impl NominatimGeocodingClient {
         let mut last = self.last_request.lock().await;
         let elapsed = last.elapsed();
         if elapsed < Duration::from_millis(1100) {
-            let wait = Duration::from_millis(1100) - elapsed;
+            let wait = Duration::from_millis(1100).saturating_sub(elapsed);
             debug!(?wait, "Rate limiting geocoding request");
             tokio::time::sleep(wait).await;
         }
@@ -358,7 +356,7 @@ mod tests {
 
     #[test]
     fn test_nominatim_empty_result() {
-        let json = r#"[]"#;
+        let json = r"[]";
         let results: Vec<NominatimResult> = serde_json::from_str(json).unwrap();
         assert!(results.is_empty());
     }

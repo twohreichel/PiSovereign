@@ -30,11 +30,7 @@ pub fn format_location_with_link(location: &str) -> String {
 
 /// Format a location with coordinates and a clickable maps link
 #[must_use]
-pub fn format_location_with_coords_link(
-    location: &str,
-    latitude: f64,
-    longitude: f64,
-) -> String {
+pub fn format_location_with_coords_link(location: &str, latitude: f64, longitude: f64) -> String {
     let link = generate_maps_link_coords(latitude, longitude);
     format!("📍 {location}\n🗺️ {link}")
 }
@@ -48,12 +44,12 @@ fn url_encode(input: &str) -> String {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 result.push(byte as char);
-            }
+            },
             b' ' => result.push('+'),
             _ => {
                 result.push('%');
                 result.push_str(&format!("{byte:02X}"));
-            }
+            },
         }
     }
     result

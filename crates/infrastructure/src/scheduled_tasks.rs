@@ -7,10 +7,7 @@
 
 use std::sync::Arc;
 
-use application::{
-    ports::ReminderPort,
-    services::NotificationService,
-};
+use application::{ports::ReminderPort, services::NotificationService};
 use futures::future::BoxFuture;
 use tracing::{debug, error, info};
 
@@ -22,7 +19,8 @@ pub const MORNING_BRIEFING_TASK: &str = "morning_briefing";
 pub const CALDAV_SYNC_TASK: &str = "caldav_sync";
 
 /// Callback type for sending notifications
-pub type NotificationCallback = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+pub type NotificationCallback =
+    Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
 
 /// Create a reminder checker task closure
 ///
@@ -31,8 +29,7 @@ pub type NotificationCallback = Arc<dyn Fn(String) -> BoxFuture<'static, Result<
 pub fn create_reminder_checker_task<R: ReminderPort + 'static>(
     notification_service: Arc<NotificationService<R>>,
     send_callback: NotificationCallback,
-) -> impl Fn() -> BoxFuture<'static, Result<(), String>> + Send + Sync + 'static
-{
+) -> impl Fn() -> BoxFuture<'static, Result<(), String>> + Send + Sync + 'static {
     move || {
         let service = Arc::clone(&notification_service);
         let callback = Arc::clone(&send_callback);
@@ -73,7 +70,8 @@ pub fn create_reminder_checker_task<R: ReminderPort + 'static>(
 /// Morning briefing configuration
 pub struct MorningBriefingConfig {
     /// Callback to generate the briefing content
-    pub generate_briefing: Arc<dyn Fn() -> BoxFuture<'static, Result<String, String>> + Send + Sync>,
+    pub generate_briefing:
+        Arc<dyn Fn() -> BoxFuture<'static, Result<String, String>> + Send + Sync>,
     /// Callback to send the briefing
     pub send_callback: NotificationCallback,
 }
@@ -91,8 +89,7 @@ impl std::fmt::Debug for MorningBriefingConfig {
 /// Designed to run daily at 7 AM.
 pub fn create_morning_briefing_task(
     config: MorningBriefingConfig,
-) -> impl Fn() -> BoxFuture<'static, Result<(), String>> + Send + Sync + 'static
-{
+) -> impl Fn() -> BoxFuture<'static, Result<(), String>> + Send + Sync + 'static {
     move || {
         let generate = Arc::clone(&config.generate_briefing);
         let send = Arc::clone(&config.send_callback);
@@ -125,7 +122,8 @@ pub fn create_morning_briefing_task(
 }
 
 /// CalDAV sync callback type
-pub type CalDavSyncCallback = Arc<dyn Fn() -> BoxFuture<'static, Result<u32, String>> + Send + Sync>;
+pub type CalDavSyncCallback =
+    Arc<dyn Fn() -> BoxFuture<'static, Result<u32, String>> + Send + Sync>;
 
 /// Create a CalDAV sync task closure
 ///
@@ -133,8 +131,7 @@ pub type CalDavSyncCallback = Arc<dyn Fn() -> BoxFuture<'static, Result<u32, Str
 /// Designed to run every 15 minutes.
 pub fn create_caldav_sync_task(
     sync_callback: CalDavSyncCallback,
-) -> impl Fn() -> BoxFuture<'static, Result<(), String>> + Send + Sync + 'static
-{
+) -> impl Fn() -> BoxFuture<'static, Result<(), String>> + Send + Sync + 'static {
     move || {
         let callback = Arc::clone(&sync_callback);
 
@@ -170,9 +167,7 @@ mod tests {
         let sent_clone = Arc::clone(&sent);
 
         let config = MorningBriefingConfig {
-            generate_briefing: Arc::new(|| {
-                Box::pin(async { Ok("Good morning!".to_string()) })
-            }),
+            generate_briefing: Arc::new(|| Box::pin(async { Ok("Good morning!".to_string()) })),
             send_callback: Arc::new(move |_msg| {
                 let count = Arc::clone(&sent_clone);
                 Box::pin(async move {
@@ -216,9 +211,7 @@ mod tests {
     #[tokio::test]
     async fn morning_briefing_handles_generation_error() {
         let config = MorningBriefingConfig {
-            generate_briefing: Arc::new(|| {
-                Box::pin(async { Err("API unavailable".to_string()) })
-            }),
+            generate_briefing: Arc::new(|| Box::pin(async { Err("API unavailable".to_string()) })),
             send_callback: Arc::new(move |_msg| Box::pin(async { Ok(()) })),
         };
 

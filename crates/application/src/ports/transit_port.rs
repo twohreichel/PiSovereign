@@ -57,9 +57,7 @@ impl TransitConnection {
         if transfers == 0 {
             format!("🕐 {dep} → {arr} ({dur}min) {route}{delay}")
         } else {
-            format!(
-                "🕐 {dep} → {arr} ({dur}min, {transfers}x ↔️) {route}{delay}"
-            )
+            format!("🕐 {dep} → {arr} ({dur}min, {transfers}x ↔️) {route}{delay}")
         }
     }
 }
@@ -105,10 +103,7 @@ impl TransitLeg {
             return format!("{emoji} {dep}–{arr} Walk");
         }
 
-        let line = self
-            .line_name
-            .as_deref()
-            .unwrap_or("?");
+        let line = self.line_name.as_deref().unwrap_or("?");
         let dir = self
             .direction
             .as_deref()
@@ -210,7 +205,7 @@ pub struct TransitQuery {
 impl TransitQuery {
     /// Create a new transit query
     #[must_use]
-    pub fn new(from: GeoLocation, to: GeoLocation) -> Self {
+    pub const fn new(from: GeoLocation, to: GeoLocation) -> Self {
         Self {
             from,
             to,
@@ -259,7 +254,7 @@ pub trait TransitPort: Send + Sync {
     ///
     /// Returns None if the address could not be resolved.
     async fn geocode_address(&self, address: &str)
-        -> Result<Option<GeoLocation>, ApplicationError>;
+    -> Result<Option<GeoLocation>, ApplicationError>;
 
     /// Check if the transit service is available
     async fn is_available(&self) -> bool;
@@ -293,11 +288,7 @@ pub fn format_connections_detailed(connections: &[TransitConnection]) -> String 
         .enumerate()
         .map(|(i, conn)| {
             let header = format!("*Option {}:* {}", i + 1, conn.format_summary());
-            let legs: Vec<String> = conn
-                .legs
-                .iter()
-                .map(TransitLeg::format_detail)
-                .collect();
+            let legs: Vec<String> = conn.legs.iter().map(TransitLeg::format_detail).collect();
             format!("{header}\n{}", legs.join("\n"))
         })
         .collect::<Vec<_>>()

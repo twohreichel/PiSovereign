@@ -29,18 +29,18 @@ impl Journey {
             return 0;
         };
         let duration = last.arrival - first.departure;
-        duration.num_minutes().unsigned_abs() as u32
+        #[allow(clippy::cast_possible_truncation)] // Duration in minutes won't exceed u32 range
+        let minutes = duration.num_minutes().unsigned_abs() as u32;
+        minutes
     }
 
     /// Number of transfers (legs - 1, excluding walking legs)
     #[must_use]
     pub fn transfers(&self) -> u8 {
-        let transport_legs = self
-            .legs
-            .iter()
-            .filter(|leg| !leg.walking)
-            .count();
-        transport_legs.saturating_sub(1) as u8
+        let transport_legs = self.legs.iter().filter(|leg| !leg.walking).count();
+        #[allow(clippy::cast_possible_truncation)] // Transfers won't exceed u8 range
+        let transfers = transport_legs.saturating_sub(1) as u8;
+        transfers
     }
 
     /// Format as a compact one-line summary
@@ -68,9 +68,7 @@ impl Journey {
 
         let delay_info = first.format_delay();
 
-        format!(
-            "{dep} → {arr} ({dur}min, {transfers}x umsteigen) {route}{delay_info}"
-        )
+        format!("{dep} → {arr} ({dur}min, {transfers}x umsteigen) {route}{delay_info}")
     }
 }
 
@@ -125,10 +123,9 @@ impl Leg {
         if self.walking {
             return TransitMode::Walking;
         }
-        self.line
-            .as_ref()
-            .map(|l| TransitMode::from_product(&l.product))
-            .unwrap_or(TransitMode::Unknown)
+        self.line.as_ref().map_or(TransitMode::Unknown, |l| {
+            TransitMode::from_product(&l.product)
+        })
     }
 
     /// Format the delay information as a human-readable string
@@ -139,11 +136,11 @@ impl Leg {
             Some(secs) if secs > 0 => {
                 let mins = secs / 60;
                 format!(" ⚠️ +{mins}min")
-            }
+            },
             Some(secs) if secs < 0 => {
                 let mins = (-secs) / 60;
                 format!(" 🟢 -{mins}min")
-            }
+            },
             _ => String::new(),
         }
     }
@@ -160,10 +157,7 @@ impl Leg {
             return format!("{emoji} {dep}–{arr} Walk ({dist}m)");
         }
 
-        let line_name = self
-            .line
-            .as_ref()
-            .map_or("?", |l| l.name.as_str());
+        let line_name = self.line.as_ref().map_or("?", |l| l.name.as_str());
         let direction = self
             .line
             .as_ref()
@@ -176,9 +170,7 @@ impl Leg {
             .unwrap_or_default();
         let delay = self.format_delay();
 
-        format!(
-            "{emoji} {dep}–{arr} *{line_name}* → {direction}{platform}{delay}"
-        )
+        format!("{emoji} {dep}–{arr} *{line_name}* → {direction}{platform}{delay}")
     }
 }
 
@@ -217,7 +209,7 @@ impl Stop {
 
     /// Create a stop with coordinates
     #[must_use]
-    pub fn with_coords(mut self, latitude: f64, longitude: f64) -> Self {
+    pub const fn with_coords(mut self, latitude: f64, longitude: f64) -> Self {
         self.latitude = Some(latitude);
         self.longitude = Some(longitude);
         self
@@ -291,8 +283,7 @@ impl TransitMode {
     #[must_use]
     pub const fn emoji(&self) -> &'static str {
         match self {
-            Self::NationalExpress | Self::National => "🚆",
-            Self::Regional => "🚆",
+            Self::NationalExpress | Self::National | Self::Regional => "🚆",
             Self::Suburban => "🚈",
             Self::Subway => "🚇",
             Self::Tram => "🚊",
@@ -343,7 +334,7 @@ pub struct TransitResponse {
 impl TransitResponse {
     /// Create a response with no results
     #[must_use]
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             journeys: Vec::new(),
             earlier_ref: None,
