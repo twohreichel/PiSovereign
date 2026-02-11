@@ -28,6 +28,12 @@ Possible intents:
 - "draft_email": Draft email (requires: to, body; optional: subject)
 - "send_email": Send email (requires: draft_id)
 - "web_search": Search the internet (requires: query; optional: max_results)
+- "create_reminder": Create a reminder (requires: title, remind_at datetime; optional: description)
+- "list_reminders": List active reminders (optional: include_done)
+- "snooze_reminder": Snooze a reminder (requires: reminder_id; optional: duration_minutes, default 15)
+- "acknowledge_reminder": Mark reminder done (requires: reminder_id)
+- "delete_reminder": Delete a reminder (requires: reminder_id)
+- "search_transit": Search public transit (requires: from, to locations; optional: departure datetime)
 - "ask": General question (if nothing else matches)
 
 Reply ONLY with valid JSON:
@@ -52,7 +58,13 @@ Reply ONLY with valid JSON:
   "count": 10 (optional, for inbox),
   "draft_id": "..." (optional, for send_email),
   "query": "..." (only for web_search intent),
-  "max_results": 5 (optional, for web_search, default 5)
+  "max_results": 5 (optional, for web_search, default 5),
+  "reminder_id": "..." (for snooze/acknowledge/delete_reminder),
+  "remind_at": "YYYY-MM-DD HH:MM" (for create_reminder, when to fire),
+  "include_done": false (optional, for list_reminders),
+  "from": "..." (origin address for search_transit),
+  "to_address": "..." (destination address for search_transit),
+  "departure": "YYYY-MM-DD HH:MM" (optional, for search_transit)
 }
 
 Examples:
@@ -71,6 +83,15 @@ Examples:
 - "Create list Vacation" → {"intent":"create_task_list","name":"Vacation"}
 - "Summarize my mails" → {"intent":"summarize_inbox"}
 - "Search the internet for Rust async patterns" → {"intent":"web_search","query":"Rust async patterns"}
+- "Remind me to call mom in 30 minutes" → {"intent":"create_reminder","title":"call mom","remind_at":"2025-01-15 10:30"}
+- "Erinner mich morgen um 9 Uhr an Arzttermin" → {"intent":"create_reminder","title":"Arzttermin","remind_at":"2025-01-16 09:00"}
+- "What are my reminders?" → {"intent":"list_reminders"}
+- "Zeig meine Erinnerungen" → {"intent":"list_reminders"}
+- "Snooze reminder abc for 15 minutes" → {"intent":"snooze_reminder","reminder_id":"abc","duration_minutes":15}
+- "Reminder abc done" → {"intent":"acknowledge_reminder","reminder_id":"abc"}
+- "Delete reminder xyz" → {"intent":"delete_reminder","reminder_id":"xyz"}
+- "How do I get from Alexanderplatz to TU Berlin?" → {"intent":"search_transit","from":"Alexanderplatz, Berlin","to_address":"TU Berlin"}
+- "ÖPNV von Hauptbahnhof nach Potsdamer Platz um 14:00" → {"intent":"search_transit","from":"Hauptbahnhof Berlin","to_address":"Potsdamer Platz","departure":"2025-01-15 14:00"}
 - "What's the weather like?" → {"intent":"ask","question":"What's the weather like?"}"#;
 
 /// Parsed intent from LLM
@@ -117,6 +138,20 @@ struct ParsedIntent {
     list: Option<String>,
     #[serde(default)]
     name: Option<String>,
+    // Reminder fields
+    #[serde(default)]
+    reminder_id: Option<String>,
+    #[serde(default)]
+    remind_at: Option<String>,
+    #[serde(default)]
+    include_done: Option<bool>,
+    // Transit fields
+    #[serde(default)]
+    from: Option<String>,
+    #[serde(default)]
+    to_address: Option<String>,
+    #[serde(default)]
+    departure: Option<String>,
 }
 
 /// Parser for converting natural language to AgentCommand
@@ -150,6 +185,7 @@ impl CommandParser {
     }
 
     /// Build the list of quick patterns
+    #[allow(clippy::too_many_lines)] // Pattern list is comprehensive by design
     fn build_quick_patterns() -> Vec<QuickPattern> {
         vec![
             // Echo command
@@ -285,7 +321,109 @@ impl CommandParser {
                     })
                 },
             },
+            // List reminders
+            QuickPattern {
+                keywords: vec!["erinnerungen", "reminders", "was steht an"],
+                builder: |input| {
+                    let lower = input.to_lowercase();
+                    if lower.contains("erinnerungen")
+                        || lower.contains("reminders")
+                        || lower.contains("was steht an")
+                    {
+                        let include_done = lower.contains("alle")
+                            || lower.contains("all")
+                            || lower.contains("erledigte")
+                            || lower.contains("completed");
+                        return Some(AgentCommand::ListReminders {
+                            include_done: Some(include_done),
+                        });
+                    }
+                    None
+                },
+            },
+            // Transit search
+            QuickPattern {
+                keywords: vec![
+                    "öpnv",
+                    "verbindung",
+                    "wie komme ich",
+                    "how do i get to",
+                    "transit to",
+                    "directions to",
+                    "route to",
+                    "fahrt nach",
+                    "bahn nach",
+                    "bus nach",
+                ],
+                builder: |input| {
+                    let lower = input.to_lowercase();
+
+                    // Try to extract destination from common patterns
+                    let destination = Self::extract_transit_destination(&lower, input);
+                    destination.map(|to| AgentCommand::SearchTransit {
+                        from: String::new(), // Empty means "from home/current location"
+                        to,
+                        departure: None,
+                    })
+                },
+            },
         ]
+    }
+
+    /// Extract transit destination from input
+    fn extract_transit_destination(lower: &str, original: &str) -> Option<String> {
+        // Patterns to extract destination
+        let prefixes = [
+            "wie komme ich nach ",
+            "wie komme ich zum ",
+            "wie komme ich zur ",
+            "wie komme ich zu ",
+            "verbindung nach ",
+            "verbindung zum ",
+            "verbindung zur ",
+            "verbindung zu ",
+            "öpnv nach ",
+            "öpnv zum ",
+            "öpnv zur ",
+            "öpnv zu ",
+            "fahrt nach ",
+            "fahrt zum ",
+            "fahrt zur ",
+            "bahn nach ",
+            "bahn zum ",
+            "bahn zur ",
+            "bus nach ",
+            "bus zum ",
+            "bus zur ",
+            "how do i get to ",
+            "transit to ",
+            "directions to ",
+            "route to ",
+        ];
+
+        for prefix in prefixes {
+            if lower.starts_with(prefix) {
+                let dest = original[prefix.len()..].trim();
+                // Remove trailing question mark
+                let dest = dest.trim_end_matches('?').trim();
+                if !dest.is_empty() {
+                    return Some(dest.to_string());
+                }
+            }
+        }
+
+        // Also match patterns where trigger appears in middle
+        for prefix in prefixes {
+            if let Some(pos) = lower.find(prefix) {
+                let dest = original[pos + prefix.len()..].trim();
+                let dest = dest.trim_end_matches('?').trim();
+                if !dest.is_empty() {
+                    return Some(dest.to_string());
+                }
+            }
+        }
+
+        None
     }
 
     /// Extract search query from input based on matched pattern
@@ -726,6 +864,71 @@ impl CommandParser {
                 })
             },
 
+            "create_reminder" => {
+                let title = parsed
+                    .title
+                    .as_ref()
+                    .ok_or("Missing title for reminder")?
+                    .clone();
+                let remind_at = parsed
+                    .remind_at
+                    .as_ref()
+                    .ok_or("Missing remind_at time for reminder")?
+                    .clone();
+                Ok(AgentCommand::CreateReminder {
+                    title,
+                    description: parsed.description.clone(),
+                    remind_at,
+                })
+            },
+
+            "list_reminders" => Ok(AgentCommand::ListReminders {
+                include_done: parsed.include_done,
+            }),
+
+            "snooze_reminder" => {
+                let reminder_id = parsed
+                    .reminder_id
+                    .as_ref()
+                    .ok_or("Missing reminder_id for snooze")?
+                    .clone();
+                Ok(AgentCommand::SnoozeReminder {
+                    reminder_id,
+                    duration_minutes: parsed.duration_minutes,
+                })
+            },
+
+            "acknowledge_reminder" => {
+                let reminder_id = parsed
+                    .reminder_id
+                    .as_ref()
+                    .ok_or("Missing reminder_id for acknowledge")?
+                    .clone();
+                Ok(AgentCommand::AcknowledgeReminder { reminder_id })
+            },
+
+            "delete_reminder" => {
+                let reminder_id = parsed
+                    .reminder_id
+                    .as_ref()
+                    .ok_or("Missing reminder_id for delete")?
+                    .clone();
+                Ok(AgentCommand::DeleteReminder { reminder_id })
+            },
+
+            "search_transit" => {
+                let to_address = parsed
+                    .to_address
+                    .as_ref()
+                    .ok_or("Missing destination for transit search")?
+                    .clone();
+                Ok(AgentCommand::SearchTransit {
+                    from: parsed.from.clone().unwrap_or_default(),
+                    to: to_address,
+                    departure: parsed.departure.clone(),
+                })
+            },
+
             _ => {
                 // "ask" or any unknown intent falls back to Ask command
                 let question = parsed
@@ -1021,6 +1224,87 @@ mod tests {
         // The pattern checks for "inbox" or "mails zusammen" or "email zusammen"
         let cmd = parser.parse_quick("emails inbox zeigen").unwrap();
         assert!(matches!(cmd, AgentCommand::SummarizeInbox { .. }));
+    }
+
+    #[test]
+    fn parses_list_reminders_german() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("meine erinnerungen").unwrap();
+        let AgentCommand::ListReminders { include_done } = cmd else {
+            unreachable!("Expected ListReminders")
+        };
+        assert_eq!(include_done, Some(false));
+    }
+
+    #[test]
+    fn parses_list_reminders_english() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("show my reminders").unwrap();
+        let AgentCommand::ListReminders { include_done } = cmd else {
+            unreachable!("Expected ListReminders")
+        };
+        assert_eq!(include_done, Some(false));
+    }
+
+    #[test]
+    fn parses_list_reminders_with_all() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("zeige alle erinnerungen").unwrap();
+        let AgentCommand::ListReminders { include_done } = cmd else {
+            unreachable!("Expected ListReminders")
+        };
+        assert_eq!(include_done, Some(true));
+    }
+
+    #[test]
+    fn parses_transit_german_wie_komme_ich() {
+        let parser = CommandParser::new();
+        let cmd = parser
+            .parse_quick("Wie komme ich nach Berlin Hauptbahnhof?")
+            .unwrap();
+        let AgentCommand::SearchTransit {
+            from,
+            to,
+            departure,
+        } = cmd
+        else {
+            unreachable!("Expected SearchTransit")
+        };
+        assert!(from.is_empty()); // Default from home
+        assert_eq!(to, "Berlin Hauptbahnhof");
+        assert!(departure.is_none());
+    }
+
+    #[test]
+    fn parses_transit_german_verbindung_nach() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("verbindung nach München").unwrap();
+        let AgentCommand::SearchTransit { from: _, to, .. } = cmd else {
+            unreachable!("Expected SearchTransit")
+        };
+        assert_eq!(to, "München");
+    }
+
+    #[test]
+    fn parses_transit_english_how_do_i_get_to() {
+        let parser = CommandParser::new();
+        let cmd = parser
+            .parse_quick("how do i get to Central Station?")
+            .unwrap();
+        let AgentCommand::SearchTransit { to, .. } = cmd else {
+            unreachable!("Expected SearchTransit")
+        };
+        assert_eq!(to, "Central Station");
+    }
+
+    #[test]
+    fn parses_transit_oepnv_keyword() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("öpnv nach Alexanderplatz").unwrap();
+        let AgentCommand::SearchTransit { to, .. } = cmd else {
+            unreachable!("Expected SearchTransit")
+        };
+        assert_eq!(to, "Alexanderplatz");
     }
 }
 
@@ -1385,6 +1669,222 @@ mod async_tests {
         let result = parser.parse_llm_response(response, "");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Missing query"));
+    }
+
+    // =========================================================================
+    // Reminder Intent Tests
+    // =========================================================================
+
+    #[test]
+    fn parse_llm_response_create_reminder() {
+        let parser = CommandParser::new();
+        let response =
+            r#"{"intent":"create_reminder","title":"Call mom","remind_at":"2025-02-20T18:00:00"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::CreateReminder {
+            title,
+            remind_at,
+            description,
+        } = cmd
+        else {
+            unreachable!("Expected CreateReminder")
+        };
+        assert_eq!(title, "Call mom");
+        assert_eq!(remind_at, "2025-02-20T18:00:00");
+        assert!(description.is_none());
+    }
+
+    #[test]
+    fn parse_llm_response_create_reminder_with_description() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_reminder","title":"Meeting","remind_at":"2025-02-20T14:00","description":"Preparation needed"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::CreateReminder {
+            title, description, ..
+        } = cmd
+        else {
+            unreachable!("Expected CreateReminder")
+        };
+        assert_eq!(title, "Meeting");
+        assert_eq!(description, Some("Preparation needed".to_string()));
+    }
+
+    #[test]
+    fn parse_llm_response_create_reminder_missing_title() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_reminder","remind_at":"2025-02-20T18:00:00"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing title"));
+    }
+
+    #[test]
+    fn parse_llm_response_create_reminder_missing_remind_at() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"create_reminder","title":"Test reminder"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing remind_at"));
+    }
+
+    #[test]
+    fn parse_llm_response_list_reminders() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"list_reminders"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::ListReminders { include_done } = cmd else {
+            unreachable!("Expected ListReminders")
+        };
+        assert!(include_done.is_none());
+    }
+
+    #[test]
+    fn parse_llm_response_list_reminders_with_done() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"list_reminders","include_done":true}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::ListReminders { include_done } = cmd else {
+            unreachable!("Expected ListReminders")
+        };
+        assert_eq!(include_done, Some(true));
+    }
+
+    #[test]
+    fn parse_llm_response_snooze_reminder() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"snooze_reminder","reminder_id":"rem-123"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::SnoozeReminder {
+            reminder_id,
+            duration_minutes,
+        } = cmd
+        else {
+            unreachable!("Expected SnoozeReminder")
+        };
+        assert_eq!(reminder_id, "rem-123");
+        assert!(duration_minutes.is_none());
+    }
+
+    #[test]
+    fn parse_llm_response_snooze_reminder_with_duration() {
+        let parser = CommandParser::new();
+        let response =
+            r#"{"intent":"snooze_reminder","reminder_id":"rem-123","duration_minutes":30}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::SnoozeReminder {
+            reminder_id,
+            duration_minutes,
+        } = cmd
+        else {
+            unreachable!("Expected SnoozeReminder")
+        };
+        assert_eq!(reminder_id, "rem-123");
+        assert_eq!(duration_minutes, Some(30));
+    }
+
+    #[test]
+    fn parse_llm_response_snooze_reminder_missing_id() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"snooze_reminder"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing reminder_id"));
+    }
+
+    #[test]
+    fn parse_llm_response_acknowledge_reminder() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"acknowledge_reminder","reminder_id":"rem-456"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::AcknowledgeReminder { reminder_id } = cmd else {
+            unreachable!("Expected AcknowledgeReminder")
+        };
+        assert_eq!(reminder_id, "rem-456");
+    }
+
+    #[test]
+    fn parse_llm_response_acknowledge_reminder_missing_id() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"acknowledge_reminder"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing reminder_id"));
+    }
+
+    #[test]
+    fn parse_llm_response_delete_reminder() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"delete_reminder","reminder_id":"rem-789"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::DeleteReminder { reminder_id } = cmd else {
+            unreachable!("Expected DeleteReminder")
+        };
+        assert_eq!(reminder_id, "rem-789");
+    }
+
+    #[test]
+    fn parse_llm_response_delete_reminder_missing_id() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"delete_reminder"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing reminder_id"));
+    }
+
+    // =========================================================================
+    // Transit Intent Tests
+    // =========================================================================
+
+    #[test]
+    fn parse_llm_response_search_transit() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"search_transit","to_address":"Berlin Hauptbahnhof"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::SearchTransit {
+            from,
+            to,
+            departure,
+        } = cmd
+        else {
+            unreachable!("Expected SearchTransit")
+        };
+        assert!(from.is_empty());
+        assert_eq!(to, "Berlin Hauptbahnhof");
+        assert!(departure.is_none());
+    }
+
+    #[test]
+    fn parse_llm_response_search_transit_with_from() {
+        let parser = CommandParser::new();
+        let response =
+            r#"{"intent":"search_transit","from":"Alexanderplatz","to_address":"Potsdamer Platz"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::SearchTransit { from, to, .. } = cmd else {
+            unreachable!("Expected SearchTransit")
+        };
+        assert_eq!(from, "Alexanderplatz");
+        assert_eq!(to, "Potsdamer Platz");
+    }
+
+    #[test]
+    fn parse_llm_response_search_transit_with_departure() {
+        let parser = CommandParser::new();
+        let response =
+            r#"{"intent":"search_transit","to_address":"Munich","departure":"2025-02-20T09:00"}"#;
+        let cmd = parser.parse_llm_response(response, "").unwrap();
+        let AgentCommand::SearchTransit { departure, .. } = cmd else {
+            unreachable!("Expected SearchTransit")
+        };
+        assert_eq!(departure, Some("2025-02-20T09:00".to_string()));
+    }
+
+    #[test]
+    fn parse_llm_response_search_transit_missing_destination() {
+        let parser = CommandParser::new();
+        let response = r#"{"intent":"search_transit","from":"Berlin"}"#;
+        let result = parser.parse_llm_response(response, "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing destination"));
     }
 
     #[test]

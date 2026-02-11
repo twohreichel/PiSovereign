@@ -32,6 +32,11 @@ ignore = [
     # tokio-tar vulnerability only affects dev-dependency testcontainers
     # No fix available yet, tracking: https://github.com/testcontainers/testcontainers-rs/issues
     { id = "RUSTSEC-2025-0111", reason = "tokio-tar is only used in testcontainers dev-dependency, no production impact" },
+    # rsa vulnerability (Marvin Attack) only affects sqlx-mysql which is a transitive dep;
+    # PiSovereign uses SQLite only, no MySQL connections. No fix available upstream.
+    { id = "RUSTSEC-2023-0071", reason = "rsa is transitive via sqlx-mysql, project uses SQLite only, no MySQL exposure" },
+    # rustls-pemfile unmaintained warning only affects testcontainers dev-dependency via bollard
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile is transitive via testcontainers/bollard dev-dependency only" },
 ]
 
 # ============================================================================

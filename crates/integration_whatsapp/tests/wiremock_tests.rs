@@ -668,7 +668,7 @@ mod proptest_tests {
         fn phone_validation_rejects_short_numbers(
             num in "[0-9]{1,8}"
         ) {
-            let phone_with_plus = format!("+{}", num);
+            let phone_with_plus = format!("+{num}");
             // Phone numbers with + prefix but less than 10 total chars should be rejected
             if phone_with_plus.len() < 10 {
                 // We can't easily call the async method here, but we know the validation logic
@@ -681,7 +681,7 @@ mod proptest_tests {
             country_code in "[1-9][0-9]{0,2}",
             number in "[0-9]{7,12}"
         ) {
-            let phone = format!("+{}{}", country_code, number);
+            let phone = format!("+{country_code}{number}");
             // Valid phone numbers should be at least 10 chars with + prefix
             if phone.len() >= 10 {
                 assert!(phone.starts_with('+'));
@@ -696,8 +696,8 @@ mod proptest_tests {
             use integration_whatsapp::verify_signature;
 
             // Only sha256= prefix should be valid
-            let with_correct_prefix = format!("sha256={}", hex);
-            let with_wrong_prefix = format!("{}={}", prefix, hex);
+            let with_correct_prefix = format!("sha256={hex}");
+            let with_wrong_prefix = format!("{prefix}={hex}");
 
             // Correct prefix format should at least not panic
             let _ = verify_signature(b"test", &with_correct_prefix, "secret");

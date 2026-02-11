@@ -134,10 +134,9 @@ impl ChaosContext {
 
     /// Check if more faults can be injected (respects max_faults limit)
     pub fn can_inject(&self) -> bool {
-        match &self.remaining_faults {
-            Some(remaining) => remaining.load(Ordering::SeqCst) > 0,
-            None => true, // No limit
-        }
+        self.remaining_faults
+            .as_ref()
+            .is_none_or(|remaining| remaining.load(Ordering::SeqCst) > 0)
     }
 
     /// Get time since last injection

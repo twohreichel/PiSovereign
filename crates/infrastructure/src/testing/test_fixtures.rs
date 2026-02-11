@@ -3,7 +3,7 @@
 //! Provides convenient builders for creating test data.
 
 use chrono::{DateTime, Utc};
-use domain::entities::{ChatMessage, Conversation, MessageRole};
+use domain::entities::{ChatMessage, Conversation, ConversationSource, MessageRole};
 use domain::value_objects::ConversationId;
 use uuid::Uuid;
 
@@ -100,6 +100,8 @@ impl TestConversation {
             title: self.title,
             system_prompt: self.system_prompt,
             persisted_message_count: 0,
+            source: ConversationSource::Http,
+            phone_number: None,
         };
         // If we have messages, mark them as not yet persisted
         // (caller can call mark_messages_persisted() if needed)

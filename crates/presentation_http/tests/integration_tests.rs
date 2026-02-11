@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use axum_test::TestServer;
 use chrono::{DateTime, Utc};
 use domain::value_objects::GeoLocation;
-use domain::{ChatMessage, Conversation, ConversationId};
+use domain::{ChatMessage, Conversation, ConversationId, ConversationSource};
 use infrastructure::AppConfig;
 use presentation_http::{
     handlers::metrics::MetricsCollector, routes::create_router, state::AppState,
@@ -149,6 +149,18 @@ impl ConversationStore for MockConversationStore {
     async fn get(&self, id: &ConversationId) -> Result<Option<Conversation>, ApplicationError> {
         let store = self.conversations.read().await;
         Ok(store.get(&id.to_string()).cloned())
+    }
+
+    async fn get_by_phone_number(
+        &self,
+        source: ConversationSource,
+        phone_number: &str,
+    ) -> Result<Option<Conversation>, ApplicationError> {
+        let store = self.conversations.read().await;
+        Ok(store
+            .values()
+            .find(|c| c.source == source && c.phone_number.as_deref() == Some(phone_number))
+            .cloned())
     }
 
     async fn update(&self, conversation: &Conversation) -> Result<(), ApplicationError> {
@@ -458,6 +470,7 @@ fn create_test_state_with_health_service(
         signal_client: None,
         prompt_sanitizer: None,
         suspicious_activity_tracker: None,
+        conversation_store: None,
     }
 }
 
@@ -479,6 +492,7 @@ fn create_test_state() -> AppState {
         signal_client: None,
         prompt_sanitizer: None,
         suspicious_activity_tracker: None,
+        conversation_store: None,
     }
 }
 
@@ -500,6 +514,7 @@ fn create_unhealthy_test_state() -> AppState {
         signal_client: None,
         prompt_sanitizer: None,
         suspicious_activity_tracker: None,
+        conversation_store: None,
     }
 }
 
@@ -1014,6 +1029,7 @@ mod degraded_mode_tests {
             signal_client: None,
             prompt_sanitizer: None,
             suspicious_activity_tracker: None,
+            conversation_store: None,
         }
     }
 
@@ -1315,6 +1331,7 @@ mod workflow_tests {
             signal_client: None,
             prompt_sanitizer: None,
             suspicious_activity_tracker: None,
+            conversation_store: None,
         };
 
         (state, draft_store)
@@ -1343,6 +1360,7 @@ mod workflow_tests {
             signal_client: None,
             prompt_sanitizer: None,
             suspicious_activity_tracker: None,
+            conversation_store: None,
         };
 
         (state, user_profile_store)
@@ -1653,6 +1671,7 @@ mod workflow_tests {
             signal_client: None,
             prompt_sanitizer: None,
             suspicious_activity_tracker: None,
+            conversation_store: None,
         };
 
         let router = create_router(state);
@@ -1726,6 +1745,7 @@ mod workflow_tests {
             signal_client: None,
             prompt_sanitizer: None,
             suspicious_activity_tracker: None,
+            conversation_store: None,
         };
 
         let router = create_router(state);
@@ -1769,6 +1789,7 @@ mod workflow_tests {
             signal_client: None,
             prompt_sanitizer: None,
             suspicious_activity_tracker: None,
+            conversation_store: None,
         };
 
         let router = create_router(state);
@@ -1939,6 +1960,7 @@ mod health_service_e2e_tests {
             signal_client: None,
             prompt_sanitizer: None,
             suspicious_activity_tracker: None,
+            conversation_store: None,
         };
 
         let router = create_router(state);

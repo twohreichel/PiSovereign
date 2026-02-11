@@ -86,6 +86,7 @@ Options:
     --docker        Use Docker containers (default for development)
     --native        Build from source and install native binaries
     --monitoring    Install Prometheus + Grafana monitoring stack
+    --baikal        Install Baïkal CalDAV server (Docker)
     --branch NAME   Git branch to build from (default: main)
     --skip-build    Skip building (use pre-built binaries from GitHub releases)
     -h, --help      Show this help message
@@ -93,6 +94,7 @@ Options:
 Examples:
     $0                      # Docker deployment (recommended for Mac)
     $0 --monitoring         # With Prometheus + Grafana monitoring
+    $0 --baikal             # With Baïkal CalDAV server
     $0 --native             # Native build
     $0 --branch develop     # Build from develop branch
 
@@ -101,6 +103,7 @@ Environment Variables:
     PISOVEREIGN_VERSION Version tag to install (default: latest)
     PISOVEREIGN_BRANCH  Git branch for source builds (default: main)
     INSTALL_MONITORING  true or false (default: false)
+    INSTALL_BAIKAL      true or false (default: false)
 
 EOF
     exit 0
@@ -109,6 +112,7 @@ EOF
 parse_args() {
     SKIP_BUILD=false
     INSTALL_MONITORING=${INSTALL_MONITORING:-false}
+    INSTALL_BAIKAL=${INSTALL_BAIKAL:-false}
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -122,6 +126,10 @@ parse_args() {
                 ;;
             --monitoring)
                 INSTALL_MONITORING=true
+                shift
+                ;;
+            --baikal)
+                INSTALL_BAIKAL=true
                 shift
                 ;;
             --branch)
@@ -873,12 +881,28 @@ configure_toml() {
     prompt WEATHER_LAT "Default latitude (e.g., 52.52 for Berlin)" "52.52"
     prompt WEATHER_LON "Default longitude (e.g., 13.405 for Berlin)" "13.405"
     
-    # CalDAV configuration (optional)
-    echo -e "\n${PURPLE}--- CalDAV Calendar (optional) ---${NC}"
-    if prompt_yes_no "Configure CalDAV integration?"; then
-        prompt CALDAV_URL "CalDAV server URL" ""
-        prompt CALDAV_USER "CalDAV username" ""
-        prompt_secret CALDAV_PASS "CalDAV password"
+    # Baïkal CalDAV server (optional)
+    echo -e "\n${PURPLE}--- Baïkal CalDAV Server (optional) ---${NC}"
+    if [[ "$INSTALL_BAIKAL" != "true" ]]; then
+        if prompt_yes_no "Install Baïkal CalDAV server via Docker?"; then
+            INSTALL_BAIKAL=true
+        fi
+    fi
+
+    if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        info "Baïkal will be deployed as a Docker container on port 5232"
+        info "CalDAV URL will be set to http://baikal:80/dav.php (Docker internal)"
+        CALDAV_URL="http://baikal:80/dav.php"
+        prompt CALDAV_USER "CalDAV username (create this user in Baïkal wizard)" ""
+        prompt_secret CALDAV_PASS "CalDAV password (set this in Baïkal wizard)"
+    else
+        # External CalDAV server configuration (optional)
+        echo -e "\n${PURPLE}--- CalDAV Calendar (optional) ---${NC}"
+        if prompt_yes_no "Configure external CalDAV integration?"; then
+            prompt CALDAV_URL "CalDAV server URL" ""
+            prompt CALDAV_USER "CalDAV username" ""
+            prompt_secret CALDAV_PASS "CalDAV password"
+        fi
     fi
     
     # Proton Mail configuration (optional)
@@ -1268,12 +1292,47 @@ EOF
       interval: 30s
       timeout: 10s
       retries: 3
-
-volumes:
-  prometheus_data:
-  grafana_data:
 EOF
         info "Added Prometheus and Grafana services to docker-compose.yml"
+    fi
+
+    # Add Baïkal CalDAV service if enabled
+    if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        cat >> "$PISOVEREIGN_DIR/docker-compose.yml" << 'EOF'
+
+  baikal:
+    image: ckulka/baikal:nginx
+    container_name: baikal
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5232:80"
+    volumes:
+      - baikal-config:/var/www/baikal/config
+      - baikal-data:/var/www/baikal/Specific
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/dav.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+EOF
+        info "Added Baïkal CalDAV service to docker-compose.yml"
+    fi
+
+    # Add volumes section (conditionally include monitoring and baikal volumes)
+    local has_volumes=false
+    if [[ "$INSTALL_MONITORING" == "true" ]] || [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        has_volumes=true
+        echo "" >> "$PISOVEREIGN_DIR/docker-compose.yml"
+        echo "volumes:" >> "$PISOVEREIGN_DIR/docker-compose.yml"
+    fi
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        echo "  prometheus_data:" >> "$PISOVEREIGN_DIR/docker-compose.yml"
+        echo "  grafana_data:" >> "$PISOVEREIGN_DIR/docker-compose.yml"
+    fi
+    if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        echo "  baikal-config:" >> "$PISOVEREIGN_DIR/docker-compose.yml"
+        echo "  baikal-data:" >> "$PISOVEREIGN_DIR/docker-compose.yml"
     fi
 
     # Add networks section
@@ -1558,6 +1617,9 @@ print_summary() {
         echo "  - Prometheus:      http://localhost:9090"
         echo "  - Grafana:         http://localhost:3001 (admin/${GRAFANA_ADMIN_PASSWORD:-pisovereign})"
     fi
+    if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        echo "  - Baïkal CalDAV:   http://localhost:5232"
+    fi
     echo
     
     if [[ "$DEPLOY_MODE" == "native" ]]; then
@@ -1580,6 +1642,17 @@ print_summary() {
         echo "  Open Grafana:       open http://localhost:3001"
         echo "  PiSovereign Dashboard is pre-loaded in 'PiSovereign' folder"
         echo "  Prometheus Targets: http://localhost:9090/targets"
+    fi
+    
+    if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        echo
+        echo -e "${YELLOW}Baïkal CalDAV Setup Required:${NC}"
+        echo "  1. Open http://localhost:5232 in your browser"
+        echo "  2. Complete the setup wizard (set admin password, choose SQLite)"
+        echo "  3. Create a user matching your CalDAV username in config.toml"
+        echo "  4. Create a default calendar for that user"
+        echo "  5. Update calendar_path in config.toml:"
+        echo "     calendar_path = \"/calendars/<USERNAME>/default/\""
     fi
     
     echo
