@@ -212,6 +212,8 @@ jobs:
   ci-success:
     name: CI Success
     needs: [fmt, clippy, test, coverage, build, doc]
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     if: always()
     steps:
