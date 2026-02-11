@@ -483,6 +483,7 @@ async fn main() -> anyhow::Result<()> {
         signal_client,
         prompt_sanitizer,
         suspicious_activity_tracker,
+        conversation_store,
     };
 
     // Build router

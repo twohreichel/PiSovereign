@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use application::ports::{MessengerPort, SuspiciousActivityPort};
+use application::ports::{ConversationStore, MessengerPort, SuspiciousActivityPort};
 use application::services::PromptSanitizer;
 use application::{AgentService, ApprovalService, ChatService, HealthService, VoiceMessageService};
 use integration_signal::SignalClient;
@@ -34,6 +34,8 @@ pub struct AppState {
     pub prompt_sanitizer: Option<Arc<PromptSanitizer>>,
     /// Suspicious activity tracker for IP-based blocking
     pub suspicious_activity_tracker: Option<Arc<dyn SuspiciousActivityPort>>,
+    /// Conversation store for messenger persistence
+    pub conversation_store: Option<Arc<dyn ConversationStore>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -56,6 +58,7 @@ impl std::fmt::Debug for AppState {
                 "suspicious_activity_tracker",
                 &self.suspicious_activity_tracker.is_some(),
             )
+            .field("conversation_store", &self.conversation_store.is_some())
             .finish()
     }
 }

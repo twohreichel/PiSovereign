@@ -10,7 +10,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
-use domain::entities::AudioFormat;
+use domain::entities::{AudioFormat, Conversation, ConversationSource};
 use domain::value_objects::ConversationId;
 use integration_whatsapp::{
     IncomingMessage, WebhookPayload, WhatsAppClient, WhatsAppClientConfig, extract_all_messages,
@@ -240,6 +240,37 @@ async fn handle_text_message(
         "Processing WhatsApp text message"
     );
 
+    // Get or create conversation for this phone number
+    let mut conversation = if let Some(store) = &state.conversation_store {
+        match store
+            .get_by_phone_number(ConversationSource::WhatsApp, from)
+            .await
+        {
+            Ok(Some(conv)) => {
+                debug!(
+                    conversation_id = %conv.id,
+                    message_count = conv.messages.len(),
+                    "Found existing conversation for phone number"
+                );
+                conv
+            },
+            Ok(None) => {
+                debug!("Creating new conversation for phone number");
+                Conversation::for_messenger(ConversationSource::WhatsApp, from)
+            },
+            Err(e) => {
+                warn!(error = %e, "Failed to load conversation, creating new one");
+                Conversation::for_messenger(ConversationSource::WhatsApp, from)
+            },
+        }
+    } else {
+        // No persistence configured, create transient conversation
+        Conversation::for_messenger(ConversationSource::WhatsApp, from)
+    };
+
+    // Add user message to conversation
+    conversation.add_user_message(text);
+
     // Process message through agent service
     let result = state.agent_service.handle_input(text).await;
     let config = state.config.load();
@@ -247,6 +278,26 @@ async fn handle_text_message(
     match result {
         Ok(agent_result) => {
             let response_text = agent_result.response.clone();
+
+            // Add assistant response to conversation
+            conversation.add_assistant_message(&response_text);
+
+            // Persist conversation
+            if let Some(store) = &state.conversation_store {
+                if let Err(e) = store.save(&conversation).await {
+                    error!(
+                        error = %e,
+                        conversation_id = %conversation.id,
+                        "Failed to persist WhatsApp conversation"
+                    );
+                } else {
+                    debug!(
+                        conversation_id = %conversation.id,
+                        message_count = conversation.messages.len(),
+                        "WhatsApp conversation persisted"
+                    );
+                }
+            }
 
             // Send response back via WhatsApp API
             if let Err(e) = send_whatsapp_response(&config.whatsapp, from, &response_text).await {
@@ -260,6 +311,7 @@ async fn handle_text_message(
                 info!(
                     message_id = %message_id,
                     from = %from,
+                    conversation_id = %conversation.id,
                     success = agent_result.success,
                     "WhatsApp text message processed and response sent"
                 );
@@ -284,6 +336,17 @@ async fn handle_text_message(
                 from = %from,
                 "Failed to process WhatsApp text message"
             );
+
+            // Still persist the conversation with just the user message
+            if let Some(store) = &state.conversation_store {
+                if let Err(persist_err) = store.save(&conversation).await {
+                    warn!(
+                        error = %persist_err,
+                        "Failed to persist conversation after processing error"
+                    );
+                }
+            }
+
             MessageResponse {
                 message_id: message_id.to_string(),
                 from: from.to_string(),
