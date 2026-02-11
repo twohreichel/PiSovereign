@@ -304,6 +304,44 @@ impl AgentService {
             AgentCommand::WebSearch { query, max_results } => {
                 self.handle_web_search(query, *max_results).await
             },
+
+            // Reminder commands - will be fully implemented with ReminderService
+            AgentCommand::CreateReminder { title, .. } => Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🔔 Reminder service not yet configured. Cannot create: '{title}'"
+                ),
+            }),
+            AgentCommand::ListReminders { .. } => Ok(ExecutionResult {
+                success: false,
+                response: "🔔 Reminder service not yet configured.".to_string(),
+            }),
+            AgentCommand::SnoozeReminder { reminder_id, .. } => Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🔔 Reminder service not yet configured. Cannot snooze: {reminder_id}"
+                ),
+            }),
+            AgentCommand::AcknowledgeReminder { reminder_id } => Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🔔 Reminder service not yet configured. Cannot acknowledge: {reminder_id}"
+                ),
+            }),
+            AgentCommand::DeleteReminder { reminder_id } => Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🔔 Reminder service not yet configured. Cannot delete: {reminder_id}"
+                ),
+            }),
+
+            // Transit search - will be fully implemented with TransitPort
+            AgentCommand::SearchTransit { from, to, .. } => Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🚆 Transit service not yet configured. Cannot search: {from} → {to}"
+                ),
+            }),
         }
     }
 
