@@ -211,6 +211,22 @@ impl TransitPort for TransitAdapter {
         self.search_connections(&query).await
     }
 
+    #[instrument(skip(self))]
+    async fn geocode_address(
+        &self,
+        address: &str,
+    ) -> Result<Option<GeoLocation>, ApplicationError> {
+        debug!(%address, "Geocoding address");
+
+        match self.geocoding_client.geocode(address).await {
+            Ok(location) => Ok(Some(location)),
+            Err(e) => {
+                warn!(%address, %e, "Failed to geocode address");
+                Ok(None)
+            },
+        }
+    }
+
     async fn is_available(&self) -> bool {
         self.transit_client.is_healthy().await
     }

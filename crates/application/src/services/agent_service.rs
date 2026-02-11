@@ -3,16 +3,20 @@
 use std::{fmt, fmt::Write as _, sync::Arc, time::Instant};
 
 use chrono::Utc;
-use domain::{AgentCommand, GeoLocation, PersistedEmailDraft, SystemCommand, TaskItem, UserId};
+use domain::{AgentCommand, GeoLocation, PersistedEmailDraft, ReminderId, SystemCommand, TaskItem, UserId};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{
     command_parser::CommandParser,
     error::ApplicationError,
     ports::{
-        DraftStorePort, InferencePort, Task, TaskPort, UserProfileStore, WeatherPort, WebSearchPort,
+        DraftStorePort, InferencePort, ReminderPort, ReminderQuery, Task, TaskPort, TransitPort,
+        UserProfileStore, WeatherPort, WebSearchPort, format_connections,
     },
-    services::briefing_service::WeatherSummary,
+    services::{
+        briefing_service::WeatherSummary, format_acknowledge_confirmation, format_custom_reminder,
+        format_reminder_list, format_snooze_confirmation,
+    },
 };
 
 /// Result of executing an agent command
@@ -61,8 +65,14 @@ pub struct AgentService {
     weather_service: Option<Arc<dyn WeatherPort>>,
     /// Optional web search service for internet search
     websearch_service: Option<Arc<dyn WebSearchPort>>,
+    /// Optional reminder service for reminder management
+    reminder_service: Option<Arc<dyn ReminderPort>>,
+    /// Optional transit service for ÖPNV connections
+    transit_service: Option<Arc<dyn TransitPort>>,
     /// Default location for weather when user profile has no location
     default_weather_location: Option<GeoLocation>,
+    /// Home location for transit searches (used when "from" is not specified)
+    home_location: Option<GeoLocation>,
 }
 
 impl fmt::Debug for AgentService {
@@ -76,6 +86,8 @@ impl fmt::Debug for AgentService {
             .field("has_task", &self.task_service.is_some())
             .field("has_weather", &self.weather_service.is_some())
             .field("has_websearch", &self.websearch_service.is_some())
+            .field("has_reminder", &self.reminder_service.is_some())
+            .field("has_transit", &self.transit_service.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -93,7 +105,10 @@ impl AgentService {
             task_service: None,
             weather_service: None,
             websearch_service: None,
+            reminder_service: None,
+            transit_service: None,
             default_weather_location: None,
+            home_location: None,
         }
     }
 
@@ -146,10 +161,31 @@ impl AgentService {
         self
     }
 
+    /// Add reminder service for reminder management
+    #[must_use]
+    pub fn with_reminder_service(mut self, service: Arc<dyn ReminderPort>) -> Self {
+        self.reminder_service = Some(service);
+        self
+    }
+
+    /// Add transit service for ÖPNV connection searches
+    #[must_use]
+    pub fn with_transit_service(mut self, service: Arc<dyn TransitPort>) -> Self {
+        self.transit_service = Some(service);
+        self
+    }
+
     /// Set default weather location (fallback when user profile has no location)
     #[must_use]
     pub const fn with_default_weather_location(mut self, location: GeoLocation) -> Self {
         self.default_weather_location = Some(location);
+        self
+    }
+
+    /// Set home location for transit searches (used when "from" is not specified)
+    #[must_use]
+    pub const fn with_home_location(mut self, location: GeoLocation) -> Self {
+        self.home_location = Some(location);
         self
     }
 
@@ -305,43 +341,35 @@ impl AgentService {
                 self.handle_web_search(query, *max_results).await
             },
 
-            // Reminder commands - will be fully implemented with ReminderService
-            AgentCommand::CreateReminder { title, .. } => Ok(ExecutionResult {
-                success: false,
-                response: format!(
-                    "🔔 Reminder service not yet configured. Cannot create: '{title}'"
-                ),
-            }),
-            AgentCommand::ListReminders { .. } => Ok(ExecutionResult {
-                success: false,
-                response: "🔔 Reminder service not yet configured.".to_string(),
-            }),
-            AgentCommand::SnoozeReminder { reminder_id, .. } => Ok(ExecutionResult {
-                success: false,
-                response: format!(
-                    "🔔 Reminder service not yet configured. Cannot snooze: {reminder_id}"
-                ),
-            }),
-            AgentCommand::AcknowledgeReminder { reminder_id } => Ok(ExecutionResult {
-                success: false,
-                response: format!(
-                    "🔔 Reminder service not yet configured. Cannot acknowledge: {reminder_id}"
-                ),
-            }),
-            AgentCommand::DeleteReminder { reminder_id } => Ok(ExecutionResult {
-                success: false,
-                response: format!(
-                    "🔔 Reminder service not yet configured. Cannot delete: {reminder_id}"
-                ),
-            }),
+            // Reminder commands
+            AgentCommand::CreateReminder {
+                title,
+                remind_at,
+                description,
+            } => {
+                self.handle_create_reminder(title, remind_at, description.as_deref())
+                    .await
+            },
+            AgentCommand::ListReminders { include_done } => {
+                self.handle_list_reminders(*include_done).await
+            },
+            AgentCommand::SnoozeReminder {
+                reminder_id,
+                duration_minutes,
+            } => self.handle_snooze_reminder(reminder_id, *duration_minutes).await,
+            AgentCommand::AcknowledgeReminder { reminder_id } => {
+                self.handle_acknowledge_reminder(reminder_id).await
+            },
+            AgentCommand::DeleteReminder { reminder_id } => {
+                self.handle_delete_reminder(reminder_id).await
+            },
 
-            // Transit search - will be fully implemented with TransitPort
-            AgentCommand::SearchTransit { from, to, .. } => Ok(ExecutionResult {
-                success: false,
-                response: format!(
-                    "🚆 Transit service not yet configured. Cannot search: {from} → {to}"
-                ),
-            }),
+            // Transit search
+            AgentCommand::SearchTransit {
+                from,
+                to,
+                departure,
+            } => self.handle_search_transit(from, to, departure.as_deref()).await,
         }
     }
 
@@ -980,6 +1008,326 @@ impl AgentService {
                 websearch_service.provider_name()
             ),
         })
+    }
+
+    // =========================================================================
+    // Reminder Handlers
+    // =========================================================================
+
+    /// Handle creating a custom reminder
+    async fn handle_create_reminder(
+        &self,
+        title: &str,
+        remind_at: &str,
+        description: Option<&str>,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        let Some(ref reminder_service) = self.reminder_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🔔 Reminder service not yet configured. Cannot create: '{title}'"
+                ),
+            });
+        };
+
+        // Parse the remind_at time
+        let remind_at_time = chrono::DateTime::parse_from_rfc3339(remind_at)
+            .map(|dt| dt.with_timezone(&Utc))
+            .or_else(|_| {
+                // Try parsing with common formats
+                chrono::NaiveDateTime::parse_from_str(remind_at, "%Y-%m-%dT%H:%M:%S")
+                    .or_else(|_| {
+                        chrono::NaiveDateTime::parse_from_str(remind_at, "%Y-%m-%dT%H:%M")
+                    })
+                    .map(|ndt| ndt.and_utc())
+            })
+            .map_err(|_| {
+                ApplicationError::CommandFailed(format!(
+                    "Invalid remind_at time format: '{remind_at}'"
+                ))
+            })?;
+
+        // Create the reminder
+        let mut reminder = domain::Reminder::new(
+            UserId::default(),
+            domain::ReminderSource::Custom,
+            title.to_string(),
+            remind_at_time,
+        );
+        if let Some(desc) = description {
+            reminder.description = Some(desc.to_string());
+        }
+
+        let reminder_id = reminder.id.to_string();
+        reminder_service.save(&reminder).await?;
+
+        let formatted = format_custom_reminder(&reminder);
+        info!(reminder_id = %reminder_id, title = %title, "Created reminder");
+
+        Ok(ExecutionResult {
+            success: true,
+            response: format!("✅ Erinnerung erstellt!\n\n{formatted}"),
+        })
+    }
+
+    /// Handle listing reminders
+    async fn handle_list_reminders(
+        &self,
+        include_done: Option<bool>,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        let Some(ref reminder_service) = self.reminder_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: "🔔 Reminder service not yet configured.".to_string(),
+            });
+        };
+
+        let query = ReminderQuery {
+            include_terminal: include_done.unwrap_or(false),
+            ..Default::default()
+        };
+
+        let reminders = reminder_service.query(&query).await?;
+        let response = format_reminder_list(&reminders);
+
+        Ok(ExecutionResult {
+            success: true,
+            response,
+        })
+    }
+
+    /// Handle snoozing a reminder
+    async fn handle_snooze_reminder(
+        &self,
+        reminder_id: &str,
+        duration_minutes: Option<u32>,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        let Some(ref reminder_service) = self.reminder_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🔔 Reminder service not yet configured. Cannot snooze: {reminder_id}"
+                ),
+            });
+        };
+
+        let rid = ReminderId::parse(reminder_id).map_err(|_| {
+            ApplicationError::NotFound(format!("Invalid reminder ID: {reminder_id}"))
+        })?;
+        let Some(mut reminder) = reminder_service.get(&rid).await? else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: format!("❌ Erinnerung nicht gefunden: {reminder_id}"),
+            });
+        };
+
+        let duration_mins = i64::from(duration_minutes.unwrap_or(15));
+        let new_remind_at = Utc::now() + chrono::Duration::minutes(duration_mins);
+        if reminder.snooze(new_remind_at) {
+            reminder_service.update(&reminder).await?;
+            let new_time = reminder.remind_at.format("%H:%M");
+            let response = format_snooze_confirmation(&reminder, new_remind_at);
+            info!(reminder_id = %reminder_id, new_time = %new_time, "Snoozed reminder");
+            Ok(ExecutionResult {
+                success: true,
+                response,
+            })
+        } else {
+            Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "❌ Maximale Snooze-Anzahl erreicht für: **{}**\n\n\
+                     Diese Erinnerung kann nicht mehr verschoben werden.",
+                    reminder.title
+                ),
+            })
+        }
+    }
+
+    /// Handle acknowledging (completing) a reminder
+    async fn handle_acknowledge_reminder(
+        &self,
+        reminder_id: &str,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        let Some(ref reminder_service) = self.reminder_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🔔 Reminder service not yet configured. Cannot acknowledge: {reminder_id}"
+                ),
+            });
+        };
+
+        let rid = ReminderId::parse(reminder_id).map_err(|_| {
+            ApplicationError::NotFound(format!("Invalid reminder ID: {reminder_id}"))
+        })?;
+        let Some(mut reminder) = reminder_service.get(&rid).await? else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: format!("❌ Erinnerung nicht gefunden: {reminder_id}"),
+            });
+        };
+
+        reminder.acknowledge();
+        reminder_service.update(&reminder).await?;
+        let response = format_acknowledge_confirmation(&reminder);
+        info!(reminder_id = %reminder_id, "Acknowledged reminder");
+
+        Ok(ExecutionResult {
+            success: true,
+            response,
+        })
+    }
+
+    /// Handle deleting a reminder
+    async fn handle_delete_reminder(
+        &self,
+        reminder_id: &str,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        let Some(ref reminder_service) = self.reminder_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🔔 Reminder service not yet configured. Cannot delete: {reminder_id}"
+                ),
+            });
+        };
+
+        let rid = ReminderId::parse(reminder_id).map_err(|_| {
+            ApplicationError::NotFound(format!("Invalid reminder ID: {reminder_id}"))
+        })?;
+        let Some(reminder) = reminder_service.get(&rid).await? else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: format!("❌ Erinnerung nicht gefunden: {reminder_id}"),
+            });
+        };
+
+        let title = reminder.title.clone();
+        reminder_service.delete(&rid).await?;
+        info!(reminder_id = %reminder_id, title = %title, "Deleted reminder");
+
+        Ok(ExecutionResult {
+            success: true,
+            response: format!("🗑️ Erinnerung gelöscht: **{title}**"),
+        })
+    }
+
+    // =========================================================================
+    // Transit Handler
+    // =========================================================================
+
+    /// Handle searching for transit connections
+    async fn handle_search_transit(
+        &self,
+        from: &str,
+        to: &str,
+        departure: Option<&str>,
+    ) -> Result<ExecutionResult, ApplicationError> {
+        let Some(ref transit_service) = self.transit_service else {
+            return Ok(ExecutionResult {
+                success: false,
+                response: format!(
+                    "🚆 Transit service not yet configured. Cannot search: {from} → {to}"
+                ),
+            });
+        };
+
+        // Determine the origin - use home location if "from" is empty
+        let from_location = if from.is_empty() {
+            match &self.home_location {
+                Some(loc) => loc.clone(),
+                None => {
+                    return Ok(ExecutionResult {
+                        success: false,
+                        response: "🚆 Keine Startadresse angegeben und keine Heimadresse konfiguriert.\n\
+                                   Bitte geben Sie einen Startpunkt an."
+                            .to_string(),
+                    });
+                },
+            }
+        } else {
+            // Geocode the address
+            match transit_service.geocode_address(from).await {
+                Ok(Some(loc)) => loc,
+                Ok(None) => {
+                    return Ok(ExecutionResult {
+                        success: false,
+                        response: format!(
+                            "📍 Startadresse konnte nicht gefunden werden: **{from}**\n\n\
+                             Bitte versuchen Sie eine genauere Adresse."
+                        ),
+                    });
+                },
+                Err(e) => {
+                    warn!(error = %e, address = %from, "Failed to geocode from address");
+                    return Ok(ExecutionResult {
+                        success: false,
+                        response: format!("❌ Fehler bei der Geolokalisierung: {e}"),
+                    });
+                },
+            }
+        };
+
+        // Parse departure time if provided
+        let departure_time = if let Some(dep) = departure {
+            chrono::DateTime::parse_from_rfc3339(dep)
+                .map(|dt| dt.with_timezone(&Utc))
+                .or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(dep, "%Y-%m-%dT%H:%M:%S")
+                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(dep, "%Y-%m-%dT%H:%M"))
+                        .map(|ndt| ndt.and_utc())
+                })
+                .ok()
+        } else {
+            None
+        };
+
+        info!(from = %from, to = %to, departure = ?departure_time, "Searching transit connections");
+
+        // Search for connections (default to 5 results)
+        match transit_service
+            .find_connections_to_address(&from_location, to, departure_time, 5)
+            .await
+        {
+            Ok(connections) => {
+                if connections.is_empty() {
+                    return Ok(ExecutionResult {
+                        success: true,
+                        response: format!(
+                            "🚆 Keine Verbindungen gefunden.\n\n\
+                             **Von:** {}\n\
+                             **Nach:** {to}\n\n\
+                             Versuchen Sie einen anderen Zeitpunkt oder prüfen Sie die Adressen.",
+                            if from.is_empty() { "Heimadresse" } else { from }
+                        ),
+                    });
+                }
+
+                let response = format!(
+                    "🚆 **ÖPNV-Verbindungen nach {to}**\n\n\
+                     **Von:** {}\n\n\
+                     {}",
+                    if from.is_empty() { "Heimadresse" } else { from },
+                    format_connections(&connections)
+                );
+
+                Ok(ExecutionResult {
+                    success: true,
+                    response,
+                })
+            },
+            Err(e) => {
+                warn!(error = %e, "Transit search failed");
+                Ok(ExecutionResult {
+                    success: false,
+                    response: format!(
+                        "❌ Fehler bei der Verbindungssuche: {e}\n\n\
+                         Bitte versuchen Sie es später erneut."
+                    ),
+                })
+            },
+        }
     }
 
     /// Handle listing tasks

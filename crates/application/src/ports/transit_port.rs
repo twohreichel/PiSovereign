@@ -255,6 +255,12 @@ pub trait TransitPort: Send + Sync {
         max_results: u8,
     ) -> Result<Vec<TransitConnection>, ApplicationError>;
 
+    /// Geocode an address to coordinates
+    ///
+    /// Returns None if the address could not be resolved.
+    async fn geocode_address(&self, address: &str)
+        -> Result<Option<GeoLocation>, ApplicationError>;
+
     /// Check if the transit service is available
     async fn is_available(&self) -> bool;
 }
