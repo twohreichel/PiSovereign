@@ -5,6 +5,98 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3](https://github.com/twohreichel/PiSovereign/compare/v0.3.2...v0.3.3) (2026-02-10)
+
+
+### Features
+
+* add Prometheus and Grafana monitoring stack installation and configuration ([d640279](https://github.com/twohreichel/PiSovereign/commit/d640279e60ced0949edd8c79f0d48039131f11eb))
+* enhance cross-compilation setup for Ubuntu 24.04 by updating APT source handling ([f9aa9c1](https://github.com/twohreichel/PiSovereign/commit/f9aa9c1cb7225d722230c52359636ee23e1a28b4))
+* restructure docker-compose.yml generation for improved clarity and monitoring integration ([593e582](https://github.com/twohreichel/PiSovereign/commit/593e582f710a59ff4aceba4fab5915c1709c624c))
+* update Grafana dashboard provisioning paths for consistency across setups ([e7ee254](https://github.com/twohreichel/PiSovereign/commit/e7ee2548dba0c3583f48ef9591d6cc134ffcc8e8))
+
+## [0.3.2](https://github.com/twohreichel/PiSovereign/compare/v0.3.1...v0.3.2) (2026-02-10)
+
+
+### Features
+
+* enhance Docker workflow by integrating Buildx for multi-architecture manifest creation ([10a6691](https://github.com/twohreichel/PiSovereign/commit/10a669101c38af514443ec3585f019a0ce67c889))
+* enhance release binary build process for ARM64 cross-compilation ([66218d9](https://github.com/twohreichel/PiSovereign/commit/66218d96a1bdb884229e9dc522d7471aa753b61d))
+
+
+### Bug Fixes
+
+* lower coverage threshold to 80% for improved build stability ([343b47d](https://github.com/twohreichel/PiSovereign/commit/343b47ddf5dda696c0ce1f1b797ecdaa3fed9da9))
+
+## [0.3.1](https://github.com/twohreichel/PiSovereign/compare/v0.3.0...v0.3.1) (2026-02-10)
+
+
+### Features
+
+* add task list management commands and update command parser ([9d03b39](https://github.com/twohreichel/PiSovereign/commit/9d03b398b6abf1432a8cdbc70487f553dfd8518a))
+* **ai_core:** add Ollama embedding engine ([04dfa87](https://github.com/twohreichel/PiSovereign/commit/04dfa87693436015b961e9e181431a55096d4c58))
+* **application:** add memory, embedding, and encryption ports ([af43c92](https://github.com/twohreichel/PiSovereign/commit/af43c924f3f4dbfef1762ce47145e02917e6d766))
+* **application:** add MemoryEnhancedChat for RAG integration ([e393114](https://github.com/twohreichel/PiSovereign/commit/e393114820cb7bfeb6a6bb19c30f30734d809aed))
+* **application:** add MemoryService for AI memory management ([43ab0f8](https://github.com/twohreichel/PiSovereign/commit/43ab0f849dc00df5729634b9946fad9d64040d55))
+* **dependencies:** add chacha20poly1305 for encryption support ([9eb4e7c](https://github.com/twohreichel/PiSovereign/commit/9eb4e7c808dce745faea0d696ccd9c4793849967))
+* **domain:** add Memory entity and MemoryId value object ([29cb85a](https://github.com/twohreichel/PiSovereign/commit/29cb85ad0a328c1f0c596557ba99c33920246b22))
+* **infrastructure:** add memory storage configuration ([820c388](https://github.com/twohreichel/PiSovereign/commit/820c3880fb991761294d879c69a84e25b90327d2))
+* **infrastructure:** add memory store and encryption adapter ([e50e2d8](https://github.com/twohreichel/PiSovereign/commit/e50e2d84181660747b9e6cbd72327aabfabb4607))
+* **security:** add prompt injection prevention system ([09b16ba](https://github.com/twohreichel/PiSovereign/commit/09b16bac609a3320cbf8eb35e06a575c370eea67))
+
+
+### Bug Fixes
+
+* copy config.toml.example in Docker build ([472efb1](https://github.com/twohreichel/PiSovereign/commit/472efb1d1ee3b50b6cd2e20af5f2ee771e021864))
+
+
+### Documentation
+
+* add AI memory system documentation ([13e9c01](https://github.com/twohreichel/PiSovereign/commit/13e9c01dd63f2a09736f07761158cf2862be7765))
+
+## [0.3.0](https://github.com/twohreichel/PiSovereign/compare/v0.2.2...v0.3.0) (2026-02-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ai_core,infrastructure:** Renamed types and modules for clarity:
+    - `hailo/` module -> `ollama/` in ai_core crate
+    - `HailoInferenceEngine` -> `OllamaInferenceEngine`
+    - `HailoInferenceAdapter` -> `OllamaInferenceAdapter`
+    - `HailoModelRegistryAdapter` -> `OllamaModelRegistryAdapter`
+    - `HailoModelRegistryConfig` -> `OllamaModelRegistryConfig`
+
+### Features
+
+* **ai_speech:** add platform-specific default paths ([dd47d6d](https://github.com/twohreichel/PiSovereign/commit/dd47d6da5a315e1fbfb4fdfdba8c43d026231674))
+* **config:** add messenger selection and Signal configuration ([47acda9](https://github.com/twohreichel/PiSovereign/commit/47acda998f2f4037b513d6b4c232eca141db788e))
+* **documentation:** enhance user guides with Signal messenger setup and configuration details ([66ca1bf](https://github.com/twohreichel/PiSovereign/commit/66ca1bf5ca7df5a366e9d09f56b384e9c6cf79c8))
+* **domain:** add MessengerSource and MessengerPort for multi-messenger support ([8d2d3a6](https://github.com/twohreichel/PiSovereign/commit/8d2d3a63b498f615aa573ebff18e8d6ac1a1b23a))
+* **infrastructure:** add WhatsApp and Signal messenger adapters ([784a568](https://github.com/twohreichel/PiSovereign/commit/784a5686f8337bab37d10bf8d0af9f0a993130e2))
+* **integration_signal:** add Signal messenger integration crate ([cba5938](https://github.com/twohreichel/PiSovereign/commit/cba5938ff6cca0c4139e97b1eb38d24af6175ecd))
+* **presentation_http:** add Signal handlers, routes, and AppState integration ([8ae093c](https://github.com/twohreichel/PiSovereign/commit/8ae093ccee53ada027c212ea47603a9ffc48db72))
+* **setup:** add signal-cli installation and systemd service for Signal messenger integration ([261e22a](https://github.com/twohreichel/PiSovereign/commit/261e22ab952766a7dc9697c7b20169bd308b0bb7))
+
+
+### Bug Fixes
+
+* **adapters:** reorder ollama_inference_adapter module for consistency ([78288cf](https://github.com/twohreichel/PiSovereign/commit/78288cf1ecaf069043c34388ed826202b6161725))
+* **tests:** fix platform-specific whisper executable tests and SignalConfig defaults ([5beeb5b](https://github.com/twohreichel/PiSovereign/commit/5beeb5b2a4966abaeab662787a4e6019396d53fa))
+* update LLM model reference and adjust whisper executable for macOS ([16d1870](https://github.com/twohreichel/PiSovereign/commit/16d187063772250e75eaa85a2d84bb6fe3473cac))
+
+
+### Documentation
+
+* add comprehensive macOS setup guide ([7230d1c](https://github.com/twohreichel/PiSovereign/commit/7230d1c19054ceef39fa73277f79e72371aa3ad2))
+* **config:** add platform support documentation ([b08dd29](https://github.com/twohreichel/PiSovereign/commit/b08dd290a25384533a876ff3dddd2fbc274cb961))
+* **readme:** add macOS platform support ([1e86cc5](https://github.com/twohreichel/PiSovereign/commit/1e86cc59d3609e3a6e504a3f3e689ccd8b1a820a))
+* **readme:** update quick start section and add setup instructions for macOS and Raspberry Pi ([3dcf228](https://github.com/twohreichel/PiSovereign/commit/3dcf228a46e5d3c2faaa94bf9d61f7886d11ce2d))
+
+
+### Code Refactoring
+
+* **ai_core,infrastructure:** rename hailo module to ollama ([32cb6ce](https://github.com/twohreichel/PiSovereign/commit/32cb6cebe031229b73adb9fb5c27173f9cd110b6))
+
 ## [0.2.2](https://github.com/twohreichel/PiSovereign/compare/v0.2.1...v0.2.2) (2026-02-08)
 
 
