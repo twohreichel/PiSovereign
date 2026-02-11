@@ -963,10 +963,9 @@ END:VCALENDAR";
         let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
         let _client = HttpCalDavClient::new(config).unwrap();
 
-        // Parser is lenient; non-calendar data returns empty events
+        // icalendar 0.17+ correctly rejects invalid data with a parse error
         let result = HttpCalDavClient::parse_icalendar("not valid icalendar data");
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.is_err());
     }
 
     #[test]

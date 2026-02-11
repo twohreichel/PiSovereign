@@ -47,7 +47,7 @@ tracing-opentelemetry.workspace = true
 
 # Caching
 moka.workspace = true
-redb = "2.6"
+redb = "3.1"
 blake3.workspace = true
 bincode = { version = "2.0", features = ["derive"] }
 
@@ -64,7 +64,7 @@ secrecy.workspace = true
 chacha20poly1305 = "0.10"
 
 # Random number generation for jitter
-rand = "0.8"
+rand = "0.9"
 
 # Template engine
 tera.workspace = true

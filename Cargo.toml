@@ -77,7 +77,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
+reqwest = { version = "0.13", features = ["json", "query", "form", "stream", "multipart"] }
 
 # Bytes handling
 bytes = "1.9"
@@ -97,7 +97,7 @@ opentelemetry-otlp = { version = "0.31", default-features = false, features = ["
 tracing-opentelemetry = "0.32"
 
 # Validation
-validator = { version = "0.19", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 
 # Async traits
 async-trait = "0.1"
@@ -109,12 +109,12 @@ uuid = { version = "1.11", features = ["v4", "v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # Config
-config = "0.14"
-toml = "0.8"
+config = "0.15"
+toml = "0.9"
 
 # Testing
 tokio-test = "0.4"
-mockall = "0.13"
+mockall = "0.14"
 tempfile = "3.15"
 
 # Database
@@ -142,8 +142,8 @@ proptest = "1.5"
 wiremock = "0.6"
 
 # Container-based integration tests
-testcontainers = "0.23"
-testcontainers-modules = { version = "0.11", features = ["postgres", "redis"] }
+testcontainers = "0.26"
+testcontainers-modules = { version = "0.14", features = ["postgres", "redis"] }
 
 # Caching
 moka = { version = "0.12", features = ["future"] }
@@ -151,7 +151,7 @@ blake3 = "1.5"
 
 # Metrics
 metrics = "0.24"
-metrics-exporter-prometheus = "0.16"
+metrics-exporter-prometheus = "0.18"
 
 # OpenAPI documentation
 utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
@@ -181,7 +181,7 @@ tokio-cron-scheduler = "0.15"
 cron = "0.15"
 
 # S3 storage (for backups)
-rust-s3 = { version = "0.36", default-features = false, features = ["tokio-native-tls"] }
+rust-s3 = { version = "0.37", default-features = false, features = ["tokio-native-tls"] }
 
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
