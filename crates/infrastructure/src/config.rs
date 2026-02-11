@@ -3,6 +3,7 @@
 use ai_core::InferenceConfig;
 use ai_speech::SpeechConfig;
 use domain::MessengerSource;
+use integration_transit::TransitConfig as IntegrationTransitConfig;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -172,6 +173,14 @@ pub struct AppConfig {
     /// Memory/knowledge storage configuration (optional)
     #[serde(default)]
     pub memory: Option<MemoryAppConfig>,
+
+    /// Public transit configuration (optional, for ÖPNV connections)
+    #[serde(default)]
+    pub transit: Option<TransitAppConfig>,
+
+    /// Reminder configuration (optional, for reminder system settings)
+    #[serde(default)]
+    pub reminder: Option<ReminderAppConfig>,
 }
 
 /// HTTP server configuration
@@ -606,6 +615,10 @@ pub struct WhatsAppConfig {
     /// Phone numbers allowed to send messages (empty = allow all)
     #[serde(default)]
     pub whitelist: Vec<String>,
+
+    /// Conversation persistence configuration
+    #[serde(default)]
+    pub persistence: MessengerPersistenceConfig,
 }
 
 impl std::fmt::Debug for WhatsAppConfig {
@@ -624,6 +637,7 @@ impl std::fmt::Debug for WhatsAppConfig {
             .field("signature_required", &self.signature_required)
             .field("api_version", &self.api_version)
             .field("whitelist", &format!("[{} entries]", self.whitelist.len()))
+            .field("persistence", &self.persistence)
             .finish()
     }
 }
@@ -642,6 +656,7 @@ impl Default for WhatsAppConfig {
             signature_required: true,
             api_version: default_api_version(),
             whitelist: Vec::new(),
+            persistence: MessengerPersistenceConfig::default(),
         }
     }
 }
@@ -682,6 +697,10 @@ pub struct SignalConfig {
     /// Phone numbers allowed to send messages (empty = allow all)
     #[serde(default)]
     pub whitelist: Vec<String>,
+
+    /// Conversation persistence configuration
+    #[serde(default)]
+    pub persistence: MessengerPersistenceConfig,
 }
 
 fn default_signal_socket_path() -> String {
@@ -700,6 +719,7 @@ impl std::fmt::Debug for SignalConfig {
             .field("data_path", &self.data_path)
             .field("timeout_ms", &self.timeout_ms)
             .field("whitelist", &format!("[{} entries]", self.whitelist.len()))
+            .field("persistence", &self.persistence)
             .finish()
     }
 }
@@ -712,6 +732,65 @@ impl Default for SignalConfig {
             data_path: None,
             timeout_ms: default_signal_timeout(),
             whitelist: Vec::new(),
+            persistence: MessengerPersistenceConfig::default(),
+        }
+    }
+}
+
+/// Messenger conversation persistence configuration
+///
+/// Controls how messenger (WhatsApp/Signal) conversations are stored,
+/// encrypted, and integrated with the memory/RAG system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct MessengerPersistenceConfig {
+    /// Enable conversation persistence (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Enable encryption for stored messages (default: true)
+    /// Uses the same encryption as the memory system
+    #[serde(default = "default_true")]
+    pub enable_encryption: bool,
+
+    /// Enable RAG context retrieval for conversations (default: true)
+    #[serde(default = "default_true")]
+    pub enable_rag: bool,
+
+    /// Enable automatic learning from interactions (default: true)
+    /// Stores Q&A pairs as memories for future context
+    #[serde(default = "default_true")]
+    pub enable_learning: bool,
+
+    /// Maximum number of days to retain conversations (Optional)
+    /// If set, conversations older than this will be cleaned up
+    #[serde(default)]
+    pub retention_days: Option<u32>,
+
+    /// Maximum messages per conversation before FIFO truncation (Optional)
+    /// If set, oldest messages are removed when this limit is exceeded
+    #[serde(default)]
+    pub max_messages_per_conversation: Option<usize>,
+
+    /// Number of recent messages to include as context for new messages (default: 50)
+    #[serde(default = "default_context_window")]
+    pub context_window: usize,
+}
+
+const fn default_context_window() -> usize {
+    50
+}
+
+impl Default for MessengerPersistenceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            enable_encryption: true,
+            enable_rag: true,
+            enable_learning: true,
+            retention_days: None,
+            max_messages_per_conversation: None,
+            context_window: default_context_window(),
         }
     }
 }
@@ -1562,6 +1641,7 @@ mod tests {
             data_path: Some("/data".to_string()),
             timeout_ms: 60000,
             whitelist: vec!["+11111111111".to_string()],
+            persistence: MessengerPersistenceConfig::default(),
         };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: SignalConfig = serde_json::from_str(&json).unwrap();
@@ -1570,6 +1650,7 @@ mod tests {
         assert_eq!(parsed.data_path, Some("/data".to_string()));
         assert_eq!(parsed.timeout_ms, 60000);
         assert_eq!(parsed.whitelist.len(), 1);
+        assert!(parsed.persistence.enabled);
     }
 
     #[test]
@@ -1579,6 +1660,49 @@ mod tests {
         assert!(debug.contains("SignalConfig"));
         assert!(debug.contains("phone_number"));
         assert!(debug.contains("socket_path"));
+    }
+
+    #[test]
+    fn messenger_persistence_config_default() {
+        let config = MessengerPersistenceConfig::default();
+        assert!(config.enabled);
+        assert!(config.enable_encryption);
+        assert!(config.enable_rag);
+        assert!(config.enable_learning);
+        assert!(config.retention_days.is_none());
+        assert!(config.max_messages_per_conversation.is_none());
+        assert_eq!(config.context_window, 50);
+    }
+
+    #[test]
+    fn messenger_persistence_config_serialization() {
+        let config = MessengerPersistenceConfig {
+            enabled: true,
+            enable_encryption: false,
+            enable_rag: true,
+            enable_learning: false,
+            retention_days: Some(90),
+            max_messages_per_conversation: Some(1000),
+            context_window: 25,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: MessengerPersistenceConfig = serde_json::from_str(&json).unwrap();
+        assert!(parsed.enabled);
+        assert!(!parsed.enable_encryption);
+        assert!(parsed.enable_rag);
+        assert!(!parsed.enable_learning);
+        assert_eq!(parsed.retention_days, Some(90));
+        assert_eq!(parsed.max_messages_per_conversation, Some(1000));
+        assert_eq!(parsed.context_window, 25);
+    }
+
+    #[test]
+    fn messenger_persistence_config_debug() {
+        let config = MessengerPersistenceConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("MessengerPersistenceConfig"));
+        assert!(debug.contains("enabled"));
+        assert!(debug.contains("enable_rag"));
     }
 
     #[test]
@@ -2338,4 +2462,196 @@ const fn default_embedding_dimension() -> usize {
 
 const fn default_embedding_timeout() -> u64 {
     30000
+}
+
+// ==============================
+// Transit Configuration
+// ==============================
+
+/// Public transit configuration for ÖPNV connections
+///
+/// Configures the transport.rest API integration for German public transit.
+#[allow(clippy::struct_excessive_bools)] // Configuration needs multiple boolean flags
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransitAppConfig {
+    /// Base URL for transport.rest API (default: v6.db.transport.rest)
+    #[serde(default = "default_transit_base_url")]
+    pub base_url: String,
+
+    /// Request timeout in seconds (default: 10)
+    #[serde(default = "default_transit_timeout")]
+    pub timeout_secs: u64,
+
+    /// Maximum number of journey results (default: 3)
+    #[serde(default = "default_transit_max_results")]
+    pub max_results: u8,
+
+    /// Cache TTL in minutes (default: 5)
+    #[serde(default = "default_transit_cache_ttl")]
+    pub cache_ttl_minutes: u32,
+
+    /// Include transit info in location-based reminders (default: true)
+    #[serde(default = "default_true")]
+    pub include_in_reminders: bool,
+
+    /// Include bus connections (default: true)
+    #[serde(default = "default_true")]
+    pub products_bus: bool,
+
+    /// Include S-Bahn connections (default: true)
+    #[serde(default = "default_true")]
+    pub products_suburban: bool,
+
+    /// Include U-Bahn connections (default: true)
+    #[serde(default = "default_true")]
+    pub products_subway: bool,
+
+    /// Include tram connections (default: true)
+    #[serde(default = "default_true")]
+    pub products_tram: bool,
+
+    /// Include regional train connections (default: true)
+    #[serde(default = "default_true")]
+    pub products_regional: bool,
+
+    /// Include national train connections (default: false)
+    #[serde(default)]
+    pub products_national: bool,
+
+    /// User's home location for calculating routes (optional)
+    #[serde(default)]
+    pub home_location: Option<GeoLocationConfig>,
+}
+
+fn default_transit_base_url() -> String {
+    "https://v6.db.transport.rest".to_string()
+}
+
+const fn default_transit_timeout() -> u64 {
+    10
+}
+
+const fn default_transit_max_results() -> u8 {
+    3
+}
+
+const fn default_transit_cache_ttl() -> u32 {
+    5
+}
+
+impl Default for TransitAppConfig {
+    fn default() -> Self {
+        Self {
+            base_url: default_transit_base_url(),
+            timeout_secs: default_transit_timeout(),
+            max_results: default_transit_max_results(),
+            cache_ttl_minutes: default_transit_cache_ttl(),
+            include_in_reminders: true,
+            products_bus: true,
+            products_suburban: true,
+            products_subway: true,
+            products_tram: true,
+            products_regional: true,
+            products_national: false,
+            home_location: None,
+        }
+    }
+}
+
+impl TransitAppConfig {
+    /// Convert to integration_transit::TransitConfig
+    #[must_use]
+    pub fn to_transit_config(&self) -> IntegrationTransitConfig {
+        IntegrationTransitConfig {
+            base_url: self.base_url.clone(),
+            timeout_secs: self.timeout_secs,
+            max_results: self.max_results,
+            cache_ttl_minutes: self.cache_ttl_minutes,
+            include_in_reminders: self.include_in_reminders,
+            products_bus: self.products_bus,
+            products_suburban: self.products_suburban,
+            products_subway: self.products_subway,
+            products_tram: self.products_tram,
+            products_regional: self.products_regional,
+            products_national: self.products_national,
+            products_national_express: false,
+        }
+    }
+}
+
+// ==============================
+// Reminder Configuration
+// ==============================
+
+/// Reminder system configuration
+///
+/// Configures the reminder system behavior including snooze limits,
+/// notification timing, and CalDAV sync settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReminderAppConfig {
+    /// Maximum number of snoozes allowed per reminder (default: 5)
+    #[serde(default = "default_max_snooze")]
+    pub max_snooze: u8,
+
+    /// Default snooze duration in minutes (default: 15)
+    #[serde(default = "default_snooze_minutes")]
+    pub default_snooze_minutes: u32,
+
+    /// How far in advance to create reminders from CalDAV events (minutes)
+    #[serde(default = "default_caldav_reminder_lead_time")]
+    pub caldav_reminder_lead_time_minutes: u32,
+
+    /// Interval for checking due reminders (seconds, default: 60)
+    #[serde(default = "default_reminder_check_interval")]
+    pub check_interval_secs: u64,
+
+    /// CalDAV sync interval (minutes, default: 15)
+    #[serde(default = "default_caldav_sync_interval")]
+    pub caldav_sync_interval_minutes: u32,
+
+    /// Morning briefing time (HH:MM format, default: "07:00")
+    #[serde(default = "default_morning_briefing_time")]
+    pub morning_briefing_time: String,
+
+    /// Enable morning briefing (default: true)
+    #[serde(default = "default_true")]
+    pub morning_briefing_enabled: bool,
+}
+
+const fn default_max_snooze() -> u8 {
+    5
+}
+
+const fn default_snooze_minutes() -> u32 {
+    15
+}
+
+const fn default_caldav_reminder_lead_time() -> u32 {
+    30
+}
+
+const fn default_reminder_check_interval() -> u64 {
+    60
+}
+
+const fn default_caldav_sync_interval() -> u32 {
+    15
+}
+
+fn default_morning_briefing_time() -> String {
+    "07:00".to_string()
+}
+
+impl Default for ReminderAppConfig {
+    fn default() -> Self {
+        Self {
+            max_snooze: default_max_snooze(),
+            default_snooze_minutes: default_snooze_minutes(),
+            caldav_reminder_lead_time_minutes: default_caldav_reminder_lead_time(),
+            check_interval_secs: default_reminder_check_interval(),
+            caldav_sync_interval_minutes: default_caldav_sync_interval(),
+            morning_briefing_time: default_morning_briefing_time(),
+            morning_briefing_enabled: true,
+        }
+    }
 }

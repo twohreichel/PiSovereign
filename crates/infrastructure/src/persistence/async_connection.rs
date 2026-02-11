@@ -157,7 +157,9 @@ impl AsyncDatabase {
                 system_prompt TEXT,
                 metadata TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'http',
+                phone_number TEXT
             )
             ",
         )

@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn debug_format() {
         let client = SignalClient::new(test_config());
-        let debug = format!("{:?}", client);
+        let debug = format!("{client:?}");
         assert!(debug.contains("SignalClient"));
         assert!(debug.contains("+1234567890"));
     }

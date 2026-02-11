@@ -13,6 +13,7 @@
 - [Configuration Reference](./user/configuration.md)
 - [External Services](./user/external-services.md)
 - [Signal Setup](./user/signal-setup.md)
+- [Reminder System](./user/reminders.md)
 - [Troubleshooting](./user/troubleshooting.md)
 
 ---

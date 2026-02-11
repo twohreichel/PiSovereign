@@ -364,6 +364,12 @@ fn command_type_name(command: &AgentCommand) -> String {
         },
         AgentCommand::Unknown { .. } => "unknown",
         AgentCommand::WebSearch { .. } => "web_search",
+        AgentCommand::CreateReminder { .. } => "create_reminder",
+        AgentCommand::ListReminders { .. } => "list_reminders",
+        AgentCommand::SnoozeReminder { .. } => "snooze_reminder",
+        AgentCommand::AcknowledgeReminder { .. } => "acknowledge_reminder",
+        AgentCommand::DeleteReminder { .. } => "delete_reminder",
+        AgentCommand::SearchTransit { .. } => "search_transit",
     }
     .to_string()
 }

@@ -16,6 +16,7 @@ pub mod database_health;
 pub mod draft_store;
 pub mod memory_store;
 pub mod migrations;
+pub mod reminder_store;
 pub mod retry_queue;
 pub mod user_profile_store;
 
@@ -28,6 +29,7 @@ pub use conversation_store::SqliteConversationStore;
 pub use database_health::SqliteDatabaseHealth;
 pub use draft_store::SqliteDraftStore;
 pub use memory_store::SqliteMemoryStore;
+pub use reminder_store::SqliteReminderStore;
 pub use retry_queue::{
     DeadLetterItem, QueueStats, RetryItem, RetryQueueError, RetryQueueStore, RetryStatus,
 };

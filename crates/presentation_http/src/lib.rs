@@ -9,6 +9,7 @@ pub mod middleware;
 pub mod openapi;
 pub mod routes;
 pub mod state;
+pub mod tasks;
 
 pub use config_reload::{ReloadableConfig, spawn_config_reload_handler};
 pub use error::ApiError;
@@ -19,3 +20,4 @@ pub use middleware::{
 pub use openapi::{ApiDoc, create_openapi_routes};
 pub use routes::create_router;
 pub use state::AppState;
+pub use tasks::spawn_conversation_cleanup_task;

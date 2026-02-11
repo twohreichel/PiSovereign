@@ -601,7 +601,7 @@ mod calendar_event_tests {
     #[test]
     fn event_debug() {
         let event = test_event();
-        let debug = format!("{:?}", event);
+        let debug = format!("{event:?}");
         assert!(debug.contains("CalendarEvent"));
         assert!(debug.contains("Test Meeting"));
     }

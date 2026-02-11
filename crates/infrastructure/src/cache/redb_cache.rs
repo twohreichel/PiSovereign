@@ -21,7 +21,7 @@ use application::{
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
 use redb::ReadableTableMetadata;
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use tracing::{debug, instrument, warn};
 
 /// Table definition for cache entries

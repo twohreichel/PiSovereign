@@ -534,7 +534,7 @@ mod security_warning_tests {
     #[test]
     fn warning_display_format() {
         let warning = SecurityWarning::critical("SEC001", "TLS disabled", "Enable TLS");
-        let display = format!("{}", warning);
+        let display = format!("{warning}");
 
         assert!(display.contains("CRITICAL"));
         assert!(display.contains("SEC001"));
@@ -801,7 +801,7 @@ mod concurrency_tests {
                 let uri = uri.clone();
                 tokio::spawn(async move {
                     client
-                        .get(format!("{}/concurrent", uri))
+                        .get(format!("{uri}/concurrent"))
                         .send()
                         .await
                         .unwrap()
@@ -1572,11 +1572,7 @@ mod encryption_extended_tests {
         for (i, key1) in keys.iter().enumerate() {
             for (j, key2) in keys.iter().enumerate() {
                 if i != j {
-                    assert_ne!(
-                        key1, key2,
-                        "Keys at index {} and {} should be different",
-                        i, j
-                    );
+                    assert_ne!(key1, key2, "Keys at index {i} and {j} should be different");
                 }
             }
         }
@@ -1595,7 +1591,7 @@ mod encryption_extended_tests {
             let encrypted = adapter.encrypt(&plaintext).await.unwrap();
             let decrypted = adapter.decrypt(&encrypted).await.unwrap();
 
-            assert_eq!(plaintext, decrypted, "Failed for size {}", size);
+            assert_eq!(plaintext, decrypted, "Failed for size {size}");
         }
     }
 
@@ -1618,7 +1614,7 @@ mod encryption_extended_tests {
             let decrypted = adapter.decrypt(&encrypted).await.unwrap();
             let decrypted_str = String::from_utf8(decrypted).unwrap();
 
-            assert_eq!(s, decrypted_str, "Failed for string: {}", s);
+            assert_eq!(s, decrypted_str, "Failed for string: {s}");
         }
     }
 
@@ -1628,14 +1624,14 @@ mod encryption_extended_tests {
         for size in [0, 1, 15, 16, 31] {
             let key = vec![0u8; size];
             let result = ChaChaEncryptionAdapter::new(&key);
-            assert!(result.is_err(), "Should reject key of size {}", size);
+            assert!(result.is_err(), "Should reject key of size {size}");
         }
 
         // Too long
         for size in [33, 64, 128] {
             let key = vec![0u8; size];
             let result = ChaChaEncryptionAdapter::new(&key);
-            assert!(result.is_err(), "Should reject key of size {}", size);
+            assert!(result.is_err(), "Should reject key of size {size}");
         }
 
         // Correct size
@@ -1661,7 +1657,7 @@ mod encryption_extended_tests {
                 encrypted[pos] ^= 0xFF;
 
                 let result = adapter.decrypt(&encrypted).await;
-                assert!(result.is_err(), "Should fail for tampered position {}", pos);
+                assert!(result.is_err(), "Should fail for tampered position {pos}");
 
                 encrypted[pos] = original; // Restore for next test
             }
@@ -1708,11 +1704,7 @@ mod api_key_hasher_extended_tests {
 
         for key in test_keys {
             let hash = hasher.hash(key).unwrap();
-            assert!(
-                hasher.verify(key, &hash).unwrap(),
-                "Failed for key: {}",
-                key
-            );
+            assert!(hasher.verify(key, &hash).unwrap(), "Failed for key: {key}");
         }
     }
 
