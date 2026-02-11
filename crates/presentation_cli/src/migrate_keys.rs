@@ -121,9 +121,8 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                         });
                                         migrated += 1;
                                         println!(
-                                            "  ✅ Migrated api_key_users[{}...] → api_keys (user_id: {})",
+                                            "  ✅ Migrated api_key_users[{}...] → api_keys",
                                             &key[..8.min(key.len())],
-                                            user_id_str
                                         );
                                     },
                                     Err(e) => {
