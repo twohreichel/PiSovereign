@@ -172,10 +172,7 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                             user_id: user_id.to_string(),
                                         });
                                         migrated += 1;
-                                        println!(
-                                            "  ✅ Migrated plaintext hash → proper hash (user_id: {})",
-                                            user_id
-                                        );
+                                        println!("  ✅ Migrated plaintext hash → proper hash");
                                     },
                                     Err(e) => {
                                         failed += 1;
