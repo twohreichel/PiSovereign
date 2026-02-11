@@ -152,9 +152,9 @@ mod conversation_store_tests {
         // Add messages in order
         for i in 0..5 {
             if i % 2 == 0 {
-                conversation.add_message(ChatMessage::user(format!("Message {}", i)));
+                conversation.add_message(ChatMessage::user(format!("Message {i}")));
             } else {
-                conversation.add_message(ChatMessage::assistant(format!("Message {}", i)));
+                conversation.add_message(ChatMessage::assistant(format!("Message {i}")));
             }
         }
 
@@ -325,8 +325,7 @@ mod audit_log_tests {
         let log = SqliteAuditLog::new(pool);
 
         for i in 0..10 {
-            let entry =
-                create_test_audit_entry(AuditEventType::DataAccess, &format!("action_{}", i));
+            let entry = create_test_audit_entry(AuditEventType::DataAccess, &format!("action_{i}"));
             log.log(&entry).await.unwrap();
         }
 
@@ -688,7 +687,7 @@ mod concurrent_access_tests {
                 barrier.wait().await;
 
                 let mut conv = Conversation::new();
-                conv.title = Some(format!("Conversation {}", i));
+                conv.title = Some(format!("Conversation {i}"));
 
                 store.save(&conv).await.expect("Failed to save");
                 conv.id

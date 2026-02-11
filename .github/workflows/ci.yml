@@ -18,6 +18,12 @@ name: CI
 permissions:
   contents: read
 
+permissions:
+  contents: read
+
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -36,11 +42,18 @@ on:
       - "rust-toolchain.toml"
       - ".github/workflows/ci.yml"
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   # Use rust-toolchain.toml version
   RUSTUP_TOOLCHAIN: "1.93.0"
+
+# Restrict GITHUB_TOKEN to minimum required permissions
+permissions:
+  contents: read
 
 # Cancel in-progress runs for the same branch
 concurrency:
@@ -214,6 +227,8 @@ jobs:
   ci-success:
     name: CI Success
     needs: [fmt, clippy, test, coverage, build, doc]
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     if: always()
     steps:

@@ -47,6 +47,7 @@ impl FaultInjectorConfig {
     }
 
     /// Set the cooldown period between injections
+    #[must_use]
     pub const fn with_cooldown(mut self, cooldown: Duration) -> Self {
         self.cooldown = Some(cooldown);
         self

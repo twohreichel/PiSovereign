@@ -90,6 +90,7 @@ Options:
     --native        Build from source and install native binaries (default)
     --docker        Use Docker containers instead of native binaries
     --monitoring    Install Prometheus + Grafana monitoring stack
+    --baikal        Install Baïkal CalDAV server (Docker)
     --branch NAME   Git branch to build from (default: main)
     --skip-security Skip security hardening steps
     --skip-build    Skip building (use pre-built binaries from GitHub releases)
@@ -98,6 +99,7 @@ Options:
 Examples:
     sudo $0                      # Native build (recommended for Pi)
     sudo $0 --monitoring         # With Prometheus + Grafana monitoring
+    sudo $0 --baikal             # With Baïkal CalDAV server
     sudo $0 --docker             # Docker deployment
     sudo $0 --branch develop     # Build from develop branch
     sudo $0 --skip-security      # Skip SSH/firewall hardening
@@ -107,6 +109,7 @@ Environment Variables:
     PISOVEREIGN_VERSION Version tag to install (default: latest)
     PISOVEREIGN_BRANCH  Git branch for source builds (default: main)
     INSTALL_MONITORING  true or false (default: false)
+    INSTALL_BAIKAL      true or false (default: false)
 
 EOF
     exit 0
@@ -116,6 +119,7 @@ parse_args() {
     SKIP_SECURITY=false
     SKIP_BUILD=false
     INSTALL_MONITORING=${INSTALL_MONITORING:-false}
+    INSTALL_BAIKAL=${INSTALL_BAIKAL:-false}
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -129,6 +133,10 @@ parse_args() {
                 ;;
             --monitoring)
                 INSTALL_MONITORING=true
+                shift
+                ;;
+            --baikal)
+                INSTALL_BAIKAL=true
                 shift
                 ;;
             --branch)
@@ -1118,6 +1126,34 @@ configure_toml() {
     info "Default location for weather (Berlin: 52.52, 13.405)"
     weather_lat=$(prompt_input "Latitude" "52.52")
     weather_lon=$(prompt_input "Longitude" "13.405")
+
+    # Baïkal CalDAV server (optional)
+    local caldav_url=""
+    local caldav_user=""
+    local caldav_pass=""
+    echo
+    echo -e "${PURPLE}--- Baïkal CalDAV Server (optional) ---${NC}"
+    if [[ "$INSTALL_BAIKAL" != "true" ]]; then
+        if prompt_yes_no "Install Baïkal CalDAV server via Docker?"; then
+            INSTALL_BAIKAL=true
+        fi
+    fi
+
+    if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        info "Baïkal will be deployed as a Docker container on port 5232"
+        info "CalDAV URL will be set to http://baikal:80/dav.php (Docker internal)"
+        caldav_url="http://baikal:80/dav.php"
+        caldav_user=$(prompt_input "CalDAV username (create this user in Baïkal wizard)")
+        caldav_pass=$(prompt_secret "CalDAV password (set this in Baïkal wizard)")
+    else
+        # External CalDAV server configuration (optional)
+        echo -e "\n${PURPLE}--- CalDAV Calendar (optional) ---${NC}"
+        if prompt_yes_no "Configure external CalDAV integration?"; then
+            caldav_url=$(prompt_input "CalDAV server URL")
+            caldav_user=$(prompt_input "CalDAV username")
+            caldav_pass=$(prompt_secret "CalDAV password")
+        fi
+    fi
     
     # Generate config.toml
     info "Generating configuration..."
@@ -1242,6 +1278,19 @@ forecast_days = 7
 cache_ttl_minutes = 30
 default_location = { latitude = $weather_lat, longitude = $weather_lon }
 EOF
+
+    # Add CalDAV configuration
+    if [[ -n "$caldav_url" ]]; then
+        cat >> "$PISOVEREIGN_CONFIG_DIR/config.toml" << EOF
+
+[caldav]
+server_url = "$caldav_url"
+username = "$caldav_user"
+password = "$caldav_pass"
+verify_certs = true
+timeout_secs = 30
+EOF
+    fi
 
     # Set permissions
     chmod 640 "$PISOVEREIGN_CONFIG_DIR/config.toml"
@@ -1595,6 +1644,31 @@ MONEOF
         info "Added Prometheus and Grafana services"
     fi
 
+    # Add Baïkal CalDAV service if enabled
+    if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        cat >> docker-compose.yml << 'EOF'
+
+  baikal:
+    image: ckulka/baikal:nginx
+    container_name: baikal
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5232:80"
+    volumes:
+      - baikal-config:/var/www/baikal/config
+      - baikal-data:/var/www/baikal/Specific
+    networks:
+      - pisovereign-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/dav.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+EOF
+        info "Added Baïkal CalDAV service"
+    fi
+
     # Add networks section
     cat >> docker-compose.yml << 'EOF'
 
@@ -1603,22 +1677,20 @@ networks:
     driver: bridge
 EOF
 
-    # Add volumes section based on monitoring status
-    if [[ "$INSTALL_MONITORING" == "true" ]]; then
-        cat >> docker-compose.yml << 'EOF'
-
-volumes:
-  ollama-models:
-  prometheus_data:
-  grafana_data:
-EOF
-    else
-        cat >> docker-compose.yml << 'EOF'
-
-volumes:
-  ollama-models:
-EOF
-    fi
+    # Add volumes section (conditionally include monitoring and baikal volumes)
+    {
+        echo ""
+        echo "volumes:"
+        echo "  ollama-models:"
+        if [[ "$INSTALL_MONITORING" == "true" ]]; then
+            echo "  prometheus_data:"
+            echo "  grafana_data:"
+        fi
+        if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+            echo "  baikal-config:"
+            echo "  baikal-data:"
+        fi
+    } >> docker-compose.yml
 
     # Add Traefik if domain is configured
     if [[ -n "$domain" ]]; then
@@ -2098,6 +2170,10 @@ print_summary() {
         echo "  Grafana:        http://localhost:$grafana_port (admin/$grafana_pass)"
     fi
     
+    if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        echo "  Baïkal CalDAV:   http://localhost:5232"
+    fi
+    
     if [[ -n "$domain" ]]; then
         echo "  Public URL:     https://$domain"
     fi
@@ -2126,6 +2202,17 @@ print_summary() {
     echo "  1. Configure SSH keys if you enabled SSH hardening"
     echo "  2. Test the API: curl http://localhost:3000/health"
     echo "  3. Set up WhatsApp webhook if using WhatsApp integration"
+    
+    if [[ "$INSTALL_BAIKAL" == "true" ]]; then
+        echo
+        echo -e "${YELLOW}Baïkal CalDAV Setup Required:${NC}"
+        echo "  1. Open http://localhost:5232 in your browser"
+        echo "  2. Complete the setup wizard (set admin password, choose SQLite)"
+        echo "  3. Create a user matching your CalDAV username in config.toml"
+        echo "  4. Create a default calendar for that user"
+        echo "  5. Update calendar_path in config.toml:"
+        echo "     calendar_path = \"/calendars/<USERNAME>/default/\""
+    fi
     
     if [[ "$DEPLOY_MODE" == "native" ]]; then
         echo "  4. Review logs: journalctl -u pisovereign -f"

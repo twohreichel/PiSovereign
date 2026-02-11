@@ -5,7 +5,7 @@
 
 use application::ports::SynthesisResult;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use domain::entities::AudioFormat;
+use domain::entities::{AudioFormat, Conversation, ConversationSource};
 use domain::value_objects::ConversationId;
 use integration_signal::Attachment;
 use serde::{Deserialize, Serialize};
@@ -332,12 +332,63 @@ async fn handle_text_message(
         "Processing Signal text message"
     );
 
+    // Get or create conversation for this phone number
+    let mut conversation = if let Some(store) = &state.conversation_store {
+        match store
+            .get_by_phone_number(ConversationSource::Signal, from)
+            .await
+        {
+            Ok(Some(conv)) => {
+                debug!(
+                    conversation_id = %conv.id,
+                    message_count = conv.messages.len(),
+                    "Found existing Signal conversation for phone number"
+                );
+                conv
+            },
+            Ok(None) => {
+                debug!("Creating new Signal conversation for phone number");
+                Conversation::for_messenger(ConversationSource::Signal, from)
+            },
+            Err(e) => {
+                warn!(error = %e, "Failed to load Signal conversation, creating new one");
+                Conversation::for_messenger(ConversationSource::Signal, from)
+            },
+        }
+    } else {
+        // No persistence configured, create transient conversation
+        Conversation::for_messenger(ConversationSource::Signal, from)
+    };
+
+    // Add user message to conversation
+    conversation.add_user_message(text);
+
     // Process message through agent service
     let result = state.agent_service.handle_input(text).await;
 
     match result {
         Ok(agent_result) => {
             let response_text = agent_result.response.clone();
+
+            // Add assistant response to conversation
+            conversation.add_assistant_message(&response_text);
+
+            // Persist conversation
+            if let Some(store) = &state.conversation_store {
+                if let Err(e) = store.save(&conversation).await {
+                    error!(
+                        error = %e,
+                        conversation_id = %conversation.id,
+                        "Failed to persist Signal conversation"
+                    );
+                } else {
+                    debug!(
+                        conversation_id = %conversation.id,
+                        message_count = conversation.messages.len(),
+                        "Signal conversation persisted"
+                    );
+                }
+            }
 
             // Send response back via Signal
             if let Err(e) = signal_client.send_text(from, &response_text).await {
@@ -351,6 +402,7 @@ async fn handle_text_message(
                 info!(
                     timestamp = timestamp,
                     from = %from,
+                    conversation_id = %conversation.id,
                     success = agent_result.success,
                     "Signal text message processed and response sent"
                 );
@@ -375,6 +427,17 @@ async fn handle_text_message(
                 from = %from,
                 "Failed to process Signal text message"
             );
+
+            // Still persist the conversation with just the user message
+            if let Some(store) = &state.conversation_store {
+                if let Err(persist_err) = store.save(&conversation).await {
+                    warn!(
+                        error = %persist_err,
+                        "Failed to persist Signal conversation after processing error"
+                    );
+                }
+            }
+
             MessageResponse {
                 timestamp,
                 from: from.to_string(),

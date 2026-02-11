@@ -223,7 +223,7 @@ impl RetryItem {
         // Add jitter if enabled
         let final_ms = if config.jitter_enabled {
             use rand::Rng;
-            let jitter = rand::thread_rng().gen_range(0.0..config.jitter_factor);
+            let jitter = rand::rng().random_range(0.0..config.jitter_factor);
             capped_ms * (1.0 + jitter)
         } else {
             capped_ms

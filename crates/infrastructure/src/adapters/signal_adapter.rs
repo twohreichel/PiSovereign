@@ -328,7 +328,7 @@ mod tests {
     fn debug_format() {
         let config = SignalClientConfig::new("+1234567890");
         let adapter = SignalMessengerAdapter::new(config);
-        let debug = format!("{:?}", adapter);
+        let debug = format!("{adapter:?}");
         assert!(debug.contains("SignalMessengerAdapter"));
         assert!(debug.contains("+1234567890"));
     }

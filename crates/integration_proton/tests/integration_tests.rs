@@ -520,7 +520,7 @@ mod proton_error_tests {
     #[test]
     fn error_is_debug() {
         let err = ProtonError::AuthenticationFailed;
-        let debug_str = format!("{:?}", err);
+        let debug_str = format!("{err:?}");
         assert!(debug_str.contains("AuthenticationFailed"));
     }
 }
@@ -692,7 +692,7 @@ mod imap_client_tests {
         // Should fail with connection error
         match result {
             Err(ProtonError::ConnectionFailed(_)) => {},
-            Err(e) => panic!("Expected ConnectionFailed, got {:?}", e),
+            Err(e) => panic!("Expected ConnectionFailed, got {e:?}"),
             Ok(_) => panic!("Expected error, got success"),
         }
     }
@@ -733,7 +733,7 @@ mod smtp_client_tests {
         // Should fail with connection error
         match result {
             Err(ProtonError::ConnectionFailed(_)) => {},
-            Err(e) => panic!("Expected ConnectionFailed, got {:?}", e),
+            Err(e) => panic!("Expected ConnectionFailed, got {e:?}"),
             Ok(_) => panic!("Expected error, got success"),
         }
     }
@@ -811,7 +811,7 @@ mod edge_case_tests {
     fn email_composition_with_many_cc() {
         let mut email = EmailComposition::new("to@example.com", "Subject", "Body");
         for i in 0..100 {
-            email = email.with_cc(format!("cc{}@example.com", i));
+            email = email.with_cc(format!("cc{i}@example.com"));
         }
         assert_eq!(email.cc.len(), 100);
     }

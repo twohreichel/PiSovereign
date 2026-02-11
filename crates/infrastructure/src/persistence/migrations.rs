@@ -29,7 +29,7 @@ use tracing::{debug, error, info};
 use super::connection::DatabaseError;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 9;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
@@ -92,6 +92,50 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
                     version = 5,
                     error = %e,
                     "Migration V005 (audit request_id) failed. Check migrations/V005__audit_request_id.sql for the expected schema."
+                );
+                return Err(e);
+            }
+        }
+
+        if current_version < 6 {
+            if let Err(e) = migrate_v6(conn) {
+                error!(
+                    version = 6,
+                    error = %e,
+                    "Migration V006 (retry queue) failed. Check migrations/V006__retry_queue.sql for the expected schema."
+                );
+                return Err(e);
+            }
+        }
+
+        if current_version < 7 {
+            if let Err(e) = migrate_v7(conn) {
+                error!(
+                    version = 7,
+                    error = %e,
+                    "Migration V007 (memory storage) failed. Check migrations/V007__memory_storage.sql for the expected schema."
+                );
+                return Err(e);
+            }
+        }
+
+        if current_version < 8 {
+            if let Err(e) = migrate_v8(conn) {
+                error!(
+                    version = 8,
+                    error = %e,
+                    "Migration V008 (reminders) failed. Check migrations/V008__reminders.sql for the expected schema."
+                );
+                return Err(e);
+            }
+        }
+
+        if current_version < 9 {
+            if let Err(e) = migrate_v9(conn) {
+                error!(
+                    version = 9,
+                    error = %e,
+                    "Migration V009 (conversation source) failed. Check migrations/V009__conversation_source.sql for the expected schema."
                 );
                 return Err(e);
             }
@@ -311,6 +355,211 @@ fn migrate_v5(conn: &Connection) -> Result<(), DatabaseError> {
     Ok(())
 }
 
+/// Migration to version 6: Retry queue with exponential backoff
+/// See: migrations/V006__retry_queue.sql
+fn migrate_v6(conn: &Connection) -> Result<(), DatabaseError> {
+    debug!("Applying migration V006: Retry queue");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS retry_queue (
+            id TEXT PRIMARY KEY,
+            operation_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            target TEXT NOT NULL,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 5,
+            next_retry_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'in_progress', 'completed', 'failed', 'cancelled')),
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            correlation_id TEXT,
+            user_id TEXT,
+            tenant_id TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_retry_queue_status ON retry_queue(status);
+        CREATE INDEX IF NOT EXISTS idx_retry_queue_next_retry ON retry_queue(next_retry_at) WHERE status = 'pending';
+        CREATE INDEX IF NOT EXISTS idx_retry_queue_operation ON retry_queue(operation_type);
+        CREATE INDEX IF NOT EXISTS idx_retry_queue_created ON retry_queue(created_at);
+        CREATE INDEX IF NOT EXISTS idx_retry_queue_user ON retry_queue(user_id) WHERE user_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS dead_letter_queue (
+            id TEXT PRIMARY KEY,
+            original_id TEXT NOT NULL,
+            operation_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            target TEXT NOT NULL,
+            attempt_count INTEGER NOT NULL,
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            failed_at TEXT NOT NULL,
+            correlation_id TEXT,
+            user_id TEXT,
+            tenant_id TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_dlq_created ON dead_letter_queue(created_at);
+        CREATE INDEX IF NOT EXISTS idx_dlq_operation ON dead_letter_queue(operation_type);
+        ",
+    )?;
+
+    Ok(())
+}
+
+/// Migration to version 7: Memory storage for AI knowledge base
+/// See: migrations/V007__memory_storage.sql
+fn migrate_v7(conn: &Connection) -> Result<(), DatabaseError> {
+    debug!("Applying migration V007: Memory storage");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS memories (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            conversation_id TEXT,
+            content TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            embedding TEXT,
+            importance REAL NOT NULL DEFAULT 0.5,
+            memory_type TEXT NOT NULL
+                CHECK(memory_type IN ('fact', 'preference', 'tool_result', 'correction', 'context')),
+            tags TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            accessed_at TEXT NOT NULL,
+            access_count INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES user_profiles(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
+        CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(user_id, memory_type);
+        CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(user_id, importance DESC);
+        CREATE INDEX IF NOT EXISTS idx_memories_accessed ON memories(accessed_at);
+        CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
+        CREATE INDEX IF NOT EXISTS idx_memories_conversation ON memories(conversation_id) WHERE conversation_id IS NOT NULL;
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+            id UNINDEXED,
+            summary,
+            content,
+            tags,
+            content='memories',
+            content_rowid='rowid',
+            tokenize='porter unicode61'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories BEGIN
+            INSERT INTO memories_fts(rowid, id, summary, content, tags)
+            VALUES (NEW.rowid, NEW.id, NEW.summary, NEW.content, NEW.tags);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories BEGIN
+            INSERT INTO memories_fts(memories_fts, rowid, id, summary, content, tags)
+            VALUES ('delete', OLD.rowid, OLD.id, OLD.summary, OLD.content, OLD.tags);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories BEGIN
+            INSERT INTO memories_fts(memories_fts, rowid, id, summary, content, tags)
+            VALUES ('delete', OLD.rowid, OLD.id, OLD.summary, OLD.content, OLD.tags);
+            INSERT INTO memories_fts(rowid, id, summary, content, tags)
+            VALUES (NEW.rowid, NEW.id, NEW.summary, NEW.content, NEW.tags);
+        END;
+
+        CREATE TABLE IF NOT EXISTS memory_embeddings (
+            memory_id TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL,
+            dimensions INTEGER NOT NULL,
+            model TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memory_embeddings_memory ON memory_embeddings(memory_id);
+        ",
+    )?;
+
+    Ok(())
+}
+
+/// Migration to version 8: Reminders for proactive notification system
+/// See: migrations/V008__reminders.sql
+fn migrate_v8(conn: &Connection) -> Result<(), DatabaseError> {
+    debug!("Applying migration V008: Reminders");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS reminders (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            source TEXT NOT NULL CHECK(source IN ('calendar_event', 'calendar_task', 'custom')),
+            source_id TEXT,
+            title TEXT NOT NULL,
+            description TEXT,
+            event_time TEXT,
+            remind_at TEXT NOT NULL,
+            location TEXT,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'sent', 'acknowledged', 'snoozed', 'cancelled', 'expired')),
+            snooze_count INTEGER NOT NULL DEFAULT 0,
+            max_snooze INTEGER NOT NULL DEFAULT 3,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_reminders_due
+            ON reminders(remind_at, status)
+            WHERE status IN ('pending', 'snoozed');
+
+        CREATE INDEX IF NOT EXISTS idx_reminders_user_active
+            ON reminders(user_id, status)
+            WHERE status IN ('pending', 'sent', 'snoozed');
+
+        CREATE INDEX IF NOT EXISTS idx_reminders_source
+            ON reminders(source, source_id)
+            WHERE source_id IS NOT NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_reminders_cleanup
+            ON reminders(updated_at, status)
+            WHERE status IN ('acknowledged', 'cancelled', 'expired');
+
+        CREATE INDEX IF NOT EXISTS idx_reminders_user
+            ON reminders(user_id);
+        ",
+    )?;
+
+    Ok(())
+}
+
+/// Migration to version 9: Conversation source tracking for messenger persistence
+/// See: migrations/V009__conversation_source.sql
+fn migrate_v9(conn: &Connection) -> Result<(), DatabaseError> {
+    debug!("Applying migration V009: Conversation source tracking");
+
+    // Add source column with default 'http' for existing conversations
+    conn.execute_batch(
+        "
+        ALTER TABLE conversations ADD COLUMN source TEXT NOT NULL DEFAULT 'http';
+        ALTER TABLE conversations ADD COLUMN phone_number TEXT;
+
+        CREATE INDEX IF NOT EXISTS idx_conversations_source
+            ON conversations(source);
+
+        CREATE INDEX IF NOT EXISTS idx_conversations_phone
+            ON conversations(phone_number)
+            WHERE phone_number IS NOT NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_conversations_source_phone
+            ON conversations(source, phone_number)
+            WHERE phone_number IS NOT NULL;
+        ",
+    )?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +596,7 @@ mod tests {
         assert!(tables.contains(&"audit_log".to_string()));
         assert!(tables.contains(&"user_profiles".to_string()));
         assert!(tables.contains(&"email_drafts".to_string()));
+        assert!(tables.contains(&"reminders".to_string()));
     }
 
     #[test]
