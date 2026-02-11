@@ -40,6 +40,10 @@ env:
   # Use rust-toolchain.toml version
   RUSTUP_TOOLCHAIN: "1.93.0"
 
+# Restrict GITHUB_TOKEN to minimum required permissions
+permissions:
+  contents: read
+
 # Cancel in-progress runs for the same branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
