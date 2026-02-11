@@ -386,6 +386,8 @@ global_timeout_secs = 5
 # [caldav]
 # CalDAV server URL (e.g., Baikal, Radicale, Nextcloud)
 # server_url = "https://cal.example.com"
+# When using Baïkal via Docker (setup --baikal):
+# server_url = "http://baikal:80/dav.php"
 # Username for authentication
 # username = "your-username"
 # Password for authentication
