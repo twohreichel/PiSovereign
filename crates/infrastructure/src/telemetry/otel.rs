@@ -8,8 +8,8 @@ use std::time::Duration;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
-    Resource, runtime,
-    trace::{Sampler, TracerProvider as SdkTracerProvider},
+    Resource,
+    trace::{Sampler, SdkTracerProvider},
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -187,14 +187,13 @@ pub fn init_telemetry(config: &TelemetryConfig) -> Result<TelemetryGuard, Teleme
             };
 
             // Build resource with service name
-            let resource = Resource::new(vec![opentelemetry::KeyValue::new(
-                "service.name",
-                config.service_name.clone(),
-            )]);
+            let resource = Resource::builder()
+                .with_service_name(config.service_name.clone())
+                .build();
 
-            // Build tracer provider using new API
+            // Build tracer provider
             let provider = SdkTracerProvider::builder()
-                .with_batch_exporter(exporter, runtime::Tokio)
+                .with_batch_exporter(exporter)
                 .with_sampler(sampler)
                 .with_resource(resource)
                 .build();
