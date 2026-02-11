@@ -168,7 +168,7 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                         });
                                         migrated += 1;
                                         println!(
-                                            "  ✅ Migrated plaintext hash → proper hash (user_id: {user_id})"
+                                            "  ✅ Migrated plaintext hash → proper hash"
                                         );
                                     },
                                     Err(e) => {
