@@ -194,7 +194,7 @@ impl RedisContainer {
             .await
             .map_err(|e| ContainerError::Start(e.to_string()))?;
 
-        let connection_string = format!("redis://{}:{}", host, port);
+        let connection_string = format!("redis://{host}:{port}");
 
         debug!(
             host = %host,

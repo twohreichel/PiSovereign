@@ -337,9 +337,95 @@ pisovereign-cli command "check emails"
 
 ## CalDAV (Baïkal)
 
-Baïkal is a lightweight, self-hosted CalDAV server perfect for Raspberry Pi.
+Baïkal is a lightweight, self-hosted CalDAV server perfect for managing calendars, task lists, and todos. It supports both CalDAV (calendars/todos) and CardDAV (contacts).
 
-### Baïkal Installation
+### Docker Installation (Recommended)
+
+The easiest way to deploy Baïkal is via Docker, integrated into the PiSovereign setup:
+
+```bash
+# macOS
+./scripts/setup-mac.sh --baikal
+
+# Raspberry Pi
+sudo ./scripts/setup-pi.sh --baikal
+```
+
+You can also enable Baïkal interactively when running the setup script without the `--baikal` flag — the script will prompt you.
+
+This adds a `baikal` service to `docker-compose.yml`:
+
+- **Image**: `ckulka/baikal:nginx`
+- **Host port**: `127.0.0.1:5232` (localhost only, no external access)
+- **Docker internal**: `http://baikal:80/dav.php` (used by PiSovereign)
+- **Volumes**: `baikal-config` and `baikal-data` for persistent storage
+
+
+> **Network access**: Baïkal is bound to `127.0.0.1:5232` and is **not accessible from outside** the host machine. PiSovereign accesses it internally via the Docker network at `http://baikal:80/dav.php`. This is the most secure configuration — no CalDAV data is exposed to the network.
+
+### Calendar Setup
+
+After starting the Docker containers, complete the one-time setup wizard:
+
+1. **Initial Setup**
+   - Open `http://localhost:5232` in your browser
+   - Complete the setup wizard
+   - Set an admin password
+   - Choose SQLite database (recommended)
+
+2. **Create User**
+   - Go to Users and Resources in the admin panel
+   - Add a new user (use the same username/password you configured during setup)
+
+3. **Create Calendar**
+   - Users can create calendars via any CalDAV client
+   - Or use the Baïkal admin interface
+
+4. **Update config.toml**
+   - Set the `calendar_path` to match your user and calendar name:
+     ```toml
+     calendar_path = "/calendars/username/default/"
+     ```
+
+### PiSovereign CalDAV Configuration
+
+When using Baïkal via Docker, the setup script automatically writes the `[caldav]` section in `config.toml`:
+
+```toml
+[caldav]
+# Docker-internal URL (do not change when using Baïkal via Docker)
+server_url = "http://baikal:80/dav.php"
+username = "your-username"
+password = "your-password"
+
+# Update this after creating your calendar in the Baïkal wizard
+calendar_path = "/calendars/username/default/"
+
+verify_certs = true
+timeout_secs = 30
+```
+
+Optionally store credentials in Vault:
+
+```bash
+vault kv put secret/pisovereign/caldav \
+    username="your-username" \
+    password="your-password"
+```
+
+Test the integration:
+
+```bash
+# Check calendar status
+pisovereign-cli status --service calendar
+
+# List upcoming events
+pisovereign-cli command "what's on my calendar today"
+```
+
+### Native Installation (Alternative)
+
+If you prefer running Baïkal without Docker (e.g., on a Raspberry Pi with native deployment):
 
 ```bash
 # Install dependencies
@@ -391,62 +477,7 @@ sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-### Calendar Setup
-
-1. **Initial Setup**
-   - Open `http://localhost:8080` in browser
-   - Complete setup wizard
-   - Set admin password
-   - Choose SQLite database
-
-2. **Create User**
-   - Go to Users and Resources
-   - Add new user
-   - Note username and password
-
-3. **Create Calendar**
-   - Users can create calendars via any CalDAV client
-   - Or use the admin interface
-
-4. **Find Calendar URL**
-   ```
-   http://localhost:8080/dav.php/calendars/USERNAME/default/
-   ```
-
-### PiSovereign CalDAV Configuration
-
-Store credentials in Vault:
-
-```bash
-vault kv put secret/pisovereign/caldav \
-    username="your-username" \
-    password="your-password"
-```
-
-Add to `config.toml`:
-
-```toml
-[caldav]
-# Baïkal server URL
-server_url = "http://localhost:8080/dav.php"
-
-# Default calendar path
-calendar_path = "/calendars/username/default/"
-
-# TLS (enable if using HTTPS)
-verify_certs = true
-timeout_secs = 30
-```
-
-Test the integration:
-
-```bash
-# Check calendar status
-pisovereign-cli status --service calendar
-
-# List upcoming events
-pisovereign-cli command "what's on my calendar today"
-```
+For native installation, use `http://localhost:8080/dav.php` as the `server_url` in `config.toml`.
 
 ---
 

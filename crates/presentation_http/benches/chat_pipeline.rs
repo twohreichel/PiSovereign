@@ -15,7 +15,7 @@ use application::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use domain::{ChatMessage, Conversation, ConversationId};
+use domain::{ChatMessage, Conversation, ConversationId, ConversationSource};
 use futures::stream;
 use infrastructure::AppConfig;
 use presentation_http::{
@@ -139,6 +139,18 @@ impl ConversationStore for MockConversationStore {
         Ok(store.get(&id.to_string()).cloned())
     }
 
+    async fn get_by_phone_number(
+        &self,
+        source: ConversationSource,
+        phone_number: &str,
+    ) -> Result<Option<Conversation>, ApplicationError> {
+        let store = self.conversations.read().await;
+        Ok(store
+            .values()
+            .find(|c| c.source == source && c.phone_number.as_deref() == Some(phone_number))
+            .cloned())
+    }
+
     async fn update(&self, conversation: &Conversation) -> Result<(), ApplicationError> {
         let mut store = self.conversations.write().await;
         store.insert(conversation.id.to_string(), conversation.clone());
@@ -208,6 +220,7 @@ fn create_benchmark_state() -> AppState {
         signal_client: None,
         prompt_sanitizer: None,
         suspicious_activity_tracker: None,
+        conversation_store: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }

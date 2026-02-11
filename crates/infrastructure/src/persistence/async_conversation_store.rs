@@ -7,7 +7,9 @@
 use application::{error::ApplicationError, ports::ConversationStore};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::{ChatMessage, Conversation, ConversationId, MessageMetadata, MessageRole};
+use domain::{
+    ChatMessage, Conversation, ConversationId, ConversationSource, MessageMetadata, MessageRole,
+};
 use sqlx::SqlitePool;
 use tracing::{debug, instrument};
 use uuid::Uuid;
@@ -56,6 +58,12 @@ impl AsyncConversationStore {
     fn parse_uuid(s: &str) -> Result<Uuid, ApplicationError> {
         Uuid::parse_str(s).map_err(|e| ApplicationError::Internal(format!("Invalid UUID: {e}")))
     }
+
+    /// Parse a conversation source from string
+    fn parse_source(s: &str) -> Result<ConversationSource, ApplicationError> {
+        s.parse::<ConversationSource>()
+            .map_err(|e| ApplicationError::Internal(format!("Invalid conversation source: {e}")))
+    }
 }
 
 #[async_trait]
@@ -67,12 +75,14 @@ impl ConversationStore for AsyncConversationStore {
         // Upsert conversation
         sqlx::query(
             r"
-            INSERT INTO conversations (id, title, system_prompt, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO conversations (id, title, system_prompt, created_at, updated_at, source, phone_number)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 system_prompt = excluded.system_prompt,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                source = excluded.source,
+                phone_number = excluded.phone_number
             ",
         )
         .bind(conversation.id.to_string())
@@ -80,6 +90,8 @@ impl ConversationStore for AsyncConversationStore {
         .bind(&conversation.system_prompt)
         .bind(conversation.created_at.to_rfc3339())
         .bind(conversation.updated_at.to_rfc3339())
+        .bind(conversation.source.as_str())
+        .bind(&conversation.phone_number)
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
@@ -125,7 +137,7 @@ impl ConversationStore for AsyncConversationStore {
         // Fetch conversation
         let conv_row: Option<ConversationRow> = sqlx::query_as(
             r"
-            SELECT id, title, system_prompt, created_at, updated_at
+            SELECT id, title, system_prompt, created_at, updated_at, source, phone_number
             FROM conversations WHERE id = $1
             ",
         )
@@ -183,9 +195,87 @@ impl ConversationStore for AsyncConversationStore {
             updated_at: parse_datetime(&row.updated_at)?,
             // All loaded messages are already persisted
             persisted_message_count: message_count,
+            source: Self::parse_source(&row.source)?,
+            phone_number: row.phone_number,
         };
 
         debug!("Conversation loaded");
+        Ok(Some(conversation))
+    }
+
+    #[instrument(skip(self), fields(source = ?source, phone = %phone_number))]
+    async fn get_by_phone_number(
+        &self,
+        source: ConversationSource,
+        phone_number: &str,
+    ) -> Result<Option<Conversation>, ApplicationError> {
+        let row: Option<ConversationRow> = sqlx::query_as(
+            r"
+            SELECT id, title, system_prompt, created_at, updated_at, source, phone_number
+            FROM conversations
+            WHERE source = $1 AND phone_number = $2
+            ORDER BY updated_at DESC
+            LIMIT 1
+            ",
+        )
+        .bind(source.as_str())
+        .bind(phone_number)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        let Some(row) = row else {
+            debug!("No conversation found for phone number");
+            return Ok(None);
+        };
+
+        // Load messages for the conversation
+        let message_rows: Vec<MessageRow> = sqlx::query_as(
+            r"
+            SELECT id, role, content, created_at, metadata
+            FROM messages WHERE conversation_id = $1
+            ORDER BY created_at ASC
+            ",
+        )
+        .bind(&row.id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        let mut messages = Vec::with_capacity(message_rows.len());
+        for (idx, msg_row) in message_rows.into_iter().enumerate() {
+            let metadata: Option<MessageMetadata> = msg_row
+                .metadata
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok());
+
+            // Note: Conversations never realistically exceed u32::MAX messages
+            #[allow(clippy::cast_possible_truncation)]
+            let seq = (idx as u32) + 1;
+            messages.push(ChatMessage {
+                id: Self::parse_uuid(&msg_row.id)?,
+                role: Self::parse_role(&msg_row.role)?,
+                content: msg_row.content,
+                created_at: parse_datetime(&msg_row.created_at)?,
+                sequence_number: seq,
+                metadata,
+            });
+        }
+
+        let message_count = messages.len();
+        let conversation = Conversation {
+            id: Self::parse_conversation_id(&row.id)?,
+            title: row.title,
+            system_prompt: row.system_prompt,
+            messages,
+            created_at: parse_datetime(&row.created_at)?,
+            updated_at: parse_datetime(&row.updated_at)?,
+            persisted_message_count: message_count,
+            source: Self::parse_source(&row.source)?,
+            phone_number: row.phone_number,
+        };
+
+        debug!("Conversation loaded by phone number");
         Ok(Some(conversation))
     }
 
@@ -300,7 +390,7 @@ impl ConversationStore for AsyncConversationStore {
     async fn list_recent(&self, limit: usize) -> Result<Vec<Conversation>, ApplicationError> {
         let conv_rows: Vec<ConversationRow> = sqlx::query_as(
             r"
-            SELECT id, title, system_prompt, created_at, updated_at
+            SELECT id, title, system_prompt, created_at, updated_at, source, phone_number
             FROM conversations
             ORDER BY updated_at DESC
             LIMIT $1
@@ -357,6 +447,8 @@ impl ConversationStore for AsyncConversationStore {
                 created_at: parse_datetime(&row.created_at)?,
                 updated_at: parse_datetime(&row.updated_at)?,
                 persisted_message_count: message_count,
+                source: Self::parse_source(&row.source)?,
+                phone_number: row.phone_number,
             });
         }
 
@@ -374,7 +466,7 @@ impl ConversationStore for AsyncConversationStore {
 
         let conv_rows: Vec<ConversationRow> = sqlx::query_as(
             r"
-            SELECT DISTINCT c.id, c.title, c.system_prompt, c.created_at, c.updated_at
+            SELECT DISTINCT c.id, c.title, c.system_prompt, c.created_at, c.updated_at, c.source, c.phone_number
             FROM conversations c
             LEFT JOIN messages m ON c.id = m.conversation_id
             WHERE c.title LIKE $1 OR m.content LIKE $1
@@ -434,6 +526,8 @@ impl ConversationStore for AsyncConversationStore {
                 created_at: parse_datetime(&row.created_at)?,
                 updated_at: parse_datetime(&row.updated_at)?,
                 persisted_message_count: message_count,
+                source: Self::parse_source(&row.source)?,
+                phone_number: row.phone_number,
             });
         }
 
@@ -470,6 +564,8 @@ struct ConversationRow {
     system_prompt: Option<String>,
     created_at: String,
     updated_at: String,
+    source: String,
+    phone_number: Option<String>,
 }
 
 /// Row type for message queries

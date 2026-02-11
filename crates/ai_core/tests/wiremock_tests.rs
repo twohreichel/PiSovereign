@@ -305,7 +305,7 @@ mod inference_tests {
         let engine = OllamaInferenceEngine::new(config).expect("Failed to create engine");
 
         // Test through debug output since api_url is private
-        let debug = format!("{:?}", engine);
+        let debug = format!("{engine:?}");
         assert!(debug.contains("example.com"));
     }
 }

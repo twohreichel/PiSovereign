@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS memories (
     -- Access statistics
     access_count INTEGER NOT NULL DEFAULT 0,
     -- Foreign key constraints
-    FOREIGN KEY (user_id) REFERENCES user_profiles(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES user_profiles(user_id) ON DELETE CASCADE,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
 );
 
