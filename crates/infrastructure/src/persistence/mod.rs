@@ -16,6 +16,7 @@ pub mod database_health;
 pub mod draft_store;
 pub mod memory_store;
 pub mod migrations;
+pub mod reminder_store;
 pub mod retry_queue;
 pub mod user_profile_store;
 
