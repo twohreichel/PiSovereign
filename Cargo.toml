@@ -22,7 +22,7 @@ version = "0.3.3"
 edition = "2024"
 authors = ["Andreas Reichel"]
 license = "MIT"
-repository = "https://github.com/andreasreichel/PiSovereign"
+repository = "https://github.com/twohreichel/PiSovereign"
 
 # Workspace-wide lints
 [workspace.lints.rust]
