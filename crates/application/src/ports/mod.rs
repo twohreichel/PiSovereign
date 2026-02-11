@@ -18,6 +18,7 @@ mod memory_store;
 mod message_gateway_port;
 mod messenger_port;
 mod model_registry_port;
+mod reminder_port;
 mod secret_store;
 mod speech_port;
 mod suspicious_activity_port;
@@ -57,6 +58,9 @@ pub use messenger_port::{
     OutgoingAudioMessage, OutgoingTextMessage,
 };
 pub use model_registry_port::{ModelCapabilities, ModelCapability, ModelInfo, ModelRegistryPort};
+#[cfg(test)]
+pub use reminder_port::MockReminderPort;
+pub use reminder_port::{ReminderPort, ReminderQuery};
 pub use secret_store::{SecretStoreExt, SecretStorePort};
 #[cfg(test)]
 pub use speech_port::MockSpeechPort;
