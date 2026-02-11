@@ -85,7 +85,7 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                 });
                                 migrated += 1;
                                 println!(
-                                    "  ✅ Migrated legacy api_key → api_keys[0] (user_id: {default_user_id})"
+                                    "  ✅ Migrated legacy api_key → api_keys[0] (default user_id)"
                                 );
                             },
                             Err(e) => {
