@@ -95,10 +95,10 @@ mod tests {
     use application::error::ApplicationError;
     use async_trait::async_trait;
     use chrono::DateTime;
+    use domain::ChatMessage;
     use domain::entities::Conversation;
     use domain::entities::ConversationSource;
     use domain::value_objects::ConversationId;
-    use domain::ChatMessage;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::RwLock;
 
@@ -146,7 +146,11 @@ mod tests {
             Ok(())
         }
 
-        async fn add_message(&self, _: &ConversationId, _: &ChatMessage) -> Result<(), ApplicationError> {
+        async fn add_message(
+            &self,
+            _: &ConversationId,
+            _: &ChatMessage,
+        ) -> Result<(), ApplicationError> {
             Ok(())
         }
 
@@ -168,13 +172,10 @@ mod tests {
     #[tokio::test]
     async fn cleanup_task_calls_cleanup_periodically() {
         let store = Arc::new(MockConversationStore::new(vec![5, 3, 0]));
-        
+
         // Use a very short interval for testing
-        let handle = spawn_conversation_cleanup_task(
-            store.clone(),
-            30,
-            Some(Duration::from_millis(50)),
-        );
+        let handle =
+            spawn_conversation_cleanup_task(store.clone(), 30, Some(Duration::from_millis(50)));
 
         // Wait for a few cleanup cycles
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -189,7 +190,7 @@ mod tests {
     #[tokio::test]
     async fn cleanup_task_can_be_aborted() {
         let store = Arc::new(MockConversationStore::new(vec![]));
-        
+
         let handle = spawn_conversation_cleanup_task(
             store,
             30,

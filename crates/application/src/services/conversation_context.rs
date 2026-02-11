@@ -460,9 +460,7 @@ mod tests {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             Ok(conversations
                 .values()
-                .find(|c| {
-                    c.source == source && c.phone_number.as_deref() == Some(phone_number)
-                })
+                .find(|c| c.source == source && c.phone_number.as_deref() == Some(phone_number))
                 .cloned())
         }
 
