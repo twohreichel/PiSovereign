@@ -2461,6 +2461,7 @@ dependencies = [
  "integration_caldav",
  "integration_proton",
  "integration_signal",
+ "integration_transit",
  "integration_weather",
  "integration_websearch",
  "integration_whatsapp",
@@ -2575,6 +2576,26 @@ dependencies = [
  "tokio-test",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "integration_transit"
+version = "0.2.2"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "domain",
+ "mockall",
+ "moka",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "url",
+ "wiremock",
 ]
 
 [[package]]

@@ -8,6 +8,7 @@ mod chat_service;
 mod conversation_context;
 mod email_service;
 mod health_service;
+pub mod location_helper;
 mod memory_enhanced_chat;
 mod memory_service;
 mod prompt_sanitizer;
@@ -30,3 +31,7 @@ pub use memory_enhanced_chat::{MemoryEnhancedChat, MemoryEnhancedChatConfig};
 pub use memory_service::{MemoryService, MemoryServiceConfig};
 pub use prompt_sanitizer::{PromptSanitizer, PromptSecurityConfig, SecuritySensitivity};
 pub use voice_message_service::{VoiceMessageConfig, VoiceMessageResult, VoiceMessageService};
+pub use location_helper::{
+    format_location_with_coords_link, format_location_with_link, generate_maps_link,
+    generate_maps_link_coords,
+};

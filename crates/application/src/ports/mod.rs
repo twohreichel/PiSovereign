@@ -22,6 +22,7 @@ mod secret_store;
 mod speech_port;
 mod suspicious_activity_port;
 mod task_port;
+mod transit_port;
 mod user_profile_store;
 mod weather_port;
 mod websearch_port;
@@ -72,6 +73,12 @@ pub use user_profile_store::UserProfileStore;
 #[cfg(test)]
 pub use weather_port::MockWeatherPort;
 pub use weather_port::{CurrentWeather, DailyForecast, WeatherCondition, WeatherPort};
+#[cfg(test)]
+pub use transit_port::MockTransitPort;
+pub use transit_port::{
+    TransitConnection, TransitLeg, TransitMode, TransitPort, TransitQuery, format_connections,
+    format_connections_detailed,
+};
 #[cfg(test)]
 pub use websearch_port::MockWebSearchPort;
 pub use websearch_port::{SafeSearchLevel, SearchOptions, WebSearchPort};

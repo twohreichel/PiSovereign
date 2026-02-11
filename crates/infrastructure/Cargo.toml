@@ -19,6 +19,7 @@ integration_weather.workspace = true
 integration_websearch.workspace = true
 integration_whatsapp.workspace = true
 integration_signal.workspace = true
+integration_transit.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
