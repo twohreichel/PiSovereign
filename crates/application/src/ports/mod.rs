@@ -18,10 +18,12 @@ mod memory_store;
 mod message_gateway_port;
 mod messenger_port;
 mod model_registry_port;
+mod reminder_port;
 mod secret_store;
 mod speech_port;
 mod suspicious_activity_port;
 mod task_port;
+mod transit_port;
 mod user_profile_store;
 mod weather_port;
 mod websearch_port;
@@ -56,6 +58,9 @@ pub use messenger_port::{
     OutgoingAudioMessage, OutgoingTextMessage,
 };
 pub use model_registry_port::{ModelCapabilities, ModelCapability, ModelInfo, ModelRegistryPort};
+#[cfg(test)]
+pub use reminder_port::MockReminderPort;
+pub use reminder_port::{ReminderPort, ReminderQuery};
 pub use secret_store::{SecretStoreExt, SecretStorePort};
 #[cfg(test)]
 pub use speech_port::MockSpeechPort;
@@ -68,6 +73,12 @@ pub use suspicious_activity_port::{
 #[cfg(test)]
 pub use task_port::MockTaskPort;
 pub use task_port::{NewTask, Task, TaskListInfo, TaskPort, TaskQuery, TaskStatus, TaskUpdates};
+#[cfg(test)]
+pub use transit_port::MockTransitPort;
+pub use transit_port::{
+    TransitConnection, TransitLeg, TransitMode, TransitPort, TransitQuery, format_connections,
+    format_connections_detailed,
+};
 pub use user_profile_store::UserProfileStore;
 #[cfg(test)]
 pub use weather_port::MockWeatherPort;

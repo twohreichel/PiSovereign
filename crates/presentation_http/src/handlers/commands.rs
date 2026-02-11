@@ -163,6 +163,12 @@ fn command_type_name(cmd: &AgentCommand) -> String {
         AgentCommand::Echo { .. } => "echo",
         AgentCommand::Help { .. } => "help",
         AgentCommand::WebSearch { .. } => "web_search",
+        AgentCommand::CreateReminder { .. } => "create_reminder",
+        AgentCommand::ListReminders { .. } => "list_reminders",
+        AgentCommand::SnoozeReminder { .. } => "snooze_reminder",
+        AgentCommand::AcknowledgeReminder { .. } => "acknowledge_reminder",
+        AgentCommand::DeleteReminder { .. } => "delete_reminder",
+        AgentCommand::SearchTransit { .. } => "search_transit",
         AgentCommand::Unknown { .. } => "unknown",
     }
     .to_string()

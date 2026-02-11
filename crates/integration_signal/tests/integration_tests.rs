@@ -71,7 +71,7 @@ mod config_tests {
     #[test]
     fn config_has_debug() {
         let config = SignalClientConfig::new("+1234567890");
-        let debug = format!("{:?}", config);
+        let debug = format!("{config:?}");
         assert!(debug.contains("SignalClientConfig"));
         assert!(debug.contains("+1234567890"));
     }
@@ -117,7 +117,7 @@ mod client_tests {
     #[test]
     fn client_has_debug() {
         let client = SignalClient::new(test_config());
-        let debug = format!("{:?}", client);
+        let debug = format!("{client:?}");
         assert!(debug.contains("SignalClient"));
         assert!(debug.contains("+1234567890"));
     }
@@ -278,7 +278,7 @@ mod jsonrpc_tests {
     #[test]
     fn jsonrpc_request_has_debug() {
         let request = JsonRpcRequest::new("test", serde_json::json!({}), 1);
-        let debug = format!("{:?}", request);
+        let debug = format!("{request:?}");
         assert!(debug.contains("JsonRpcRequest"));
     }
 }
@@ -326,7 +326,7 @@ mod send_params_tests {
     #[test]
     fn params_has_debug() {
         let params = SendParams::text("+1234567890", "Test");
-        let debug = format!("{:?}", params);
+        let debug = format!("{params:?}");
         assert!(debug.contains("SendParams"));
     }
 
@@ -700,7 +700,7 @@ mod error_tests {
     #[test]
     fn error_debug() {
         let err = SignalError::connection("test");
-        let debug = format!("{:?}", err);
+        let debug = format!("{err:?}");
         assert!(debug.contains("Connection"));
     }
 }
@@ -769,7 +769,7 @@ mod proptest_tests {
         fn envelope_timestamp_parsing(
             timestamp in 1000000000i64..9999999999i64
         ) {
-            let json = format!(r#"{{"source": "+1234567890", "timestamp": {}}}"#, timestamp);
+            let json = format!(r#"{{"source": "+1234567890", "timestamp": {timestamp}}}"#);
             let envelope: Result<integration_signal::Envelope, _> = serde_json::from_str(&json);
 
             prop_assert!(envelope.is_ok());

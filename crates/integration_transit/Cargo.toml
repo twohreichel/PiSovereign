@@ -1,0 +1,28 @@
+[package]
+name = "integration_transit"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Public transit integration for PiSovereign (HAFAS via transport.rest + Nominatim geocoding)"
+
+[lints]
+workspace = true
+
+[dependencies]
+domain.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+url = "2.5"
+moka.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+mockall.workspace = true
+wiremock.workspace = true

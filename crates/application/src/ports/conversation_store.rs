@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
-    entities::{ChatMessage, Conversation},
+    entities::{ChatMessage, Conversation, ConversationSource},
     value_objects::ConversationId,
 };
 
@@ -19,6 +19,15 @@ pub trait ConversationStore: Send + Sync {
 
     /// Get a conversation by ID
     async fn get(&self, id: &ConversationId) -> Result<Option<Conversation>, ApplicationError>;
+
+    /// Get a conversation by phone number and source
+    ///
+    /// This is used to maintain one conversation per contact per messenger.
+    async fn get_by_phone_number(
+        &self,
+        source: ConversationSource,
+        phone_number: &str,
+    ) -> Result<Option<Conversation>, ApplicationError>;
 
     /// Update an existing conversation
     async fn update(&self, conversation: &Conversation) -> Result<(), ApplicationError>;

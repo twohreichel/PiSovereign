@@ -174,7 +174,7 @@ mod email_address_tests {
             domain in "[a-z]{1,10}",
             tld in "[a-z]{2,4}"
         ) {
-            let email_str = format!("{}@{}.{}", local, domain, tld);
+            let email_str = format!("{local}@{domain}.{tld}");
             let result = EmailAddress::new(&email_str);
 
             // Should succeed for valid format
@@ -199,7 +199,7 @@ mod email_address_tests {
             domain in "[a-z]{1,10}",
             tld in "[a-z]{2,4}"
         ) {
-            let email_str = format!("{}@{}.{}", local, domain, tld);
+            let email_str = format!("{local}@{domain}.{tld}");
             if let Ok(email) = EmailAddress::new(&email_str) {
                 // Email should be stored consistently
                 let stored = email.as_str();
@@ -249,7 +249,7 @@ mod memory_id_tests {
             _ in any::<u64>()
         ) {
             let id = MemoryId::new();
-            let display = format!("{}", id);
+            let display = format!("{id}");
             // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
             prop_assert_eq!(display.len(), 36);
             prop_assert_eq!(display.chars().filter(|c| *c == '-').count(), 4);
@@ -284,7 +284,7 @@ mod task_status_tests {
                 Just(TaskStatus::Cancelled),
             ]
         ) {
-            let display = format!("{}", status);
+            let display = format!("{status}");
             prop_assert!(!display.is_empty());
         }
 

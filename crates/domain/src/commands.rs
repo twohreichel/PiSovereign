@@ -149,6 +149,52 @@ pub enum AgentCommand {
         max_results: Option<u32>,
     },
 
+    /// Create a custom reminder
+    CreateReminder {
+        /// What to be reminded about
+        title: String,
+        /// When to send the reminder (absolute time)
+        remind_at: String,
+        /// Optional description with more details
+        description: Option<String>,
+    },
+
+    /// List active reminders
+    ListReminders {
+        /// Include completed/cancelled reminders
+        include_done: Option<bool>,
+    },
+
+    /// Snooze a reminder by a duration
+    SnoozeReminder {
+        /// Reminder ID to snooze
+        reminder_id: String,
+        /// Snooze duration in minutes (defaults to 15)
+        duration_minutes: Option<u32>,
+    },
+
+    /// Acknowledge (mark as done) a reminder
+    AcknowledgeReminder {
+        /// Reminder ID to acknowledge
+        reminder_id: String,
+    },
+
+    /// Delete/cancel a reminder
+    DeleteReminder {
+        /// Reminder ID to delete
+        reminder_id: String,
+    },
+
+    /// Search for public transit connections
+    SearchTransit {
+        /// Origin address or stop name
+        from: String,
+        /// Destination address or stop name
+        to: String,
+        /// Departure time (None = now)
+        departure: Option<String>,
+    },
+
     /// System-level commands
     System(SystemCommand),
 
@@ -293,6 +339,34 @@ impl AgentCommand {
                 let preview: String = query.chars().take(50).collect();
                 let results = max_results.unwrap_or(5);
                 format!("Web search: {preview}... (max {results} results)")
+            },
+            Self::CreateReminder {
+                title, remind_at, ..
+            } => {
+                format!("Create reminder '{title}' at {remind_at}")
+            },
+            Self::ListReminders { include_done } => {
+                if include_done == &Some(true) {
+                    "List all reminders (including done)".to_string()
+                } else {
+                    "List active reminders".to_string()
+                }
+            },
+            Self::SnoozeReminder {
+                reminder_id,
+                duration_minutes,
+            } => {
+                let mins = duration_minutes.unwrap_or(15);
+                format!("Snooze reminder {reminder_id} for {mins}min")
+            },
+            Self::AcknowledgeReminder { reminder_id } => {
+                format!("Mark reminder {reminder_id} as done")
+            },
+            Self::DeleteReminder { reminder_id } => {
+                format!("Delete reminder {reminder_id}")
+            },
+            Self::SearchTransit { from, to, .. } => {
+                format!("Search transit: {from} → {to}")
             },
             Self::System(cmd) => match cmd {
                 SystemCommand::Status => "System status".to_string(),

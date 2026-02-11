@@ -96,7 +96,7 @@ impl LatencyDistribution {
     #[allow(clippy::cast_possible_truncation)]
     pub fn sample(&self) -> Duration {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         match self.distribution {
             LatencyDistributionType::Uniform => {
@@ -104,13 +104,13 @@ impl LatencyDistribution {
                 if range == 0 {
                     return self.min;
                 }
-                let random_nanos = rng.gen_range(0..=range);
+                let random_nanos = rng.random_range(0..=range);
                 self.min + Duration::from_nanos(random_nanos as u64)
             },
             LatencyDistributionType::Normal => {
                 // Box-Muller transform for normal distribution
-                let u1: f64 = rng.r#gen();
-                let u2: f64 = rng.r#gen();
+                let u1: f64 = rng.random();
+                let u2: f64 = rng.random();
                 let z0 = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
 
                 let mean = self.min.as_secs_f64();
@@ -124,7 +124,7 @@ impl LatencyDistribution {
                 // Exponential distribution with lambda based on mean
                 let mean = f64::midpoint(self.min.as_secs_f64(), self.max.as_secs_f64());
                 let lambda = 1.0 / mean;
-                let u: f64 = rng.r#gen();
+                let u: f64 = rng.random();
                 let sample = -u.ln() / lambda;
 
                 // Clamp to min/max
@@ -331,8 +331,8 @@ impl FaultPolicy {
             return true;
         }
 
-        let mut rng = rand::thread_rng();
-        rng.r#gen::<f64>() < self.fault_rate
+        let mut rng = rand::rng();
+        rng.random::<f64>() < self.fault_rate
     }
 
     /// Select and return the fault type to inject

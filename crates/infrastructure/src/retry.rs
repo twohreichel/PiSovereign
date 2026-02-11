@@ -169,7 +169,7 @@ impl RetryConfig {
 
         let final_delay = if self.jitter_enabled {
             let jitter_range = capped_delay * self.jitter_factor;
-            let jitter = rand::thread_rng().gen_range(-jitter_range..=jitter_range);
+            let jitter = rand::rng().random_range(-jitter_range..=jitter_range);
             (capped_delay + jitter).max(0.0)
         } else {
             capped_delay

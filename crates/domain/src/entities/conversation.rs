@@ -2,9 +2,61 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use super::{ChatMessage, MessageRole};
 use crate::value_objects::ConversationId;
+
+/// Source of the conversation (how the user initiated it)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationSource {
+    /// HTTP API or web interface
+    #[default]
+    Http,
+    /// WhatsApp Business API
+    #[serde(rename = "whatsapp")]
+    WhatsApp,
+    /// Signal messenger
+    Signal,
+}
+
+impl ConversationSource {
+    /// Convert to string representation for database storage
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::WhatsApp => "whatsapp",
+            Self::Signal => "signal",
+        }
+    }
+
+    /// Check if this is a messenger source (WhatsApp or Signal)
+    #[must_use]
+    pub const fn is_messenger(&self) -> bool {
+        matches!(self, Self::WhatsApp | Self::Signal)
+    }
+}
+
+impl std::str::FromStr for ConversationSource {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "http" => Ok(Self::Http),
+            "whatsapp" => Ok(Self::WhatsApp),
+            "signal" => Ok(Self::Signal),
+            other => Err(format!("Unknown conversation source: {other}")),
+        }
+    }
+}
+
+impl fmt::Display for ConversationSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
 
 /// A conversation containing a sequence of messages
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +81,13 @@ pub struct Conversation {
     /// need to be persisted during sync operations.
     #[serde(default)]
     pub persisted_message_count: usize,
+    /// Source of the conversation (HTTP, WhatsApp, Signal)
+    #[serde(default)]
+    pub source: ConversationSource,
+    /// Phone number for messenger conversations (E.164 format)
+    /// Only set for WhatsApp and Signal conversations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone_number: Option<String>,
 }
 
 impl Conversation {
@@ -43,6 +102,8 @@ impl Conversation {
             title: None,
             system_prompt: None,
             persisted_message_count: 0,
+            source: ConversationSource::default(),
+            phone_number: None,
         }
     }
 
@@ -51,6 +112,33 @@ impl Conversation {
         let mut conv = Self::new();
         conv.system_prompt = Some(system_prompt.into());
         conv
+    }
+
+    /// Create a new conversation for a messenger with phone number
+    ///
+    /// # Arguments
+    ///
+    /// * `source` - The messenger source (WhatsApp or Signal)
+    /// * `phone_number` - The phone number in E.164 format (e.g., "+1234567890")
+    pub fn for_messenger(source: ConversationSource, phone_number: impl Into<String>) -> Self {
+        let mut conv = Self::new();
+        conv.source = source;
+        conv.phone_number = Some(phone_number.into());
+        conv
+    }
+
+    /// Set the conversation source
+    #[must_use]
+    pub const fn with_source(mut self, source: ConversationSource) -> Self {
+        self.source = source;
+        self
+    }
+
+    /// Set the phone number for messenger conversations
+    #[must_use]
+    pub fn with_phone_number(mut self, phone_number: impl Into<String>) -> Self {
+        self.phone_number = Some(phone_number.into());
+        self
     }
 
     /// Add a message to the conversation.
@@ -383,5 +471,114 @@ mod tests {
         conv.mark_n_messages_persisted(10);
         // Should saturate, not overflow
         assert_eq!(conv.persisted_message_count, 0); // min(MAX, 0) = 0
+    }
+
+    // ConversationSource tests
+
+    #[test]
+    fn conversation_source_default_is_http() {
+        assert_eq!(ConversationSource::default(), ConversationSource::Http);
+    }
+
+    #[test]
+    fn conversation_source_as_str() {
+        assert_eq!(ConversationSource::Http.as_str(), "http");
+        assert_eq!(ConversationSource::WhatsApp.as_str(), "whatsapp");
+        assert_eq!(ConversationSource::Signal.as_str(), "signal");
+    }
+
+    #[test]
+    fn conversation_source_from_str() {
+        assert_eq!(
+            "http".parse::<ConversationSource>().unwrap(),
+            ConversationSource::Http
+        );
+        assert_eq!(
+            "whatsapp".parse::<ConversationSource>().unwrap(),
+            ConversationSource::WhatsApp
+        );
+        assert_eq!(
+            "signal".parse::<ConversationSource>().unwrap(),
+            ConversationSource::Signal
+        );
+        // Case insensitive
+        assert_eq!(
+            "HTTP".parse::<ConversationSource>().unwrap(),
+            ConversationSource::Http
+        );
+        assert_eq!(
+            "WhatsApp".parse::<ConversationSource>().unwrap(),
+            ConversationSource::WhatsApp
+        );
+    }
+
+    #[test]
+    fn conversation_source_from_str_error() {
+        let result = "unknown".parse::<ConversationSource>();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown conversation source"));
+    }
+
+    #[test]
+    fn conversation_source_is_messenger() {
+        assert!(!ConversationSource::Http.is_messenger());
+        assert!(ConversationSource::WhatsApp.is_messenger());
+        assert!(ConversationSource::Signal.is_messenger());
+    }
+
+    #[test]
+    fn conversation_source_display() {
+        assert_eq!(format!("{}", ConversationSource::Http), "http");
+        assert_eq!(format!("{}", ConversationSource::WhatsApp), "whatsapp");
+        assert_eq!(format!("{}", ConversationSource::Signal), "signal");
+    }
+
+    #[test]
+    fn conversation_source_serialization() {
+        let source = ConversationSource::WhatsApp;
+        let json = serde_json::to_string(&source).unwrap();
+        assert_eq!(json, r#""whatsapp""#);
+        let parsed: ConversationSource = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ConversationSource::WhatsApp);
+    }
+
+    // Conversation with source tests
+
+    #[test]
+    fn new_conversation_has_http_source() {
+        let conv = Conversation::new();
+        assert_eq!(conv.source, ConversationSource::Http);
+        assert!(conv.phone_number.is_none());
+    }
+
+    #[test]
+    fn for_messenger_creates_conversation_with_source() {
+        let conv = Conversation::for_messenger(ConversationSource::WhatsApp, "+1234567890");
+        assert_eq!(conv.source, ConversationSource::WhatsApp);
+        assert_eq!(conv.phone_number, Some("+1234567890".to_string()));
+    }
+
+    #[test]
+    fn with_source_sets_source() {
+        let conv = Conversation::new().with_source(ConversationSource::Signal);
+        assert_eq!(conv.source, ConversationSource::Signal);
+    }
+
+    #[test]
+    fn with_phone_number_sets_phone() {
+        let conv = Conversation::new().with_phone_number("+49123456789");
+        assert_eq!(conv.phone_number, Some("+49123456789".to_string()));
+    }
+
+    #[test]
+    fn conversation_with_source_serialization() {
+        let conv = Conversation::for_messenger(ConversationSource::Signal, "+1234567890");
+        let json = serde_json::to_string(&conv).unwrap();
+        assert!(json.contains(r#""source":"signal""#));
+        assert!(json.contains(r#""phone_number":"+1234567890""#));
+
+        let parsed: Conversation = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.source, ConversationSource::Signal);
+        assert_eq!(parsed.phone_number, Some("+1234567890".to_string()));
     }
 }
