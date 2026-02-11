@@ -321,6 +321,8 @@ pub struct ConversationCacheStats {
 mod tests {
     use std::sync::Mutex;
 
+    use domain::entities::ConversationSource;
+
     use super::*;
 
     /// Mock conversation store for testing
@@ -445,6 +447,24 @@ mod tests {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
             Ok(deleted)
+        }
+
+        async fn get_by_phone_number(
+            &self,
+            source: ConversationSource,
+            phone_number: &str,
+        ) -> Result<Option<Conversation>, ApplicationError> {
+            let conversations = self
+                .conversations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            Ok(conversations
+                .values()
+                .find(|c| {
+                    c.source == source
+                        && c.phone_number.as_ref().map(|p| p.as_str()) == Some(phone_number)
+                })
+                .cloned())
         }
 
         async fn add_messages(

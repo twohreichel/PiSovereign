@@ -491,6 +491,7 @@ mod tests {
         impl ConversationStore for ConvStore {
             async fn save(&self, conversation: &Conversation) -> Result<(), ApplicationError>;
             async fn get(&self, id: &ConversationId) -> Result<Option<Conversation>, ApplicationError>;
+            async fn get_by_phone_number(&self, source: domain::ConversationSource, phone_number: &str) -> Result<Option<Conversation>, ApplicationError>;
             async fn update(&self, conversation: &Conversation) -> Result<(), ApplicationError>;
             async fn delete(&self, id: &ConversationId) -> Result<(), ApplicationError>;
             async fn add_message(&self, conversation_id: &ConversationId, message: &ChatMessage) -> Result<(), ApplicationError>;

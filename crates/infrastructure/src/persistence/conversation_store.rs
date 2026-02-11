@@ -116,6 +116,60 @@ impl ConversationStore for SqliteConversationStore {
         .map_err(|e| ApplicationError::Internal(e.to_string()))?
     }
 
+    #[instrument(skip(self), fields(source = ?source, phone = %phone_number))]
+    async fn get_by_phone_number(
+        &self,
+        source: ConversationSource,
+        phone_number: &str,
+    ) -> Result<Option<Conversation>, ApplicationError> {
+        let pool = Arc::clone(&self.pool);
+        let source_str = source.as_str().to_string();
+        let phone = phone_number.to_string();
+
+        task::spawn_blocking(move || {
+            let conn = pool
+                .get()
+                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+
+            let conversation = conn
+                .query_row(
+                    "SELECT id, created_at, updated_at, title, system_prompt, source, phone_number
+                     FROM conversations WHERE source = ?1 AND phone_number = ?2
+                     ORDER BY updated_at DESC LIMIT 1",
+                    params![source_str, phone],
+                    row_to_conversation,
+                )
+                .optional()
+                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+
+            if let Some(mut conv) = conversation {
+                let conv_id = conv.id.to_string();
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT id, role, content, created_at, tokens, model, sequence_number
+                         FROM messages WHERE conversation_id = ?1 ORDER BY sequence_number ASC",
+                    )
+                    .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+
+                let messages: Vec<ChatMessage> = stmt
+                    .query_map([&conv_id], row_to_message)
+                    .map_err(|e| ApplicationError::Internal(e.to_string()))?
+                    .filter_map(Result::ok)
+                    .collect();
+
+                conv.persisted_message_count = messages.len();
+                conv.messages = messages;
+                debug!("Found conversation for phone number");
+                Ok(Some(conv))
+            } else {
+                debug!("No conversation found for phone number");
+                Ok(None)
+            }
+        })
+        .await
+        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+    }
+
     #[instrument(skip(self, conversation), fields(conversation_id = %conversation.id))]
     async fn update(&self, conversation: &Conversation) -> Result<(), ApplicationError> {
         let pool = Arc::clone(&self.pool);

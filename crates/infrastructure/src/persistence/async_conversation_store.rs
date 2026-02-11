@@ -203,6 +203,82 @@ impl ConversationStore for AsyncConversationStore {
         Ok(Some(conversation))
     }
 
+    #[instrument(skip(self), fields(source = ?source, phone = %phone_number))]
+    async fn get_by_phone_number(
+        &self,
+        source: ConversationSource,
+        phone_number: &str,
+    ) -> Result<Option<Conversation>, ApplicationError> {
+        let row: Option<ConversationRow> = sqlx::query_as(
+            r"
+            SELECT id, title, system_prompt, created_at, updated_at, source, phone_number
+            FROM conversations
+            WHERE source = $1 AND phone_number = $2
+            ORDER BY updated_at DESC
+            LIMIT 1
+            ",
+        )
+        .bind(source.as_str())
+        .bind(phone_number)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        let Some(row) = row else {
+            debug!("No conversation found for phone number");
+            return Ok(None);
+        };
+
+        // Load messages for the conversation
+        let message_rows: Vec<MessageRow> = sqlx::query_as(
+            r"
+            SELECT id, role, content, created_at, metadata
+            FROM messages WHERE conversation_id = $1
+            ORDER BY created_at ASC
+            ",
+        )
+        .bind(&row.id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        let mut messages = Vec::with_capacity(message_rows.len());
+        for (idx, msg_row) in message_rows.into_iter().enumerate() {
+            let metadata: Option<MessageMetadata> = msg_row
+                .metadata
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok());
+
+            // Note: Conversations never realistically exceed u32::MAX messages
+            #[allow(clippy::cast_possible_truncation)]
+            let seq = (idx as u32) + 1;
+            messages.push(ChatMessage {
+                id: Self::parse_uuid(&msg_row.id)?,
+                role: Self::parse_role(&msg_row.role)?,
+                content: msg_row.content,
+                created_at: parse_datetime(&msg_row.created_at)?,
+                sequence_number: seq,
+                metadata,
+            });
+        }
+
+        let message_count = messages.len();
+        let conversation = Conversation {
+            id: Self::parse_conversation_id(&row.id)?,
+            title: row.title,
+            system_prompt: row.system_prompt,
+            messages,
+            created_at: parse_datetime(&row.created_at)?,
+            updated_at: parse_datetime(&row.updated_at)?,
+            persisted_message_count: message_count,
+            source: Self::parse_source(&row.source)?,
+            phone_number: row.phone_number,
+        };
+
+        debug!("Conversation loaded by phone number");
+        Ok(Some(conversation))
+    }
+
     #[instrument(skip(self, conversation), fields(conv_id = %conversation.id))]
     async fn update(&self, conversation: &Conversation) -> Result<(), ApplicationError> {
         // For SQLite, update is the same as save (upsert)
