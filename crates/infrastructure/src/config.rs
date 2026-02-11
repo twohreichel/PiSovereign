@@ -742,6 +742,7 @@ impl Default for SignalConfig {
 /// Controls how messenger (WhatsApp/Signal) conversations are stored,
 /// encrypted, and integrated with the memory/RAG system.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct MessengerPersistenceConfig {
     /// Enable conversation persistence (default: true)
     #[serde(default = "default_true")]

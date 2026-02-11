@@ -19,7 +19,7 @@ pub use briefing::{
     CalendarBrief, CalendarItem, EmailBrief, MorningBriefing, TaskBrief, TaskItem, WeatherSummary,
 };
 pub use chat_message::{ChatMessage, MessageMetadata, MessageRole};
-pub use conversation::Conversation;
+pub use conversation::{Conversation, ConversationSource};
 pub use email_draft::{DEFAULT_DRAFT_TTL_DAYS, PersistedEmailDraft};
 pub use memory::{Memory, MemoryQuery, MemoryType};
 pub use prompt_security::{PromptAnalysisResult, SecurityThreat, ThreatCategory, ThreatLevel};

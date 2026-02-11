@@ -8,7 +8,7 @@ use application::{error::ApplicationError, ports::ConversationStore};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
-    entities::{ChatMessage, Conversation, MessageMetadata, MessageRole},
+    entities::{ChatMessage, Conversation, ConversationSource, MessageMetadata, MessageRole},
     value_objects::ConversationId,
 };
 use rusqlite::{Row, params};
@@ -81,7 +81,7 @@ impl ConversationStore for SqliteConversationStore {
 
             let conversation = conn
                 .query_row(
-                    "SELECT id, created_at, updated_at, title, system_prompt
+                    "SELECT id, created_at, updated_at, title, system_prompt, source, phone_number
                      FROM conversations WHERE id = ?1",
                     [&id_str],
                     row_to_conversation,
@@ -265,7 +265,7 @@ impl ConversationStore for SqliteConversationStore {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT id, created_at, updated_at, title, system_prompt
+                    "SELECT id, created_at, updated_at, title, system_prompt, source, phone_number
                      FROM conversations ORDER BY updated_at DESC LIMIT ?1",
                 )
                 .map_err(|e| ApplicationError::Internal(e.to_string()))?;
@@ -298,7 +298,7 @@ impl ConversationStore for SqliteConversationStore {
 
             let mut stmt = conn
                 .prepare(
-                    "SELECT DISTINCT c.id, c.created_at, c.updated_at, c.title, c.system_prompt
+                    "SELECT DISTINCT c.id, c.created_at, c.updated_at, c.title, c.system_prompt, c.source, c.phone_number
                      FROM conversations c
                      LEFT JOIN messages m ON c.id = m.conversation_id
                      WHERE c.title LIKE ?1 OR m.content LIKE ?1
@@ -388,12 +388,15 @@ fn row_to_conversation(row: &Row<'_>) -> rusqlite::Result<Conversation> {
     let updated_at_str: String = row.get(2)?;
     let title: Option<String> = row.get(3)?;
     let system_prompt: Option<String> = row.get(4)?;
+    let source_str: String = row.get(5)?;
+    let phone_number: Option<String> = row.get(6)?;
 
     let id = ConversationId::from(Uuid::parse_str(&id_str).unwrap_or_else(|_| Uuid::new_v4()));
     let created_at = DateTime::parse_from_rfc3339(&created_at_str)
         .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
     let updated_at = DateTime::parse_from_rfc3339(&updated_at_str)
         .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+    let source = parse_source(&source_str);
 
     Ok(Conversation {
         id,
@@ -404,7 +407,18 @@ fn row_to_conversation(row: &Row<'_>) -> rusqlite::Result<Conversation> {
         system_prompt,
         // Will be set after messages are loaded
         persisted_message_count: 0,
+        source,
+        phone_number,
     })
+}
+
+/// Parse source string to ConversationSource enum
+fn parse_source(s: &str) -> ConversationSource {
+    match s {
+        "whatsapp" => ConversationSource::WhatsApp,
+        "signal" => ConversationSource::Signal,
+        _ => ConversationSource::Http,
+    }
 }
 
 fn row_to_message(row: &Row<'_>) -> rusqlite::Result<ChatMessage> {

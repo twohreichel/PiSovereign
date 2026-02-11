@@ -29,7 +29,7 @@ use tracing::{debug, error, info};
 use super::connection::DatabaseError;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 8;
+const SCHEMA_VERSION: i32 = 9;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
@@ -125,6 +125,17 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
                     version = 8,
                     error = %e,
                     "Migration V008 (reminders) failed. Check migrations/V008__reminders.sql for the expected schema."
+                );
+                return Err(e);
+            }
+        }
+
+        if current_version < 9 {
+            if let Err(e) = migrate_v9(conn) {
+                error!(
+                    version = 9,
+                    error = %e,
+                    "Migration V009 (conversation source) failed. Check migrations/V009__conversation_source.sql for the expected schema."
                 );
                 return Err(e);
             }
@@ -516,6 +527,33 @@ fn migrate_v8(conn: &Connection) -> Result<(), DatabaseError> {
 
         CREATE INDEX IF NOT EXISTS idx_reminders_user
             ON reminders(user_id);
+        ",
+    )?;
+
+    Ok(())
+}
+
+/// Migration to version 9: Conversation source tracking for messenger persistence
+/// See: migrations/V009__conversation_source.sql
+fn migrate_v9(conn: &Connection) -> Result<(), DatabaseError> {
+    debug!("Applying migration V009: Conversation source tracking");
+
+    // Add source column with default 'http' for existing conversations
+    conn.execute_batch(
+        "
+        ALTER TABLE conversations ADD COLUMN source TEXT NOT NULL DEFAULT 'http';
+        ALTER TABLE conversations ADD COLUMN phone_number TEXT;
+
+        CREATE INDEX IF NOT EXISTS idx_conversations_source
+            ON conversations(source);
+
+        CREATE INDEX IF NOT EXISTS idx_conversations_phone
+            ON conversations(phone_number)
+            WHERE phone_number IS NOT NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_conversations_source_phone
+            ON conversations(source, phone_number)
+            WHERE phone_number IS NOT NULL;
         ",
     )?;
 

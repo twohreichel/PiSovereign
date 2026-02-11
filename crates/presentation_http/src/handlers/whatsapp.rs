@@ -800,6 +800,7 @@ mod tests {
             signature_required: true,
             api_version: "v18.0".to_string(),
             whitelist: Vec::new(),
+            persistence: infrastructure::MessengerPersistenceConfig::default(),
         };
 
         let client_config = WhatsAppClientConfig {

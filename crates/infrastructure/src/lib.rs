@@ -24,8 +24,8 @@ pub use ai_speech::SpeechConfig;
 pub use cache::{MokaCache, MultiLayerCache, RedbCache, generate_cache_key, llm_cache_key};
 pub use config::{
     ApiKeyEntry, AppConfig, CalDavAppConfig, DatabaseConfig, DegradedModeAppConfig, Environment,
-    MessengerSelection, ProtonAppConfig, RetryAppConfig, SecurityConfig, ServerConfig,
-    SignalConfig, TelemetryAppConfig, WeatherConfig, WhatsAppConfig,
+    MessengerPersistenceConfig, MessengerSelection, ProtonAppConfig, RetryAppConfig,
+    SecurityConfig, ServerConfig, SignalConfig, TelemetryAppConfig, WeatherConfig, WhatsAppConfig,
 };
 pub use http::{CorrelatedClientConfig, CorrelatedHttpClient, RequestIdProvider, X_REQUEST_ID};
 pub use persistence::{
