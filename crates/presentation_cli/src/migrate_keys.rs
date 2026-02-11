@@ -120,13 +120,13 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                         });
                                         migrated += 1;
                                         println!(
-                                            "  ✅ Migrated api_key_users entry → api_keys (user_id: {user_id_str})"
+                                            "  ✅ Migrated api_key_users entry → api_keys (for a user)"
                                         );
                                     },
                                     Err(e) => {
                                         failed += 1;
                                         println!(
-                                            "  ❌ Failed to hash key for user_id {user_id_str}: {e}"
+                                            "  ❌ Failed to hash key for a user: {e}"
                                         );
                                     },
                                 }
