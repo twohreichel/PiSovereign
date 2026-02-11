@@ -45,8 +45,13 @@ fn should_expose_details() -> bool {
 /// - Stack trace information
 /// - Database connection strings
 fn sanitize_error_message(msg: &str) -> String {
+    sanitize_error_message_inner(msg, should_expose_details())
+}
+
+/// Core sanitization logic, separated from global state for testability.
+fn sanitize_error_message_inner(msg: &str, expose_details: bool) -> String {
     // In development mode, return the original message
-    if should_expose_details() {
+    if expose_details {
         return msg.to_string();
     }
 
@@ -416,45 +421,36 @@ mod tests {
 
     #[test]
     fn sanitize_removes_file_paths_in_production() {
-        set_expose_internal_errors(false);
         let msg = "Error loading config from /home/user/.config/app.toml";
-        let sanitized = sanitize_error_message(msg);
+        let sanitized = sanitize_error_message_inner(msg, false);
         assert_eq!(sanitized, "An error occurred processing your request");
-        set_expose_internal_errors(true); // Reset for other tests
     }
 
     #[test]
     fn sanitize_removes_database_urls_in_production() {
-        set_expose_internal_errors(false);
         let msg = "Failed to connect to postgres://user:pass@localhost:5432/db";
-        let sanitized = sanitize_error_message(msg);
+        let sanitized = sanitize_error_message_inner(msg, false);
         assert_eq!(sanitized, "An error occurred processing your request");
-        set_expose_internal_errors(true);
     }
 
     #[test]
     fn sanitize_removes_stack_traces_in_production() {
-        set_expose_internal_errors(false);
         let msg = "Panic at line 42 in module.rs";
-        let sanitized = sanitize_error_message(msg);
+        let sanitized = sanitize_error_message_inner(msg, false);
         assert_eq!(sanitized, "An error occurred processing your request");
-        set_expose_internal_errors(true);
     }
 
     #[test]
     fn sanitize_preserves_safe_messages() {
-        set_expose_internal_errors(false);
         let msg = "Invalid email format";
-        let sanitized = sanitize_error_message(msg);
+        let sanitized = sanitize_error_message_inner(msg, false);
         assert_eq!(sanitized, "Invalid email format");
-        set_expose_internal_errors(true);
     }
 
     #[test]
     fn sanitize_exposes_details_in_development() {
-        set_expose_internal_errors(true);
         let msg = "Error at /home/user/.config/app.toml line 42";
-        let sanitized = sanitize_error_message(msg);
+        let sanitized = sanitize_error_message_inner(msg, true);
         assert_eq!(sanitized, msg);
     }
 
