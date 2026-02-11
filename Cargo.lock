@@ -3733,6 +3733,7 @@ dependencies = [
  "futures",
  "infrastructure",
  "integration_signal",
+ "integration_transit",
  "integration_whatsapp",
  "mockall",
  "secrecy",

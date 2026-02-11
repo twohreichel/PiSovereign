@@ -8,7 +8,7 @@ use application::{
     AgentService, ApprovalService, ChatService, HealthService,
     ports::{
         CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
-        MessengerPort, SuspiciousActivityPort, WeatherPort,
+        MessengerPort, ReminderPort, SuspiciousActivityPort, TransitPort, WeatherPort,
     },
     services::PromptSanitizer,
 };
@@ -17,11 +17,11 @@ use infrastructure::{
     adapters::{
         CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig,
         InMemorySuspiciousActivityTracker, ProtonEmailAdapter, SignalMessengerAdapter,
-        WeatherAdapter, WhatsAppMessengerAdapter,
+        TransitAdapter, WeatherAdapter, WhatsAppMessengerAdapter,
     },
     persistence::{
         SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, SqliteDatabaseHealth,
-        create_pool,
+        SqliteReminderStore, create_pool,
     },
     telemetry::{TelemetryConfig, init_telemetry},
 };
@@ -252,8 +252,42 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(adapter) as Arc<dyn EmailPort>
     });
 
+    // Initialize optional transit adapter
+    let transit_port: Option<Arc<dyn TransitPort>> =
+        initial_config.transit.as_ref().and_then(|config| {
+            let transit_config = config.to_transit_config();
+            let geocoding_config = integration_transit::NominatimConfig::default();
+
+            match (
+                integration_transit::HafasTransitClient::new(&transit_config),
+                integration_transit::NominatimGeocodingClient::new(&geocoding_config),
+            ) {
+                (Ok(transit_client), Ok(geocoding_client)) => {
+                    let adapter =
+                        TransitAdapter::new(transit_client, geocoding_client).with_circuit_breaker();
+                    info!("🚇 Transit adapter initialized");
+                    Some(Arc::new(adapter) as Arc<dyn TransitPort>)
+                },
+                (Err(e), _) => {
+                    warn!(error = %e, "⚠️ Failed to initialize transit client");
+                    None
+                },
+                (_, Err(e)) => {
+                    warn!(error = %e, "⚠️ Failed to initialize geocoding client");
+                    None
+                },
+            }
+        });
+
+    // Get home location from transit config for route calculations
+    let home_location = initial_config
+        .transit
+        .as_ref()
+        .and_then(|t| t.home_location.as_ref())
+        .and_then(|loc| loc.to_geo_location());
+
     // Initialize database connection pool
-    let (approval_service, conversation_store, database_health_port) =
+    let (approval_service, conversation_store, database_health_port, reminder_port) =
         match create_pool(&initial_config.database) {
             Ok(pool) => {
                 let pool = Arc::new(pool);
@@ -264,11 +298,14 @@ async fn main() -> anyhow::Result<()> {
                     Arc::new(SqliteConversationStore::new(Arc::clone(&pool)));
                 let database_health: Arc<dyn DatabaseHealthPort> =
                     Arc::new(SqliteDatabaseHealth::new(Arc::clone(&pool)));
-                info!("✅ Database initialized with conversation and approval stores");
+                let reminder_store: Arc<dyn ReminderPort> =
+                    Arc::new(SqliteReminderStore::new(Arc::clone(&pool)));
+                info!("✅ Database initialized with conversation, approval, and reminder stores");
                 (
                     Some(Arc::new(approval_service)),
                     Some(conversation_store),
                     Some(database_health),
+                    Some(reminder_store),
                 )
             },
             Err(e) => {
@@ -276,7 +313,7 @@ async fn main() -> anyhow::Result<()> {
                     error = %e,
                     "⚠️ Failed to initialize database, persistence features disabled"
                 );
-                (None, None, None)
+                (None, None, None, None)
             },
         };
 
@@ -289,7 +326,20 @@ async fn main() -> anyhow::Result<()> {
         |store| ChatService::with_all(Arc::clone(&inference), Arc::clone(store), SYSTEM_PROMPT),
     );
 
-    let agent_service = AgentService::new(Arc::clone(&inference));
+    // Build agent service with optional reminder and transit support
+    let mut agent_service = AgentService::new(Arc::clone(&inference));
+    if let Some(ref reminder) = reminder_port {
+        agent_service = agent_service.with_reminder_service(Arc::clone(reminder));
+        info!("📋 AgentService configured with reminder support");
+    }
+    if let Some(ref transit) = transit_port {
+        agent_service = agent_service.with_transit_service(Arc::clone(transit));
+        info!("🚇 AgentService configured with transit support");
+    }
+    if let Some(location) = home_location {
+        agent_service = agent_service.with_home_location(location);
+        info!("🏠 AgentService configured with home location");
+    }
 
     // Initialize metrics collector
     let metrics = Arc::new(MetricsCollector::new());

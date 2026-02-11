@@ -11,6 +11,7 @@ pub mod config;
 pub mod http;
 pub mod persistence;
 pub mod retry;
+pub mod scheduled_tasks;
 pub mod scheduler;
 pub mod telemetry;
 pub mod templates;

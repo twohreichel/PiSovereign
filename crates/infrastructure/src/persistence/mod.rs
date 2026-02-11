@@ -29,6 +29,7 @@ pub use conversation_store::SqliteConversationStore;
 pub use database_health::SqliteDatabaseHealth;
 pub use draft_store::SqliteDraftStore;
 pub use memory_store::SqliteMemoryStore;
+pub use reminder_store::SqliteReminderStore;
 pub use retry_queue::{
     DeadLetterItem, QueueStats, RetryItem, RetryQueueError, RetryQueueStore, RetryStatus,
 };

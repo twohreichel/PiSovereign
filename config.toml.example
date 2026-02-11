@@ -381,6 +381,53 @@ global_timeout_secs = 5
 # cache_ttl_minutes = 30
 
 # ==============================
+# Public Transit (ÖPNV) Integration
+# ==============================
+# Provides public transit routing for German transport networks via transport.rest API.
+# Used for "How do I get to X?" queries and location-based reminders.
+# [transit]
+# Base URL for transport.rest API (default: v6.db.transport.rest)
+# base_url = "https://v6.db.transport.rest"
+# Request timeout in seconds
+# timeout_secs = 10
+# Maximum number of journey results
+# max_results = 3
+# Cache TTL in minutes
+# cache_ttl_minutes = 5
+# Include transit info in location-based reminders
+# include_in_reminders = true
+# Transport modes to include:
+# products_bus = true
+# products_suburban = true  # S-Bahn
+# products_subway = true    # U-Bahn
+# products_tram = true
+# products_regional = true  # RB/RE
+# products_national = false # ICE/IC
+# User's home location for route calculations
+# home_location = { latitude = 52.52, longitude = 13.405 }
+
+# ==============================
+# Reminder System Configuration
+# ==============================
+# Configures the proactive reminder system including CalDAV sync,
+# custom reminders, and scheduling settings.
+# [reminder]
+# Maximum number of snoozes per reminder
+# max_snooze = 5
+# Default snooze duration in minutes
+# default_snooze_minutes = 15
+# How far in advance to create reminders from CalDAV events (minutes)
+# caldav_reminder_lead_time_minutes = 30
+# Interval for checking due reminders (seconds)
+# check_interval_secs = 60
+# CalDAV sync interval (minutes)
+# caldav_sync_interval_minutes = 15
+# Morning briefing time (HH:MM format)
+# morning_briefing_time = "07:00"
+# Enable morning briefing
+# morning_briefing_enabled = true
+
+# ==============================
 # CalDAV Calendar Integration
 # ==============================
 # [caldav]
