@@ -151,6 +151,24 @@ api_version = "v18.0"
 # Phone numbers allowed to send messages (empty = allow all)
 # whitelist = ["+1234567890", "+0987654321"]
 
+# Conversation Persistence Settings
+# Store and persist conversations from WhatsApp in the database
+[whatsapp.persistence]
+# Enable conversation persistence (default: true)
+# enabled = true
+# Enable encryption for stored messages (default: true)
+# enable_encryption = true
+# Enable RAG context retrieval from memory system (default: true)
+# enable_rag = true
+# Enable automatic learning from interactions (default: true)
+# enable_learning = true
+# Maximum days to retain conversations (optional, unlimited if not set)
+# retention_days = 90
+# Maximum messages per conversation before FIFO truncation (optional)
+# max_messages_per_conversation = 1000
+# Number of recent messages to use as context (default: 50)
+# context_window = 50
+
 # ==============================
 # Signal Integration (via signal-cli)
 # ==============================
@@ -167,6 +185,24 @@ socket_path = "/var/run/signal-cli/socket"
 timeout_ms = 30000
 # Phone numbers allowed to send messages (empty = allow all)
 # whitelist = ["+1234567890", "+0987654321"]
+
+# Conversation Persistence Settings
+# Store and persist conversations from Signal in the database
+[signal.persistence]
+# Enable conversation persistence (default: true)
+# enabled = true
+# Enable encryption for stored messages (default: true)
+# enable_encryption = true
+# Enable RAG context retrieval from memory system (default: true)
+# enable_rag = true
+# Enable automatic learning from interactions (default: true)
+# enable_learning = true
+# Maximum days to retain conversations (optional, unlimited if not set)
+# retention_days = 90
+# Maximum messages per conversation before FIFO truncation (optional)
+# max_messages_per_conversation = 1000
+# Number of recent messages to use as context (default: 50)
+# context_window = 50
 
 # ==============================
 # Speech Processing (Voice Messages)

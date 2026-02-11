@@ -615,6 +615,10 @@ pub struct WhatsAppConfig {
     /// Phone numbers allowed to send messages (empty = allow all)
     #[serde(default)]
     pub whitelist: Vec<String>,
+
+    /// Conversation persistence configuration
+    #[serde(default)]
+    pub persistence: MessengerPersistenceConfig,
 }
 
 impl std::fmt::Debug for WhatsAppConfig {
@@ -633,6 +637,7 @@ impl std::fmt::Debug for WhatsAppConfig {
             .field("signature_required", &self.signature_required)
             .field("api_version", &self.api_version)
             .field("whitelist", &format!("[{} entries]", self.whitelist.len()))
+            .field("persistence", &self.persistence)
             .finish()
     }
 }
@@ -651,6 +656,7 @@ impl Default for WhatsAppConfig {
             signature_required: true,
             api_version: default_api_version(),
             whitelist: Vec::new(),
+            persistence: MessengerPersistenceConfig::default(),
         }
     }
 }
@@ -691,6 +697,10 @@ pub struct SignalConfig {
     /// Phone numbers allowed to send messages (empty = allow all)
     #[serde(default)]
     pub whitelist: Vec<String>,
+
+    /// Conversation persistence configuration
+    #[serde(default)]
+    pub persistence: MessengerPersistenceConfig,
 }
 
 fn default_signal_socket_path() -> String {
@@ -709,6 +719,7 @@ impl std::fmt::Debug for SignalConfig {
             .field("data_path", &self.data_path)
             .field("timeout_ms", &self.timeout_ms)
             .field("whitelist", &format!("[{} entries]", self.whitelist.len()))
+            .field("persistence", &self.persistence)
             .finish()
     }
 }
@@ -721,6 +732,64 @@ impl Default for SignalConfig {
             data_path: None,
             timeout_ms: default_signal_timeout(),
             whitelist: Vec::new(),
+            persistence: MessengerPersistenceConfig::default(),
+        }
+    }
+}
+
+/// Messenger conversation persistence configuration
+///
+/// Controls how messenger (WhatsApp/Signal) conversations are stored,
+/// encrypted, and integrated with the memory/RAG system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessengerPersistenceConfig {
+    /// Enable conversation persistence (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Enable encryption for stored messages (default: true)
+    /// Uses the same encryption as the memory system
+    #[serde(default = "default_true")]
+    pub enable_encryption: bool,
+
+    /// Enable RAG context retrieval for conversations (default: true)
+    #[serde(default = "default_true")]
+    pub enable_rag: bool,
+
+    /// Enable automatic learning from interactions (default: true)
+    /// Stores Q&A pairs as memories for future context
+    #[serde(default = "default_true")]
+    pub enable_learning: bool,
+
+    /// Maximum number of days to retain conversations (Optional)
+    /// If set, conversations older than this will be cleaned up
+    #[serde(default)]
+    pub retention_days: Option<u32>,
+
+    /// Maximum messages per conversation before FIFO truncation (Optional)
+    /// If set, oldest messages are removed when this limit is exceeded
+    #[serde(default)]
+    pub max_messages_per_conversation: Option<usize>,
+
+    /// Number of recent messages to include as context for new messages (default: 50)
+    #[serde(default = "default_context_window")]
+    pub context_window: usize,
+}
+
+const fn default_context_window() -> usize {
+    50
+}
+
+impl Default for MessengerPersistenceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            enable_encryption: true,
+            enable_rag: true,
+            enable_learning: true,
+            retention_days: None,
+            max_messages_per_conversation: None,
+            context_window: default_context_window(),
         }
     }
 }
@@ -1571,6 +1640,7 @@ mod tests {
             data_path: Some("/data".to_string()),
             timeout_ms: 60000,
             whitelist: vec!["+11111111111".to_string()],
+            persistence: MessengerPersistenceConfig::default(),
         };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: SignalConfig = serde_json::from_str(&json).unwrap();
@@ -1579,6 +1649,7 @@ mod tests {
         assert_eq!(parsed.data_path, Some("/data".to_string()));
         assert_eq!(parsed.timeout_ms, 60000);
         assert_eq!(parsed.whitelist.len(), 1);
+        assert!(parsed.persistence.enabled);
     }
 
     #[test]
@@ -1588,6 +1659,49 @@ mod tests {
         assert!(debug.contains("SignalConfig"));
         assert!(debug.contains("phone_number"));
         assert!(debug.contains("socket_path"));
+    }
+
+    #[test]
+    fn messenger_persistence_config_default() {
+        let config = MessengerPersistenceConfig::default();
+        assert!(config.enabled);
+        assert!(config.enable_encryption);
+        assert!(config.enable_rag);
+        assert!(config.enable_learning);
+        assert!(config.retention_days.is_none());
+        assert!(config.max_messages_per_conversation.is_none());
+        assert_eq!(config.context_window, 50);
+    }
+
+    #[test]
+    fn messenger_persistence_config_serialization() {
+        let config = MessengerPersistenceConfig {
+            enabled: true,
+            enable_encryption: false,
+            enable_rag: true,
+            enable_learning: false,
+            retention_days: Some(90),
+            max_messages_per_conversation: Some(1000),
+            context_window: 25,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: MessengerPersistenceConfig = serde_json::from_str(&json).unwrap();
+        assert!(parsed.enabled);
+        assert!(!parsed.enable_encryption);
+        assert!(parsed.enable_rag);
+        assert!(!parsed.enable_learning);
+        assert_eq!(parsed.retention_days, Some(90));
+        assert_eq!(parsed.max_messages_per_conversation, Some(1000));
+        assert_eq!(parsed.context_window, 25);
+    }
+
+    #[test]
+    fn messenger_persistence_config_debug() {
+        let config = MessengerPersistenceConfig::default();
+        let debug = format!("{config:?}");
+        assert!(debug.contains("MessengerPersistenceConfig"));
+        assert!(debug.contains("enabled"));
+        assert!(debug.contains("enable_rag"));
     }
 
     #[test]
