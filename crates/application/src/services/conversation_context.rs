@@ -461,8 +461,7 @@ mod tests {
             Ok(conversations
                 .values()
                 .find(|c| {
-                    c.source == source
-                        && c.phone_number.as_ref().map(|p| p.as_str()) == Some(phone_number)
+                    c.source == source && c.phone_number.as_deref() == Some(phone_number)
                 })
                 .cloned())
         }

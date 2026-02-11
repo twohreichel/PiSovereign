@@ -11,6 +11,7 @@ mod health_service;
 pub mod location_helper;
 mod memory_enhanced_chat;
 mod memory_service;
+mod messenger_chat_service;
 pub mod notification_service;
 mod prompt_sanitizer;
 pub mod reminder_formatter;
@@ -36,6 +37,9 @@ pub use location_helper::{
 };
 pub use memory_enhanced_chat::{MemoryEnhancedChat, MemoryEnhancedChatConfig};
 pub use memory_service::{MemoryService, MemoryServiceConfig};
+pub use messenger_chat_service::{
+    MessengerChatConfig, MessengerChatResponse, MessengerChatService,
+};
 pub use notification_service::{NotificationConfig, NotificationService, ReminderNotification};
 pub use prompt_sanitizer::{PromptSanitizer, PromptSecurityConfig, SecuritySensitivity};
 pub use reminder_formatter::{
