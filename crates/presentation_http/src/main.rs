@@ -30,7 +30,7 @@ use integration_whatsapp::WhatsAppClientConfig;
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig, RequestIdLayer,
     SecurityHeadersLayer, handlers::metrics::MetricsCollector, routes, spawn_cleanup_task,
-    spawn_config_reload_handler, state::AppState,
+    spawn_config_reload_handler, spawn_conversation_cleanup_task, state::AppState,
 };
 use secrecy::ExposeSecret;
 use tokio::{net::TcpListener, signal};
@@ -39,7 +39,7 @@ use tower_http::{
     limit::RequestBodyLimitLayer,
     trace::TraceLayer,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// System prompt for the AI assistant
@@ -468,6 +468,36 @@ async fn main() -> anyhow::Result<()> {
     } else {
         info!("⚠️ Prompt security disabled");
         (None, None)
+    };
+
+    // Spawn conversation cleanup task if retention is configured
+    let _conversation_cleanup_handle = if let Some(ref store) = conversation_store {
+        // Get retention days from the active messenger's persistence config
+        let retention_days = match initial_config.messenger {
+            MessengerSelection::WhatsApp => initial_config.whatsapp.persistence.retention_days,
+            MessengerSelection::Signal => initial_config.signal.persistence.retention_days,
+            MessengerSelection::None => None,
+        };
+
+        retention_days.map_or_else(
+            || {
+                debug!("Conversation retention not configured, cleanup task disabled");
+                None
+            },
+            |days| {
+                info!(
+                    retention_days = days,
+                    "🗑️ Conversation retention cleanup enabled"
+                );
+                Some(spawn_conversation_cleanup_task(
+                    Arc::clone(store),
+                    days,
+                    None, // Use default 1-hour interval
+                ))
+            },
+        )
+    } else {
+        None
     };
 
     // Create app state with reloadable config
