@@ -14,6 +14,7 @@ members = [
     "crates/integration_proton",
     "crates/integration_weather",
     "crates/integration_websearch",
+    "crates/integration_transit",
 ]
 
 [workspace.package]
@@ -198,4 +199,5 @@ integration_whatsapp = { path = "crates/integration_whatsapp" }
 integration_signal = { path = "crates/integration_signal" }
 integration_weather = { path = "crates/integration_weather" }
 integration_websearch = { path = "crates/integration_websearch" }
+integration_transit = { path = "crates/integration_transit" }
 
