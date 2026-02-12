@@ -11,6 +11,9 @@ This document covers every configuration option available in `config.toml`.
 - [Server Settings](#server-settings)
 - [Inference Engine](#inference-engine)
 - [Security Settings](#security-settings)
+  - [Prompt Security](#prompt-security)
+  - [API Key Authentication](#api-key-authentication)
+- [Memory & Knowledge Storage](#memory--knowledge-storage)
 - [Database & Cache](#database--cache)
   - [Database](#database)
   - [Cache](#cache)
@@ -20,6 +23,9 @@ This document covers every configuration option available in `config.toml`.
   - [Signal Messenger](#signal-messenger)
   - [Speech Processing](#speech-processing)
   - [Weather](#weather)
+  - [Web Search](#web-search)
+  - [Public Transit (ÖPNV)](#public-transit-öpnv)
+  - [Reminder System](#reminder-system)
   - [CalDAV Calendar](#caldav-calendar)
   - [Proton Mail](#proton-mail)
 - [Model Selector](#model-selector)
@@ -99,8 +105,9 @@ environment = "development"
 ```toml
 [server]
 # Network interface to bind to
-# "0.0.0.0" = all interfaces, "127.0.0.1" = localhost only
-host = "0.0.0.0"
+# "127.0.0.1" = localhost only (recommended for security)
+# "0.0.0.0" = all interfaces (use behind reverse proxy)
+host = "127.0.0.1"
 
 # HTTP port
 port = 3000
@@ -120,16 +127,24 @@ shutdown_timeout_secs = 30
 # Log format: "json" or "text"
 # In production mode, defaults to "json" even if set to "text"
 log_format = "text"
+
+# Maximum request body size for JSON payloads (optional, bytes)
+# max_body_size_json_bytes = 1048576  # 1MB
+
+# Maximum request body size for audio uploads (optional, bytes)
+# max_body_size_audio_bytes = 10485760  # 10MB
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `host` | String | `0.0.0.0` | Bind address |
+| `host` | String | `127.0.0.1` | Bind address |
 | `port` | Integer | `3000` | HTTP port |
 | `cors_enabled` | Boolean | `true` | Enable CORS |
 | `allowed_origins` | Array | `[]` | CORS allowed origins |
 | `shutdown_timeout_secs` | Integer | `30` | Shutdown grace period |
 | `log_format` | String | `text` | Log output format |
+| `max_body_size_json_bytes` | Integer | `1048576` | **(Optional)** Max JSON payload size |
+| `max_body_size_audio_bytes` | Integer | `10485760` | **(Optional)** Max audio upload size |
 
 ---
 
@@ -137,11 +152,12 @@ log_format = "text"
 
 ```toml
 [inference]
-# Hailo-Ollama server URL
+# Ollama-compatible server URL
+# Works with both hailo-ollama (Raspberry Pi) and standard Ollama (macOS)
 base_url = "http://localhost:11434"
 
 # Default model for inference
-default_model = "qwen2.5-1.5b-instruct"
+default_model = "qwen2.5:1.5b"
 
 # Request timeout (milliseconds)
 timeout_ms = 60000
@@ -162,12 +178,12 @@ top_p = 0.9
 | Option | Type | Default | Range | Description |
 |--------|------|---------|-------|-------------|
 | `base_url` | String | `http://localhost:11434` | - | Inference server URL |
-| `default_model` | String | `qwen2.5-1.5b-instruct` | - | Model identifier |
+| `default_model` | String | `qwen2.5:1.5b` | - | Model identifier |
 | `timeout_ms` | Integer | `60000` | 1000-300000 | Request timeout |
 | `max_tokens` | Integer | `2048` | 1-8192 | Max generation length |
 | `temperature` | Float | `0.7` | 0.0-2.0 | Randomness |
 | `top_p` | Float | `0.9` | 0.0-1.0 | Nucleus sampling |
-| `system_prompt` | String | None | - | Optional system prompt |
+| `system_prompt` | String | None | - | **(Optional)** System prompt |
 
 ---
 
@@ -179,10 +195,21 @@ top_p = 0.9
 # Empty = allow all, Example: ["+491234567890", "+491234567891"]
 whitelisted_phones = []
 
-# API key to User UUID mapping for authentication
-# [security.api_key_users]
-# "sk-abc123def456" = "550e8400-e29b-41d4-a716-446655440000"
-# "sk-xyz789ghi012" = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+# API Keys (hashed with Argon2id)
+# Generate hashed keys using: pisovereign-cli hash-api-key <your-key>
+# Migrate existing plaintext keys: pisovereign-cli migrate-keys --input config.toml --dry-run
+#
+# [[security.api_keys]]
+# hash = "$argon2id$v=19$m=19456,t=2,p=1$..."
+# user_id = "550e8400-e29b-41d4-a716-446655440000"
+#
+# [[security.api_keys]]
+# hash = "$argon2id$v=19$m=19456,t=2,p=1$..."
+# user_id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+
+# Trusted reverse proxies (IP addresses) - optional
+# Add your proxy IPs here if behind a reverse proxy
+# trusted_proxies = ["127.0.0.1", "::1"]
 
 # Rate limiting
 rate_limit_enabled = true
@@ -196,26 +223,156 @@ min_tls_version = "1.2"  # "1.2" or "1.3"
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `whitelisted_phones` | Array | `[]` | Allowed phone numbers |
-| `api_key_users` | Map | `{}` | API key → User ID mapping |
+| `whitelisted_phones` | Array | `[]` | **(Optional)** Allowed phone numbers |
+| `api_keys` | Array | `[]` | API key definitions with Argon2id hash |
+| `trusted_proxies` | Array | - | **(Optional)** Trusted reverse proxy IPs |
 | `rate_limit_enabled` | Boolean | `true` | Enable rate limiting |
 | `rate_limit_rpm` | Integer | `60` | Requests/minute/IP |
-| `tls_verify_certs` | Boolean | `true` | Verify TLS certificates |
-| `connection_timeout_secs` | Integer | `30` | Connection timeout |
-| `min_tls_version` | String | `1.2` | Minimum TLS version |
+| `tls_verify_certs` | Boolean | `true` | Verify TLS certificates for outbound connections |
+| `connection_timeout_secs` | Integer | `30` | Connection timeout for external services |
+| `min_tls_version` | String | `1.2` | Minimum TLS version ("1.2" or "1.3") |
+
+### Prompt Security
+
+Protects against prompt injection and other AI security threats.
+
+```toml
+[prompt_security]
+# Enable prompt security analysis
+enabled = true
+
+# Sensitivity level: "low", "medium", or "high"
+# - low: Only block high-confidence threats
+# - medium: Block medium and high confidence threats (recommended)
+# - high: Block all detected threats including low confidence
+sensitivity = "medium"
+
+# Block requests when security threats are detected
+block_on_detection = true
+
+# Maximum violations before auto-blocking an IP
+max_violations_before_block = 3
+
+# Time window for counting violations (seconds)
+violation_window_secs = 3600  # 1 hour
+
+# How long to block an IP after exceeding max violations (seconds)
+block_duration_secs = 86400  # 24 hours
+
+# Immediately block IPs that send critical-level threats
+auto_block_on_critical = true
+
+# Custom patterns to detect (in addition to built-in patterns) - optional
+# custom_patterns = ["DROP TABLE", "eval("]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | Boolean | `true` | Enable prompt security analysis |
+| `sensitivity` | String | `medium` | Detection level: "low", "medium", or "high" |
+| `block_on_detection` | Boolean | `true` | Block requests when threats detected |
+| `max_violations_before_block` | Integer | `3` | Violations before IP auto-block |
+| `violation_window_secs` | Integer | `3600` | Time window for counting violations |
+| `block_duration_secs` | Integer | `86400` | IP block duration after violations |
+| `auto_block_on_critical` | Boolean | `true` | Auto-block critical threats immediately |
+| `custom_patterns` | Array | - | **(Optional)** Custom threat detection patterns |
 
 ### API Key Authentication
 
-```toml
-[security.api_key_users]
-# Format: "api-key" = "user-uuid"
-"sk-prod-abc123" = "550e8400-e29b-41d4-a716-446655440000"
+API keys are now securely hashed using Argon2id. Use the CLI tools to generate and migrate keys.
+
+**Generate a new hashed key:**
+```bash
+pisovereign-cli hash-api-key <your-api-key>
 ```
 
-Usage:
+**Migrate existing plaintext keys:**
 ```bash
-curl -H "Authorization: Bearer sk-prod-abc123" http://localhost:3000/v1/chat
+pisovereign-cli migrate-keys --input config.toml --dry-run
+pisovereign-cli migrate-keys --input config.toml --output config-new.toml
 ```
+
+**Configuration:**
+```toml
+[[security.api_keys]]
+hash = "$argon2id$v=19$m=19456,t=2,p=1$..."
+user_id = "550e8400-e29b-41d4-a716-446655440000"
+```
+
+**Usage:**
+```bash
+curl -H "Authorization: Bearer <your-api-key>" http://localhost:3000/v1/chat
+```
+
+---
+
+## Memory & Knowledge Storage
+
+Persistent AI memory for RAG-based context retrieval. Stores interactions, facts, preferences, and corrections using embeddings for semantic similarity search.
+
+```toml
+[memory]
+# Enable memory storage (default: true)
+# enabled = true
+
+# Enable RAG context retrieval (default: true)
+# enable_rag = true
+
+# Enable automatic learning from interactions (default: true)
+# enable_learning = true
+
+# Number of memories to retrieve for RAG context (default: 5)
+# rag_limit = 5
+
+# Minimum similarity threshold for RAG retrieval (0.0-1.0, default: 0.5)
+# rag_threshold = 0.5
+
+# Similarity threshold for memory deduplication (0.0-1.0, default: 0.85)
+# merge_threshold = 0.85
+
+# Minimum importance score to keep memories (default: 0.1)
+# min_importance = 0.1
+
+# Decay factor for memory importance over time (default: 0.95)
+# decay_factor = 0.95
+
+# Enable content encryption (default: true)
+# enable_encryption = true
+
+# Path to encryption key file (generated if not exists)
+# encryption_key_path = "memory_encryption.key"
+
+[memory.embedding]
+# Embedding model name (default: nomic-embed-text)
+# model = "nomic-embed-text"
+
+# Embedding dimension (default: 384 for nomic-embed-text)
+# dimension = 384
+
+# Request timeout in milliseconds (default: 30000)
+# timeout_ms = 30000
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | Boolean | `true` | **(Optional)** Enable memory storage |
+| `enable_rag` | Boolean | `true` | **(Optional)** Enable RAG context retrieval |
+| `enable_learning` | Boolean | `true` | **(Optional)** Auto-learn from interactions |
+| `rag_limit` | Integer | `5` | **(Optional)** Number of memories for RAG |
+| `rag_threshold` | Float | `0.5` | **(Optional)** Min similarity for RAG (0.0-1.0) |
+| `merge_threshold` | Float | `0.85` | **(Optional)** Similarity for deduplication (0.0-1.0) |
+| `min_importance` | Float | `0.1` | **(Optional)** Min importance to keep memories |
+| `decay_factor` | Float | `0.95` | **(Optional)** Importance decay over time |
+| `enable_encryption` | Boolean | `true` | **(Optional)** Encrypt stored content |
+| `encryption_key_path` | String | `memory_encryption.key` | **(Optional)** Encryption key file path |
+
+**Embedding Settings:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `embedding.model` | String | `nomic-embed-text` | **(Optional)** Embedding model name |
+| `embedding.dimension` | Integer | `384` | **(Optional)** Embedding vector dimension |
+| `embedding.timeout_ms` | Integer | `30000` | **(Optional)** Request timeout |
 
 ---
 
@@ -314,7 +471,52 @@ api_version = "v18.0"
 
 # Phone numbers allowed to send messages (empty = allow all)
 # whitelist = ["+1234567890"]
+
+# Conversation Persistence Settings
+[whatsapp.persistence]
+# Enable conversation persistence (default: true)
+# enabled = true
+
+# Enable encryption for stored messages (default: true)
+# enable_encryption = true
+
+# Enable RAG context retrieval from memory system (default: true)
+# enable_rag = true
+
+# Enable automatic learning from interactions (default: true)
+# enable_learning = true
+
+# Maximum days to retain conversations (optional, unlimited if not set)
+# retention_days = 90
+
+# Maximum messages per conversation before FIFO truncation (optional)
+# max_messages_per_conversation = 1000
+
+# Number of recent messages to use as context (default: 50)
+# context_window = 50
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `access_token` | String | - | **(Optional)** Meta Graph API token (store in Vault) |
+| `phone_number_id` | String | - | **(Optional)** WhatsApp Business phone number ID |
+| `app_secret` | String | - | **(Optional)** Webhook signature secret |
+| `verify_token` | String | - | **(Optional)** Webhook verification token |
+| `signature_required` | Boolean | `true` | Require webhook signature verification |
+| `api_version` | String | `v18.0` | Meta Graph API version |
+| `whitelist` | Array | `[]` | **(Optional)** Allowed phone numbers |
+
+**Persistence Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `persistence.enabled` | Boolean | `true` | **(Optional)** Store conversations in database |
+| `persistence.enable_encryption` | Boolean | `true` | **(Optional)** Encrypt stored messages |
+| `persistence.enable_rag` | Boolean | `true` | **(Optional)** Enable RAG context retrieval |
+| `persistence.enable_learning` | Boolean | `true` | **(Optional)** Auto-learn from interactions |
+| `persistence.retention_days` | Integer | - | **(Optional)** Max retention days (unlimited if not set) |
+| `persistence.max_messages_per_conversation` | Integer | - | **(Optional)** Max messages before truncation |
+| `persistence.context_window` | Integer | `50` | **(Optional)** Recent messages for context |
 
 ### Signal Messenger
 
@@ -334,15 +536,50 @@ timeout_ms = 30000
 
 # Phone numbers allowed to send messages (empty = allow all)
 # whitelist = ["+1234567890", "+0987654321"]
+
+# Conversation Persistence Settings
+[signal.persistence]
+# Enable conversation persistence (default: true)
+# enabled = true
+
+# Enable encryption for stored messages (default: true)
+# enable_encryption = true
+
+# Enable RAG context retrieval from memory system (default: true)
+# enable_rag = true
+
+# Enable automatic learning from interactions (default: true)
+# enable_learning = true
+
+# Maximum days to retain conversations (optional, unlimited if not set)
+# retention_days = 90
+
+# Maximum messages per conversation before FIFO truncation (optional)
+# max_messages_per_conversation = 1000
+
+# Number of recent messages to use as context (default: 50)
+# context_window = 50
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `phone_number` | String | - | Your Signal phone number (E.164) |
 | `socket_path` | String | `/var/run/signal-cli/socket` | signal-cli daemon socket |
-| `data_path` | String | - | signal-cli data directory |
+| `data_path` | String | - | **(Optional)** signal-cli data directory |
 | `timeout_ms` | Integer | `30000` | Connection timeout |
-| `whitelist` | Array | `[]` | Allowed phone numbers |
+| `whitelist` | Array | `[]` | **(Optional)** Allowed phone numbers |
+
+**Persistence Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `persistence.enabled` | Boolean | `true` | **(Optional)** Store conversations in database |
+| `persistence.enable_encryption` | Boolean | `true` | **(Optional)** Encrypt stored messages |
+| `persistence.enable_rag` | Boolean | `true` | **(Optional)** Enable RAG context retrieval |
+| `persistence.enable_learning` | Boolean | `true` | **(Optional)** Auto-learn from interactions |
+| `persistence.retention_days` | Integer | - | **(Optional)** Max retention days (unlimited if not set) |
+| `persistence.max_messages_per_conversation` | Integer | - | **(Optional)** Max messages before truncation |
+| `persistence.context_window` | Integer | `50` | **(Optional)** Recent messages for context |
 
 📖 See [Signal Setup Guide](./signal-setup.md) for installation instructions.
 
@@ -469,14 +706,112 @@ language = "de"
 # Rate limit: requests per minute (default: 60)
 rate_limit_rpm = 60
 
-# Cache TTL in minutes (default: 15)
-cache_ttl_minutes = 15
+# Cache TTL in minutes (default: 30)
+cache_ttl_minutes = 30
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `api_key` | String | - | **(Optional)** Brave Search API key (store in Vault) |
+| `max_results` | Integer | `5` | **(Optional)** Max search results (1-10) |
+| `timeout_secs` | Integer | `30` | **(Optional)** Request timeout |
+| `fallback_enabled` | Boolean | `true` | **(Optional)** Enable DuckDuckGo fallback |
+| `safe_search` | String | `moderate` | **(Optional)** Safe search: "off", "moderate", "strict" |
+| `country` | String | `DE` | **(Optional)** Country code for results |
+| `language` | String | `de` | **(Optional)** Language code for results |
+| `rate_limit_rpm` | Integer | `60` | **(Optional)** Rate limit (requests/minute) |
+| `cache_ttl_minutes` | Integer | `30` | **(Optional)** Cache time-to-live |
 
 > **Security Note:** Store the Brave API key in Vault rather than config.toml:
 > ```bash
 > vault kv put secret/pisovereign/websearch brave_api_key="BSA-..."
 > ```
+
+### Public Transit (ÖPNV)
+
+Provides public transit routing for German transport networks via transport.rest API. Used for "How do I get to X?" queries and location-based reminders.
+
+```toml
+[transit]
+# Base URL for transport.rest API (default: v6.db.transport.rest)
+# base_url = "https://v6.db.transport.rest"
+
+# Request timeout in seconds
+# timeout_secs = 10
+
+# Maximum number of journey results
+# max_results = 3
+
+# Cache TTL in minutes
+# cache_ttl_minutes = 5
+
+# Include transit info in location-based reminders
+# include_in_reminders = true
+
+# Transport modes to include:
+# products_bus = true
+# products_suburban = true  # S-Bahn
+# products_subway = true    # U-Bahn
+# products_tram = true
+# products_regional = true  # RB/RE
+# products_national = false # ICE/IC
+
+# User's home location for route calculations
+# home_location = { latitude = 52.52, longitude = 13.405 }  # Berlin
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `base_url` | String | `https://v6.db.transport.rest` | **(Optional)** transport.rest API URL |
+| `timeout_secs` | Integer | `10` | **(Optional)** Request timeout |
+| `max_results` | Integer | `3` | **(Optional)** Max journey results |
+| `cache_ttl_minutes` | Integer | `5` | **(Optional)** Cache TTL |
+| `include_in_reminders` | Boolean | `true` | **(Optional)** Include in location reminders |
+| `products_bus` | Boolean | `true` | **(Optional)** Include bus routes |
+| `products_suburban` | Boolean | `true` | **(Optional)** Include S-Bahn |
+| `products_subway` | Boolean | `true` | **(Optional)** Include U-Bahn |
+| `products_tram` | Boolean | `true` | **(Optional)** Include tram |
+| `products_regional` | Boolean | `true` | **(Optional)** Include regional trains (RB/RE) |
+| `products_national` | Boolean | `false` | **(Optional)** Include national trains (ICE/IC) |
+| `home_location` | Object | - | **(Optional)** Home location `{ latitude, longitude }` |
+
+### Reminder System
+
+Configures the proactive reminder system including CalDAV sync, custom reminders, and scheduling settings.
+
+```toml
+[reminder]
+# Maximum number of snoozes per reminder
+# max_snooze = 5
+
+# Default snooze duration in minutes
+# default_snooze_minutes = 15
+
+# How far in advance to create reminders from CalDAV events (minutes)
+# caldav_reminder_lead_time_minutes = 30
+
+# Interval for checking due reminders (seconds)
+# check_interval_secs = 60
+
+# CalDAV sync interval (minutes)
+# caldav_sync_interval_minutes = 15
+
+# Morning briefing time (HH:MM format)
+# morning_briefing_time = "07:00"
+
+# Enable morning briefing
+# morning_briefing_enabled = true
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `max_snooze` | Integer | `5` | **(Optional)** Max snoozes per reminder |
+| `default_snooze_minutes` | Integer | `15` | **(Optional)** Default snooze duration |
+| `caldav_reminder_lead_time_minutes` | Integer | `30` | **(Optional)** CalDAV event advance notice |
+| `check_interval_secs` | Integer | `60` | **(Optional)** How often to check for due reminders |
+| `caldav_sync_interval_minutes` | Integer | `15` | **(Optional)** CalDAV sync frequency |
+| `morning_briefing_time` | String | `07:00` | **(Optional)** Morning briefing time (HH:MM) |
+| `morning_briefing_enabled` | Boolean | `true` | **(Optional)** Enable daily morning briefing |
 
 ---
 
