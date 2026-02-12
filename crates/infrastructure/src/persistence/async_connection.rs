@@ -1,8 +1,9 @@
 //! Async database connection using sqlx
 //!
 //! Provides async database operations using sqlx with SQLite.
-//! This is the preferred implementation for new code as it avoids
-//! blocking the async runtime.
+//! This is the primary database layer — all stores use this pool.
+//! Migrations are managed via sqlx's `migrate!()` macro using SQL
+//! files in the workspace `migrations/` directory.
 
 use std::{path::Path, str::FromStr};
 
@@ -10,7 +11,7 @@ use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 
 /// Error type for async database operations
 #[derive(Debug, thiserror::Error)]
@@ -90,7 +91,6 @@ impl AsyncDatabase {
             .create_if_missing(true)
             .foreign_keys(config.foreign_keys);
 
-        // WAL mode needs to be set via pragma after connection
         let pool = SqlitePoolOptions::new()
             .max_connections(config.max_connections)
             .min_connections(config.min_connections)
@@ -103,6 +103,18 @@ impl AsyncDatabase {
                 .execute(&pool)
                 .await?;
             debug!("WAL mode enabled");
+        }
+
+        // Set busy timeout for concurrent access
+        sqlx::query("PRAGMA busy_timeout=5000")
+            .execute(&pool)
+            .await?;
+
+        // Set synchronous mode to NORMAL for WAL mode (good balance of safety and speed)
+        if config.wal_mode && !config.url.contains(":memory:") {
+            sqlx::query("PRAGMA synchronous=NORMAL")
+                .execute(&pool)
+                .await?;
         }
 
         info!(
@@ -120,126 +132,101 @@ impl AsyncDatabase {
 
     /// Get the underlying pool for raw queries
     #[must_use]
-    pub const fn pool(&self) -> &SqlitePool {
+    pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
 
-    /// Run database migrations
+    /// Run database migrations using the workspace migration SQL files.
+    ///
+    /// Handles both fresh databases and existing databases that were previously
+    /// managed by the legacy rusqlite migration system. For legacy databases,
+    /// existing migrations are adopted (marked as already applied) before
+    /// running any pending migrations.
     #[instrument(skip(self))]
     pub async fn migrate(&self) -> Result<(), AsyncDatabaseError> {
-        // Embedded migrations will be compiled in
-        // For now, we run the same schema as the r2d2 version
-        self.run_initial_schema().await?;
+        let migrator = sqlx::migrate!("../../migrations");
+
+        // Adopt existing databases that were managed by the legacy migration system
+        self.adopt_legacy_database(&migrator).await?;
+
+        // Run any pending migrations
+        migrator.run(&self.pool).await?;
+
         info!("Database migrations completed");
         Ok(())
     }
 
-    /// Run the initial database schema
-    async fn run_initial_schema(&self) -> Result<(), AsyncDatabaseError> {
-        // Schema version tracking
+    /// Detect and adopt databases that were previously managed by the legacy
+    /// rusqlite migration system (tracked via `PRAGMA user_version`).
+    ///
+    /// This creates the `_sqlx_migrations` tracking table and marks all existing
+    /// migrations as already applied, so sqlx won't attempt to re-run them.
+    async fn adopt_legacy_database(
+        &self,
+        migrator: &sqlx::migrate::Migrator,
+    ) -> Result<(), AsyncDatabaseError> {
+        // Check if sqlx is already managing this database
+        let has_sqlx_table: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master \
+             WHERE type='table' AND name='_sqlx_migrations'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(false);
+
+        if has_sqlx_table {
+            return Ok(());
+        }
+
+        // Check the legacy version tracker
+        let user_version: i64 =
+            sqlx::query_scalar("SELECT * FROM pragma_user_version")
+                .fetch_one(&self.pool)
+                .await?;
+
+        if user_version == 0 {
+            // Fresh database — sqlx will handle everything from scratch
+            return Ok(());
+        }
+
+        warn!(
+            user_version,
+            "Adopting legacy database for sqlx migration tracking"
+        );
+
+        // Create the sqlx migrations tracking table
         sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER PRIMARY KEY,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )
-            ",
+            "CREATE TABLE IF NOT EXISTS _sqlx_migrations (
+                version BIGINT PRIMARY KEY,
+                description TEXT NOT NULL,
+                installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                success BOOLEAN NOT NULL,
+                checksum BLOB NOT NULL,
+                execution_time BIGINT NOT NULL DEFAULT 0
+            )",
         )
         .execute(&self.pool)
         .await?;
 
-        // Conversations table
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS conversations (
-                id TEXT PRIMARY KEY,
-                title TEXT,
-                system_prompt TEXT,
-                metadata TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                source TEXT NOT NULL DEFAULT 'http',
-                phone_number TEXT
-            )
-            ",
-        )
-        .execute(&self.pool)
-        .await?;
+        // Mark all migrations up to user_version as already applied
+        let mut adopted: i64 = 0;
+        for migration in migrator.migrations.as_ref() {
+            if migration.version <= user_version {
+                sqlx::query(
+                    "INSERT OR IGNORE INTO _sqlx_migrations \
+                     (version, description, success, checksum, execution_time) \
+                     VALUES ($1, $2, true, $3, 0)",
+                )
+                .bind(migration.version)
+                .bind(migration.description.as_ref())
+                .bind(migration.checksum.as_ref())
+                .execute(&self.pool)
+                .await?;
+                adopted += 1;
+            }
+        }
 
-        // Messages table
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-                role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                metadata TEXT
-            )
-            ",
-        )
-        .execute(&self.pool)
-        .await?;
-
-        // Message index for conversation queries
-        sqlx::query(
-            r"
-            CREATE INDEX IF NOT EXISTS idx_messages_conversation 
-            ON messages(conversation_id, created_at)
-            ",
-        )
-        .execute(&self.pool)
-        .await?;
-
-        // Approval queue table
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS approval_queue (
-                id TEXT PRIMARY KEY,
-                action_type TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                created_at TEXT NOT NULL,
-                expires_at TEXT,
-                resolved_at TEXT,
-                resolved_by TEXT,
-                rejection_reason TEXT
-            )
-            ",
-        )
-        .execute(&self.pool)
-        .await?;
-
-        // Audit log table
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-                user_id TEXT,
-                action TEXT NOT NULL,
-                details TEXT,
-                success INTEGER NOT NULL,
-                error_message TEXT
-            )
-            ",
-        )
-        .execute(&self.pool)
-        .await?;
-
-        // Audit log index for time-based queries
-        sqlx::query(
-            r"
-            CREATE INDEX IF NOT EXISTS idx_audit_timestamp 
-            ON audit_log(timestamp DESC)
-            ",
-        )
-        .execute(&self.pool)
-        .await?;
-
-        debug!("Initial schema created");
+        info!(adopted, "Legacy migrations adopted successfully");
         Ok(())
     }
 
@@ -257,7 +244,6 @@ mod tests {
     #[tokio::test]
     async fn create_in_memory_database() {
         let db = AsyncDatabase::in_memory().await.unwrap();
-        // Pool may be lazy, just verify it was created
         let _ = db.pool();
     }
 
@@ -266,7 +252,7 @@ mod tests {
         let db = AsyncDatabase::in_memory().await.unwrap();
         db.migrate().await.unwrap();
 
-        // Verify tables exist
+        // Verify core tables exist
         let result: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM conversations")
             .fetch_one(db.pool())
             .await
@@ -275,15 +261,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn all_migration_tables_created() {
+        let db = AsyncDatabase::in_memory().await.unwrap();
+        db.migrate().await.unwrap();
+
+        // Verify all tables from all 9 migrations exist
+        let tables = [
+            "conversations",
+            "messages",
+            "approval_requests",
+            "audit_log",
+            "user_profiles",
+            "email_drafts",
+            "retry_queue",
+            "dead_letter_queue",
+            "memories",
+            "memory_embeddings",
+            "reminders",
+        ];
+
+        for table in &tables {
+            let result: (i64,) = sqlx::query_as(&format!(
+                "SELECT COUNT(*) FROM sqlite_master \
+                 WHERE type='table' AND name='{table}'"
+            ))
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+            assert_eq!(result.0, 1, "Table {table} should exist after migrations");
+        }
+    }
+
+    #[tokio::test]
+    async fn migrations_are_idempotent() {
+        let db = AsyncDatabase::in_memory().await.unwrap();
+        // Running twice should not fail
+        db.migrate().await.unwrap();
+        db.migrate().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn wal_mode_for_file_database() {
         let temp_dir = std::env::temp_dir();
-        let db_path = temp_dir.join("test_wal.db");
+        let db_path = temp_dir.join("test_wal_async.db");
 
         let config = AsyncDatabaseConfig::file(&db_path);
         let db = AsyncDatabase::new(&config).await.unwrap();
         db.migrate().await.unwrap();
 
-        // Check WAL mode is enabled
         let result: (String,) = sqlx::query_as("PRAGMA journal_mode")
             .fetch_one(db.pool())
             .await
@@ -302,5 +327,24 @@ mod tests {
         assert_eq!(config.max_connections, 5);
         assert!(config.wal_mode);
         assert!(config.foreign_keys);
+    }
+
+    #[tokio::test]
+    async fn adopt_legacy_database_noop_on_fresh() {
+        let db = AsyncDatabase::in_memory().await.unwrap();
+        let migrator = sqlx::migrate!("../../migrations");
+
+        // On fresh database, adoption should be a no-op
+        db.adopt_legacy_database(&migrator).await.unwrap();
+
+        // sqlx table should NOT exist yet (fresh db, no adoption needed)
+        let has_table: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master \
+             WHERE type='table' AND name='_sqlx_migrations'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+        assert!(!has_table);
     }
 }
