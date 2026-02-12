@@ -585,43 +585,67 @@ timeout_ms = 30000
 
 ### Speech Processing
 
+Voice message support for speech-to-text (STT) and text-to-speech (TTS).
+
+**Cloud Provider (OpenAI):**
+- Works on all platforms
+- Requires API key
+
+**Local Provider (whisper.cpp + Piper):**
+- Raspberry Pi: Models in `/usr/local/share/{whisper,piper}/`
+- macOS: Models in `~/Library/Application Support/{whisper,piper}/`
+- Install whisper.cpp: `brew install whisper-cpp` (Mac) or build from source (Pi)
+- Install Piper: Download from https://github.com/rhasspy/piper/releases
+
 ```toml
 [speech]
-# Provider: "hybrid" (default), "local", or "openai"
-provider = "hybrid"
+# Speech provider: "openai" (cloud) or "local" (whisper.cpp + Piper)
+# provider = "openai"
 
-# OpenAI settings (for cloud/hybrid)
-openai_api_key = "sk-..."
-openai_base_url = "https://api.openai.com/v1"
-stt_model = "whisper-1"
-tts_model = "tts-1"
-default_voice = "nova"  # alloy, echo, fable, onyx, nova, shimmer
-output_format = "opus"  # opus, ogg, mp3, wav
-timeout_ms = 60000
-max_audio_duration_ms = 1500000  # 25 minutes
-response_format = "mirror"  # mirror, text, voice
-speed = 1.0  # 0.25 to 4.0
+# OpenAI API key for Whisper (STT) and TTS
+# openai_api_key = "sk-..."
 
-# Local STT (whisper.cpp)
-[speech.local_stt]
-executable_path = "whisper-cpp"
-model_path = "/usr/local/share/whisper/ggml-base.bin"
-threads = 4
-default_language = "en"
+# OpenAI API base URL (for custom endpoints)
+# openai_base_url = "https://api.openai.com/v1"
 
-# Local TTS (Piper)
-[speech.local_tts]
-executable_path = "piper"
-default_model_path = "/usr/local/share/piper/voices/en_US-lessac-medium.onnx"
-default_voice = "en_US-lessac-medium"
-length_scale = 1.0      # Speaking rate
-sentence_silence = 0.2  # Pause between sentences
+# Speech-to-text model (OpenAI Whisper)
+# stt_model = "whisper-1"
 
-# Hybrid mode settings
-[speech.hybrid]
-prefer_local = true          # Try local first
-allow_cloud_fallback = true  # Fall back to OpenAI if local fails
+# Text-to-speech model
+# tts_model = "tts-1"
+
+# Default TTS voice: alloy, echo, fable, onyx, nova, shimmer
+# default_voice = "nova"
+
+# Output audio format: opus, ogg, mp3, wav
+# output_format = "opus"
+
+# Request timeout in milliseconds
+# timeout_ms = 60000
+
+# Maximum audio duration in milliseconds (25 min for Whisper)
+# max_audio_duration_ms = 1500000
+
+# Response format preference: mirror, text, voice
+# response_format = "mirror"
+
+# TTS speaking speed (0.25 to 4.0)
+# speed = 1.0
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `provider` | String | `openai` | **(Optional)** Speech provider: "openai" or "local" |
+| `openai_api_key` | String | - | **(Optional)** OpenAI API key (store in Vault) |
+| `openai_base_url` | String | `https://api.openai.com/v1` | **(Optional)** OpenAI API base URL |
+| `stt_model` | String | `whisper-1` | **(Optional)** Speech-to-text model |
+| `tts_model` | String | `tts-1` | **(Optional)** Text-to-speech model |
+| `default_voice` | String | `nova` | **(Optional)** TTS voice (alloy, echo, fable, onyx, nova, shimmer) |
+| `output_format` | String | `opus` | **(Optional)** Audio format (opus, ogg, mp3, wav) |
+| `timeout_ms` | Integer | `60000` | **(Optional)** Request timeout |
+| `max_audio_duration_ms` | Integer | `1500000` | **(Optional)** Max audio duration (25 minutes) |
+| `response_format` | String | `mirror` | **(Optional)** Response format (mirror, text, voice) |
+| `speed` | Float | `1.0` | **(Optional)** TTS speaking speed (0.25 to 4.0) |
 
 ### Weather
 
@@ -944,7 +968,6 @@ enabled = false
 | `export_timeout_secs` | Integer | `30` | **(Optional)** Batch export timeout |
 | `max_batch_size` | Integer | `512` | **(Optional)** Max batch size for export |
 | `graceful_fallback` | Boolean | `true` | **(Optional)** Fallback to console logging if collector unavailable |
-```
 
 ---
 
