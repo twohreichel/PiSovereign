@@ -171,10 +171,7 @@ impl ConversationStore for AsyncConversationStore {
     async fn save(&self, conversation: &Conversation) -> Result<(), ApplicationError> {
         let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
 
-        let masked_phone_number = conversation
-            .phone_number
-            .as_ref()
-            .map(mask_phone_number);
+        let masked_phone_number = conversation.phone_number.as_ref().map(mask_phone_number);
 
         // Upsert conversation
         sqlx::query(

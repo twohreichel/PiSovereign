@@ -742,12 +742,7 @@ mod tests {
 
     #[test]
     fn caldav_config_debug_redacts_password() {
-        let config = test_caldav_config(
-            "https://cal.example.com",
-            "user",
-            DUMMY_PASSWORD,
-            None,
-        );
+        let config = test_caldav_config("https://cal.example.com", "user", DUMMY_PASSWORD, None);
         let debug_output = format!("{config:?}");
         assert!(
             !debug_output.contains(DUMMY_PASSWORD),
