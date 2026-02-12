@@ -46,12 +46,20 @@ impl std::fmt::Debug for WhatsAppConfig {
         f.debug_struct("WhatsAppConfig")
             .field(
                 "access_token",
-                &self.access_token.as_ref().map(|_| "[REDACTED]"),
+                &if self.access_token.is_some() {
+                    Some("[REDACTED]")
+                } else {
+                    None
+                },
             )
             .field("phone_number_id", &self.phone_number_id)
             .field(
                 "app_secret",
-                &self.app_secret.as_ref().map(|_| "[REDACTED]"),
+                &if self.app_secret.is_some() {
+                    Some("[REDACTED]")
+                } else {
+                    None
+                },
             )
             .field("verify_token", &self.verify_token)
             .field("signature_required", &self.signature_required)
