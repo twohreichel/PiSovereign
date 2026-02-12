@@ -577,6 +577,21 @@ mod tests {
         (db, store)
     }
 
+    /// Insert a user profile row so foreign key constraints are satisfied.
+    async fn ensure_user(db: &AsyncDatabase, user_id: &UserId) {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT OR IGNORE INTO user_profiles (user_id, timezone, created_at, updated_at) \
+             VALUES ($1, 'UTC', $2, $3)",
+        )
+        .bind(user_id.to_string())
+        .bind(&now)
+        .bind(&now)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    }
+
     fn make_memory(user_id: UserId) -> Memory {
         Memory::new(
             user_id,
@@ -590,8 +605,9 @@ mod tests {
 
     #[tokio::test]
     async fn save_and_get() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
         let memory = make_memory(user_id);
         let id = memory.id;
 
@@ -605,8 +621,9 @@ mod tests {
 
     #[tokio::test]
     async fn save_with_embedding() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
         let memory = make_memory(user_id).with_embedding(vec![0.1, 0.2, 0.3]);
         let id = memory.id;
 
@@ -620,8 +637,9 @@ mod tests {
 
     #[tokio::test]
     async fn update_memory() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
         let mut memory = make_memory(user_id);
         store.save(&memory).await.unwrap();
 
@@ -634,8 +652,9 @@ mod tests {
 
     #[tokio::test]
     async fn delete_memory() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
         let memory = make_memory(user_id);
         let id = memory.id;
 
@@ -646,8 +665,9 @@ mod tests {
 
     #[tokio::test]
     async fn list_memories() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
 
         for _ in 0..3 {
             store.save(&make_memory(user_id)).await.unwrap();
@@ -660,8 +680,9 @@ mod tests {
 
     #[tokio::test]
     async fn list_by_type() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
 
         store.save(&make_memory(user_id)).await.unwrap();
         let pref = Memory::new(
@@ -681,8 +702,9 @@ mod tests {
 
     #[tokio::test]
     async fn search_similar_memories() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
 
         let m1 = make_memory(user_id).with_embedding(vec![1.0, 0.0, 0.0]);
         let m2 = make_memory(user_id).with_embedding(vec![0.9, 0.1, 0.0]);
@@ -703,8 +725,9 @@ mod tests {
 
     #[tokio::test]
     async fn stats() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
 
         store.save(&make_memory(user_id)).await.unwrap();
         store.save(&make_memory(user_id)).await.unwrap();
@@ -715,8 +738,9 @@ mod tests {
 
     #[tokio::test]
     async fn record_access() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
         let memory = make_memory(user_id);
         let id = memory.id;
 
@@ -729,8 +753,9 @@ mod tests {
 
     #[tokio::test]
     async fn cleanup_below_threshold() {
-        let (_db, store) = setup().await;
+        let (db, store) = setup().await;
         let user_id = UserId::new();
+        ensure_user(&db, &user_id).await;
 
         let low = make_memory(user_id).with_importance(0.01);
         let high = make_memory(user_id).with_importance(0.9);
