@@ -13,6 +13,7 @@ pub mod error;
 pub mod memory_store;
 pub mod reminder_store;
 pub mod retry_queue;
+pub mod suspicious_activity_store;
 pub mod user_profile_store;
 
 pub use approval_queue::SqliteApprovalQueue;
@@ -26,4 +27,5 @@ pub use reminder_store::SqliteReminderStore;
 pub use retry_queue::{
     DeadLetterItem, QueueStats, RetryItem, RetryQueueError, RetryQueueStore, RetryStatus,
 };
+pub use suspicious_activity_store::SqliteSuspiciousActivityTracker;
 pub use user_profile_store::SqliteUserProfileStore;
