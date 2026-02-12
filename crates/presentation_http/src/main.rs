@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! PiSovereign HTTP Server
 //!
 //! Main entry point for the HTTP API server.

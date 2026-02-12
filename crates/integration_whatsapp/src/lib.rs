@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! WhatsApp integration
 //!
 //! Handles WhatsApp Business API webhooks and message sending.

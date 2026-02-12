@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Public transit integration for PiSovereign
 //!
 //! Provides public transit routing via the [transport.rest](https://v6.db.transport.rest) API

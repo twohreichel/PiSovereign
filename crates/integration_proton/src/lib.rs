@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Proton Mail integration
 //!
 //! Sidecar interface for Proton Mail Bridge.

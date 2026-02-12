@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Infrastructure layer - Adapters for external systems
 //!
 //! Implements ports defined in the application layer.

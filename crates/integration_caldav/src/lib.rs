@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! CalDAV integration
 //!
 //! Client for CalDAV servers (Baïkal, Radicale, Nextcloud).

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Domain layer for PiSovereign
 //!
 //! Contains core business logic, entities, value objects, and domain errors.

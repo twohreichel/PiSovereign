@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! AI Core - Inference engine and model management
 //!
 //! Provides abstractions for LLM inference with Ollama-compatible backends.
