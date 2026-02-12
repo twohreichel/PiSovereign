@@ -88,10 +88,13 @@ impl WhatsAppConfig {
         self.access_token.as_ref().map(ExposeSecret::expose_secret)
     }
 
-    /// Get the app secret as a string reference (for signature verification)
+    /// Get the app secret as a SecretString reference (for signature verification)
+    ///
+    /// Callers that need a `&str` must explicitly use `ExposeSecret::expose_secret`
+    /// at the call site, to avoid accidental cleartext logging.
     #[must_use]
-    pub fn app_secret_str(&self) -> Option<&str> {
-        self.app_secret.as_ref().map(ExposeSecret::expose_secret)
+    pub fn app_secret_str(&self) -> Option<&SecretString> {
+        self.app_secret.as_ref()
     }
 }
 
