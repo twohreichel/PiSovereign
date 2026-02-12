@@ -628,54 +628,106 @@ allow_cloud_fallback = true  # Fall back to OpenAI if local fails
 ```toml
 [weather]
 # Open-Meteo API (free, no key required)
-base_url = "https://api.open-meteo.com/v1"
-timeout_secs = 30
-forecast_days = 7  # 1-16
-cache_ttl_minutes = 30
+# base_url = "https://api.open-meteo.com/v1"
+
+# Connection timeout in seconds
+# timeout_secs = 30
+
+# Number of forecast days (1-16)
+# forecast_days = 7
+
+# Cache TTL in minutes
+# cache_ttl_minutes = 30
 
 # Default location (when user has no profile)
-default_location = { latitude = 52.52, longitude = 13.405 }  # Berlin
+# default_location = { latitude = 52.52, longitude = 13.405 }  # Berlin
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `base_url` | String | `https://api.open-meteo.com/v1` | **(Optional)** Open-Meteo API URL |
+| `timeout_secs` | Integer | `30` | **(Optional)** Request timeout |
+| `forecast_days` | Integer | `7` | **(Optional)** Forecast days (1-16) |
+| `cache_ttl_minutes` | Integer | `30` | **(Optional)** Cache TTL |
+| `default_location` | Object | - | **(Optional)** Default location `{ latitude, longitude }` |
 
 ### CalDAV Calendar
 
 ```toml
 [caldav]
 # CalDAV server URL (Baïkal, Radicale, Nextcloud)
-server_url = "https://cal.example.com"
+# server_url = "https://cal.example.com"
+# When using Baïkal via Docker (setup --baikal):
+# server_url = "http://baikal:80/dav.php"
 
 # Authentication (store in Vault)
-username = "your-username"
-password = "your-password"
+# username = "your-username"
+# password = "your-password"
 
-# Default calendar path
-calendar_path = "/calendars/user/default"
+# Default calendar path (optional)
+# calendar_path = "/calendars/user/default"
 
 # TLS verification
-verify_certs = true
-timeout_secs = 30
+# verify_certs = true
+
+# Connection timeout in seconds
+# timeout_secs = 30
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `server_url` | String | - | **(Optional)** CalDAV server URL |
+| `username` | String | - | **(Optional)** Username for authentication (store in Vault) |
+| `password` | String | - | **(Optional)** Password for authentication (store in Vault) |
+| `calendar_path` | String | `/calendars/user/default` | **(Optional)** Default calendar path |
+| `verify_certs` | Boolean | `true` | **(Optional)** Verify TLS certificates |
+| `timeout_secs` | Integer | `30` | **(Optional)** Connection timeout |
 
 ### Proton Mail
 
 ```toml
 [proton]
-# Proton Bridge connection
-imap_host = "127.0.0.1"
-imap_port = 1143
-smtp_host = "127.0.0.1"
-smtp_port = 1025
+# IMAP server host (Proton Bridge)
+# imap_host = "127.0.0.1"
 
-# Credentials (store in Vault)
-email = "user@proton.me"
-password = "bridge-password"  # NOT your Proton account password
+# IMAP server port (default: 1143 for STARTTLS)
+# imap_port = 1143
 
-# TLS settings
+# SMTP server host (Proton Bridge)
+# smtp_host = "127.0.0.1"
+
+# SMTP server port (default: 1025 for STARTTLS)
+# smtp_port = 1025
+
+# Email address (Bridge account email)
+# email = "user@proton.me"
+
+# Bridge password (from Bridge UI, NOT Proton account password)
+# password = "bridge-password"
+
+# TLS configuration
 [proton.tls]
-verify_certificates = false  # Bridge uses self-signed certs
-min_tls_version = "1.2"
-# ca_cert_path = "/path/to/ca.pem"  # Optional custom CA
+# Verify TLS certificates (omit to verify, set false for self-signed Bridge certs)
+# verify_certificates = false
+
+# Minimum TLS version
+# min_tls_version = "1.2"
+
+# Custom CA certificate path (optional)
+# ca_cert_path = "/path/to/ca.pem"
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `imap_host` | String | `127.0.0.1` | **(Optional)** IMAP server host |
+| `imap_port` | Integer | `1143` | **(Optional)** IMAP server port |
+| `smtp_host` | String | `127.0.0.1` | **(Optional)** SMTP server host |
+| `smtp_port` | Integer | `1025` | **(Optional)** SMTP server port |
+| `email` | String | - | **(Optional)** Email address (store in Vault) |
+| `password` | String | - | **(Optional)** Bridge password (store in Vault) |
+| `tls.verify_certificates` | Boolean | `true` | **(Optional)** Verify TLS certificates |
+| `tls.min_tls_version` | String | `1.2` | **(Optional)** Minimum TLS version |
+| `tls.ca_cert_path` | String | - | **(Optional)** Custom CA certificate path |
 
 ### Web Search
 
@@ -822,22 +874,32 @@ Dynamic model routing based on task complexity:
 ```toml
 [model_selector]
 # Model for simple/fast tasks
-small_model = "qwen2.5-1.5b-instruct"
+# small_model = "qwen2.5-1.5b-instruct"
 
 # Model for complex/quality tasks
-large_model = "qwen2.5-7b-instruct"
+# large_model = "qwen2.5-7b-instruct"
 
-# Thresholds for model selection
-complexity_word_threshold = 100        # Words in prompt
-small_model_max_prompt_chars = 500     # Chars for small model
+# Word count threshold to trigger large model
+# complexity_word_threshold = 100
 
-# Keywords that trigger large model
-complexity_keywords = [
-    "analyze", "explain", "compare", "summarize",
-    "code", "implement", "debug", "refactor",
-    "translate", "research"
-]
+# Maximum prompt length (chars) for small model
+# small_model_max_prompt_chars = 500
+
+# Keywords that trigger large model usage
+# complexity_keywords = [
+#     "analyze", "explain", "compare", "summarize",
+#     "code", "implement", "debug", "refactor",
+#     "translate", "research"
+# ]
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `small_model` | String | `qwen2.5-1.5b-instruct` | **(Optional)** Model for simple/fast tasks |
+| `large_model` | String | `qwen2.5-7b-instruct` | **(Optional)** Model for complex/quality tasks |
+| `complexity_word_threshold` | Integer | `100` | **(Optional)** Word count to trigger large model |
+| `small_model_max_prompt_chars` | Integer | `500` | **(Optional)** Max prompt chars for small model |
+| `complexity_keywords` | Array | See above | **(Optional)** Keywords that trigger large model |
 
 ---
 
@@ -849,23 +911,39 @@ complexity_keywords = [
 enabled = false
 
 # OTLP endpoint (Tempo, Jaeger)
-otlp_endpoint = "http://localhost:4317"
+# otlp_endpoint = "http://localhost:4317"
 
 # Sampling ratio (0.0-1.0, 1.0 = all traces)
-sample_ratio = 1.0
+# sample_ratio = 1.0
 
 # Service name for traces
-service_name = "pisovereign"
+# service_name = "pisovereign"
 
-# Log level filter
-log_filter = "pisovereign=info,tower_http=info"
+# Log level filter (e.g., "info", "debug", "pisovereign=debug,tower_http=info")
+# log_filter = "pisovereign=info,tower_http=info"
 
-# Batch export settings
-export_timeout_secs = 30
-max_batch_size = 512
+# Batch export timeout in seconds
+# export_timeout_secs = 30
 
-# Graceful fallback if collector unavailable
-graceful_fallback = true
+# Maximum batch size for trace export
+# max_batch_size = 512
+
+# Graceful fallback to console-only logging if OTLP collector is unavailable.
+# When true (default), the application starts with console logging if the collector
+# cannot be reached. Set to false to require a working collector in production.
+# graceful_fallback = true
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | Boolean | `false` | Enable OpenTelemetry export |
+| `otlp_endpoint` | String | `http://localhost:4317` | **(Optional)** OTLP collector endpoint |
+| `sample_ratio` | Float | `1.0` | **(Optional)** Trace sampling ratio (0.0-1.0) |
+| `service_name` | String | `pisovereign` | **(Optional)** Service name for traces |
+| `log_filter` | String | `pisovereign=info,tower_http=info` | **(Optional)** Log level filter |
+| `export_timeout_secs` | Integer | `30` | **(Optional)** Batch export timeout |
+| `max_batch_size` | Integer | `512` | **(Optional)** Max batch size for export |
+| `graceful_fallback` | Boolean | `true` | **(Optional)** Fallback to console logging if collector unavailable |
 ```
 
 ---
@@ -882,26 +960,51 @@ enabled = true
 # Message returned during degraded mode
 unavailable_message = "I'm currently experiencing technical difficulties. Please try again in a moment."
 
-# Cooldown before retrying primary backend
+# Cooldown before retrying primary backend (seconds)
 retry_cooldown_secs = 30
 
-# Circuit breaker thresholds
-failure_threshold = 3   # Failures before degraded mode
-success_threshold = 2   # Successes to exit degraded mode
+# Number of failures before entering degraded mode
+failure_threshold = 3
+
+# Number of successes required to exit degraded mode
+success_threshold = 2
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | Boolean | `true` | Enable degraded mode fallback |
+| `unavailable_message` | String | See above | Message returned during degraded mode |
+| `retry_cooldown_secs` | Integer | `30` | Cooldown before retrying primary backend |
+| `failure_threshold` | Integer | `3` | Failures before entering degraded mode |
+| `success_threshold` | Integer | `2` | Successes to exit degraded mode |
 
 ### Retry Configuration
 
+Exponential backoff for retrying failed requests.
+
 ```toml
 [retry]
-# Exponential backoff settings
+# Initial delay before first retry in milliseconds
 initial_delay_ms = 100
+
+# Maximum delay between retries in milliseconds
 max_delay_ms = 10000
+
+# Multiplier for exponential backoff (delay = initial * multiplier^attempt)
 multiplier = 2.0
+
+# Maximum number of retry attempts
 max_retries = 3
 ```
 
-Formula: `delay = min(initial_delay * multiplier^attempt, max_delay)`
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `initial_delay_ms` | Integer | `100` | Initial retry delay (milliseconds) |
+| `max_delay_ms` | Integer | `10000` | Maximum retry delay (milliseconds) |
+| `multiplier` | Float | `2.0` | Exponential backoff multiplier |
+| `max_retries` | Integer | `3` | Maximum retry attempts |
+
+**Formula:** `delay = min(initial_delay * multiplier^attempt, max_delay)`
 
 ---
 
@@ -909,15 +1012,23 @@ Formula: `delay = min(initial_delay * multiplier^attempt, max_delay)`
 
 ```toml
 [health]
-# Global timeout for all health checks
+# Global timeout for all health checks in seconds
 global_timeout_secs = 5
 
-# Per-service timeout overrides
+# Service-specific timeout overrides (uncomment to customize):
 # inference_timeout_secs = 10
 # email_timeout_secs = 5
 # calendar_timeout_secs = 5
 # weather_timeout_secs = 5
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `global_timeout_secs` | Integer | `5` | Global timeout for all health checks |
+| `inference_timeout_secs` | Integer | `5` | **(Optional)** Inference service timeout override |
+| `email_timeout_secs` | Integer | `5` | **(Optional)** Email service timeout override |
+| `calendar_timeout_secs` | Integer | `5` | **(Optional)** Calendar service timeout override |
+| `weather_timeout_secs` | Integer | `5` | **(Optional)** Weather service timeout override |
 
 ---
 
@@ -926,24 +1037,34 @@ global_timeout_secs = 5
 ```toml
 [vault]
 # Vault server address
-address = "http://127.0.0.1:8200"
+# address = "http://127.0.0.1:8200"
 
 # AppRole authentication (recommended)
-role_id = "your-role-id"
-secret_id = "your-secret-id"
+# role_id = "your-role-id"
+# secret_id = "your-secret-id"
 
 # Or token authentication
 # token = "hvs.your-token"
 
 # KV engine mount path
-mount_path = "secret"
+# mount_path = "secret"
 
-# Request timeout
-timeout_secs = 5
+# Request timeout in seconds
+# timeout_secs = 5
 
 # Vault Enterprise namespace (optional)
 # namespace = "admin/pisovereign"
 ```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `address` | String | `http://127.0.0.1:8200` | **(Optional)** Vault server address |
+| `role_id` | String | - | **(Optional)** AppRole role ID (recommended) |
+| `secret_id` | String | - | **(Optional)** AppRole secret ID |
+| `token` | String | - | **(Optional)** Vault token (alternative to AppRole) |
+| `mount_path` | String | `secret` | **(Optional)** KV engine mount path |
+| `timeout_secs` | Integer | `5` | **(Optional)** Request timeout |
+| `namespace` | String | - | **(Optional)** Vault Enterprise namespace |
 
 ---
 
@@ -983,7 +1104,7 @@ log_format = "text"
 
 [inference]
 base_url = "http://localhost:11434"
-default_model = "qwen2.5-1.5b-instruct"
+default_model = "qwen2.5:1.5b"
 
 [database]
 path = "./dev.db"
@@ -1010,7 +1131,7 @@ allowed_origins = ["https://app.example.com"]
 
 [inference]
 base_url = "http://localhost:11434"
-default_model = "qwen2.5-1.5b-instruct"
+default_model = "qwen2.5:1.5b"
 timeout_ms = 120000
 
 [database]
@@ -1021,6 +1142,11 @@ max_connections = 10
 rate_limit_enabled = true
 rate_limit_rpm = 30
 min_tls_version = "1.3"
+
+[prompt_security]
+enabled = true
+sensitivity = "high"
+block_on_detection = true
 
 [vault]
 address = "https://vault.internal:8200"
@@ -1043,6 +1169,7 @@ port = 3000
 
 [inference]
 base_url = "http://localhost:11434"
+default_model = "qwen2.5:1.5b"
 
 [database]
 path = "pisovereign.db"
