@@ -33,6 +33,7 @@ use presentation_http::{
     spawn_config_reload_handler, spawn_conversation_cleanup_task, state::AppState,
 };
 use secrecy::ExposeSecret;
+use std::net::SocketAddr;
 use tokio::{net::TcpListener, signal};
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -603,9 +604,12 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_timeout =
         Duration::from_secs(initial_config.server.shutdown_timeout_secs.unwrap_or(30));
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(shutdown_timeout))
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(shutdown_timeout))
+    .await?;
 
     info!("👋 Server shutdown complete");
 
