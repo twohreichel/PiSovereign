@@ -10,6 +10,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use domain::PhoneNumber;
 use domain::entities::{AudioFormat, Conversation, ConversationSource};
 use integration_whatsapp::{
     IncomingMessage, WebhookPayload, WhatsAppClient, WhatsAppClientConfig, extract_all_messages,
@@ -268,6 +269,21 @@ async fn handle_text_message(
         "Processing WhatsApp text message"
     );
 
+    // Parse phone number for domain type
+    let phone = match PhoneNumber::new(from) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(error = %e, from = %from, "Invalid phone number from WhatsApp");
+            return MessageResponse {
+                message_id: message_id.to_string(),
+                from: from.to_string(),
+                status: "error".to_string(),
+                response: Some("Invalid sender phone number".to_string()),
+                response_type: None,
+            };
+        },
+    };
+
     // Get or create conversation for this phone number
     let mut conversation = if let Some(store) = &state.conversation_store {
         match store
@@ -284,16 +300,16 @@ async fn handle_text_message(
             },
             Ok(None) => {
                 debug!("Creating new conversation for phone number");
-                Conversation::for_messenger(ConversationSource::WhatsApp, from)
+                Conversation::for_messenger(ConversationSource::WhatsApp, phone.clone())
             },
             Err(e) => {
                 warn!(error = %e, "Failed to load conversation, creating new one");
-                Conversation::for_messenger(ConversationSource::WhatsApp, from)
+                Conversation::for_messenger(ConversationSource::WhatsApp, phone.clone())
             },
         }
     } else {
         // No persistence configured, create transient conversation
-        Conversation::for_messenger(ConversationSource::WhatsApp, from)
+        Conversation::for_messenger(ConversationSource::WhatsApp, phone)
     };
 
     // Add user message to conversation

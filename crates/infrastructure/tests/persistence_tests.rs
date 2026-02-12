@@ -11,7 +11,7 @@ use application::ports::{
 use chrono::{Duration, Utc};
 use domain::{
     AgentCommand, ApprovalRequest, ApprovalStatus, AuditEntry, AuditEventType, ChatMessage,
-    Conversation, ConversationId, DraftId, PersistedEmailDraft, UserId, UserProfile,
+    Conversation, ConversationId, DraftId, EmailAddress, PersistedEmailDraft, UserId, UserProfile,
 };
 use infrastructure::persistence::{
     AsyncConversationStore, AsyncDatabase, SqliteApprovalQueue, SqliteAuditLog, SqliteDraftStore,
@@ -463,11 +463,11 @@ mod draft_store_tests {
     fn create_test_draft() -> PersistedEmailDraft {
         PersistedEmailDraft::new(
             UserId::new(),
-            "recipient@example.com",
+            EmailAddress::new("recipient@example.com").unwrap(),
             "Test Subject",
             "Test body content",
         )
-        .with_cc("cc@example.com")
+        .with_cc(EmailAddress::new("cc@example.com").unwrap())
     }
 
     #[tokio::test]
@@ -481,7 +481,10 @@ mod draft_store_tests {
         store.save(&draft).await.expect("Failed to save");
 
         let result = store.get(&id).await.expect("Failed to get").unwrap();
-        assert_eq!(result.to, "recipient@example.com");
+        assert_eq!(
+            result.to,
+            EmailAddress::new("recipient@example.com").unwrap()
+        );
         assert_eq!(result.subject, "Test Subject");
         assert_eq!(result.body, "Test body content");
         assert_eq!(result.cc.len(), 1);
@@ -511,8 +514,12 @@ mod draft_store_tests {
         let user_id = UserId::new();
 
         for _ in 0..3 {
-            let draft =
-                PersistedEmailDraft::new(user_id, "test@example.com", "Test Subject", "Test body");
+            let draft = PersistedEmailDraft::new(
+                user_id,
+                EmailAddress::new("test@example.com").unwrap(),
+                "Test Subject",
+                "Test body",
+            );
             store.save(&draft).await.unwrap();
         }
 
@@ -546,8 +553,12 @@ mod draft_store_tests {
         let user_id = UserId::new();
         let other_user_id = UserId::new();
 
-        let draft =
-            PersistedEmailDraft::new(user_id, "test@example.com", "Test Subject", "Test body");
+        let draft = PersistedEmailDraft::new(
+            user_id,
+            EmailAddress::new("test@example.com").unwrap(),
+            "Test Subject",
+            "Test body",
+        );
         let id = draft.id;
 
         store.save(&draft).await.expect("Failed to save");

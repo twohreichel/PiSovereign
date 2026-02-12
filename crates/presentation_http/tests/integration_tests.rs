@@ -159,7 +159,10 @@ impl ConversationStore for MockConversationStore {
         let store = self.conversations.read().await;
         Ok(store
             .values()
-            .find(|c| c.source == source && c.phone_number.as_deref() == Some(phone_number))
+            .find(|c| {
+                c.source == source
+                    && c.phone_number.as_ref().map(|p| p.as_str()) == Some(phone_number)
+            })
             .cloned())
     }
 
@@ -1395,7 +1398,7 @@ mod workflow_tests {
         let default_user = UserId::default();
         let drafts = draft_store.list_for_user(&default_user, 10).await.unwrap();
         assert_eq!(drafts.len(), 1);
-        assert_eq!(drafts[0].to, "test@example.com");
+        assert_eq!(drafts[0].to, EmailAddress::new("test@example.com").unwrap());
     }
 
     #[tokio::test]
@@ -1408,7 +1411,7 @@ mod workflow_tests {
 
         // Create a draft via direct command execution
         let command = domain::AgentCommand::DraftEmail {
-            to: EmailAddress::try_from("recipient@example.com").unwrap(),
+            to: EmailAddress::new("recipient@example.com").unwrap(),
             subject: Some("Important Meeting".to_string()),
             body: "Please confirm your attendance.".to_string(),
         };
@@ -1426,7 +1429,10 @@ mod workflow_tests {
         assert_eq!(drafts.len(), 1, "Expected 1 draft, got {}", drafts.len());
 
         let draft = &drafts[0];
-        assert_eq!(draft.to, "recipient@example.com");
+        assert_eq!(
+            draft.to,
+            EmailAddress::new("recipient@example.com").unwrap()
+        );
         assert_eq!(draft.subject, "Important Meeting");
         assert!(draft.body.contains("confirm your attendance"));
         assert!(draft.expires_at > Utc::now());
@@ -1442,7 +1448,7 @@ mod workflow_tests {
         let user_id = UserId::default();
         let draft = PersistedEmailDraft::new(
             user_id,
-            "retrieve@example.com".to_string(),
+            EmailAddress::new("retrieve@example.com").unwrap(),
             "Test Retrieval".to_string(),
             "This is the body.".to_string(),
         );
@@ -1453,7 +1459,10 @@ mod workflow_tests {
         let retrieved = draft_store.get(&draft_id).await.unwrap();
         assert!(retrieved.is_some());
         let retrieved = retrieved.unwrap();
-        assert_eq!(retrieved.to, "retrieve@example.com");
+        assert_eq!(
+            retrieved.to,
+            EmailAddress::new("retrieve@example.com").unwrap()
+        );
         assert_eq!(retrieved.subject, "Test Retrieval");
     }
 
@@ -1467,13 +1476,13 @@ mod workflow_tests {
 
         let draft1 = PersistedEmailDraft::new(
             user1,
-            "user1@example.com".to_string(),
+            EmailAddress::new("user1@example.com").unwrap(),
             "User 1 Draft".to_string(),
             "Body 1".to_string(),
         );
         let draft2 = PersistedEmailDraft::new(
             user2,
-            "user2@example.com".to_string(),
+            EmailAddress::new("user2@example.com").unwrap(),
             "User 2 Draft".to_string(),
             "Body 2".to_string(),
         );
@@ -1486,10 +1495,16 @@ mod workflow_tests {
         let user2_drafts = draft_store.list_for_user(&user2, 10).await.unwrap();
 
         assert_eq!(user1_drafts.len(), 1);
-        assert_eq!(user1_drafts[0].to, "user1@example.com");
+        assert_eq!(
+            user1_drafts[0].to,
+            EmailAddress::new("user1@example.com").unwrap()
+        );
 
         assert_eq!(user2_drafts.len(), 1);
-        assert_eq!(user2_drafts[0].to, "user2@example.com");
+        assert_eq!(
+            user2_drafts[0].to,
+            EmailAddress::new("user2@example.com").unwrap()
+        );
     }
 
     #[tokio::test]
@@ -1500,7 +1515,7 @@ mod workflow_tests {
         // Create an expired draft (by manipulating the mock)
         let mut draft = PersistedEmailDraft::new(
             user_id,
-            "expired@example.com".to_string(),
+            EmailAddress::new("expired@example.com").unwrap(),
             "Expired".to_string(),
             "Body".to_string(),
         );

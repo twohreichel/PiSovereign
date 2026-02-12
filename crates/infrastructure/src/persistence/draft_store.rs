@@ -5,7 +5,7 @@
 use application::{error::ApplicationError, ports::DraftStorePort};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::{DraftId, PersistedEmailDraft, UserId};
+use domain::{DraftId, EmailAddress, PersistedEmailDraft, UserId};
 use sqlx::SqlitePool;
 use tracing::{debug, instrument};
 use uuid::Uuid;
@@ -44,9 +44,17 @@ impl DraftRow {
         let id = DraftId::parse(&self.id).unwrap_or_else(|_| DraftId::from(Uuid::new_v4()));
         let user_id = UserId::parse(&self.user_id).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
 
+        let to = EmailAddress::new(&self.to_address).unwrap_or_else(|_| {
+            EmailAddress::new("unknown@invalid.local").expect("fallback email")
+        });
+
         let cc = self
             .cc
-            .map(|s| s.split(',').map(String::from).collect())
+            .map(|s| {
+                s.split(',')
+                    .filter_map(|addr| EmailAddress::new(addr.trim()).ok())
+                    .collect()
+            })
             .unwrap_or_default();
 
         let created_at = DateTime::parse_from_rfc3339(&self.created_at)
@@ -57,7 +65,7 @@ impl DraftRow {
         PersistedEmailDraft {
             id,
             user_id,
-            to: self.to_address,
+            to,
             cc,
             subject: self.subject,
             body: self.body,
@@ -74,7 +82,14 @@ impl DraftStorePort for SqliteDraftStore {
         let cc_str = if draft.cc.is_empty() {
             None
         } else {
-            Some(draft.cc.join(","))
+            Some(
+                draft
+                    .cc
+                    .iter()
+                    .map(EmailAddress::as_str)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            )
         };
 
         sqlx::query(
@@ -83,7 +98,7 @@ impl DraftStorePort for SqliteDraftStore {
         )
         .bind(draft.id.to_string())
         .bind(draft.user_id.to_string())
-        .bind(&draft.to)
+        .bind(draft.to.as_str())
         .bind(&cc_str)
         .bind(&draft.subject)
         .bind(&draft.body)
@@ -213,6 +228,10 @@ mod tests {
         UserId::new()
     }
 
+    fn email(addr: &str) -> EmailAddress {
+        EmailAddress::new(addr).unwrap()
+    }
+
     #[tokio::test]
     async fn save_and_get_draft() {
         let (_db, store) = setup().await;
@@ -220,7 +239,7 @@ mod tests {
 
         let draft = PersistedEmailDraft::new(
             user_id,
-            "recipient@example.com",
+            email("recipient@example.com"),
             "Test Subject",
             "Test body",
         );
@@ -235,7 +254,7 @@ mod tests {
         let retrieved = retrieved.unwrap();
         assert_eq!(retrieved.id, draft_id);
         assert_eq!(retrieved.user_id, user_id);
-        assert_eq!(retrieved.to, "recipient@example.com");
+        assert_eq!(retrieved.to, email("recipient@example.com"));
         assert_eq!(retrieved.subject, "Test Subject");
         assert_eq!(retrieved.body, "Test body");
     }
@@ -252,7 +271,7 @@ mod tests {
         let (_db, store) = setup().await;
         let user_id = test_user_id();
 
-        let mut draft = PersistedEmailDraft::new(user_id, "r@example.com", "Test", "Body");
+        let mut draft = PersistedEmailDraft::new(user_id, email("r@example.com"), "Test", "Body");
         draft.expires_at = Utc::now() - Duration::hours(1);
         let draft_id = draft.id;
 
@@ -268,7 +287,7 @@ mod tests {
         let user1 = test_user_id();
         let user2 = test_user_id();
 
-        let draft = PersistedEmailDraft::new(user1, "r@example.com", "Test", "Body");
+        let draft = PersistedEmailDraft::new(user1, email("r@example.com"), "Test", "Body");
         let draft_id = draft.id;
         store.save(&draft).await.unwrap();
 
@@ -292,7 +311,8 @@ mod tests {
     async fn delete_draft() {
         let (_db, store) = setup().await;
 
-        let draft = PersistedEmailDraft::new(test_user_id(), "r@example.com", "Test", "Body");
+        let draft =
+            PersistedEmailDraft::new(test_user_id(), email("r@example.com"), "Test", "Body");
         let draft_id = draft.id;
         store.save(&draft).await.unwrap();
 
@@ -308,12 +328,17 @@ mod tests {
         let user2 = test_user_id();
 
         for i in 0..5 {
-            let draft =
-                PersistedEmailDraft::new(user1, "r@example.com", format!("Subject {i}"), "Body");
+            let draft = PersistedEmailDraft::new(
+                user1,
+                email("r@example.com"),
+                format!("Subject {i}"),
+                "Body",
+            );
             store.save(&draft).await.unwrap();
         }
 
-        let draft = PersistedEmailDraft::new(user2, "o@example.com", "User2 Subject", "Body");
+        let draft =
+            PersistedEmailDraft::new(user2, email("o@example.com"), "User2 Subject", "Body");
         store.save(&draft).await.unwrap();
 
         let drafts = store.list_for_user_inner(&user1, 3).await.unwrap();
@@ -333,10 +358,11 @@ mod tests {
         let (_db, store) = setup().await;
         let user_id = test_user_id();
 
-        let valid = PersistedEmailDraft::new(user_id, "r@example.com", "Valid", "Body");
+        let valid = PersistedEmailDraft::new(user_id, email("r@example.com"), "Valid", "Body");
         store.save(&valid).await.unwrap();
 
-        let mut expired = PersistedEmailDraft::new(user_id, "r@example.com", "Expired", "Body");
+        let mut expired =
+            PersistedEmailDraft::new(user_id, email("r@example.com"), "Expired", "Body");
         expired.expires_at = Utc::now() - Duration::hours(1);
         store.save(&expired).await.unwrap();
 
@@ -350,12 +376,16 @@ mod tests {
         let (_db, store) = setup().await;
         let user_id = test_user_id();
 
-        let valid = PersistedEmailDraft::new(user_id, "r@example.com", "Valid", "Body");
+        let valid = PersistedEmailDraft::new(user_id, email("r@example.com"), "Valid", "Body");
         store.save(&valid).await.unwrap();
 
         for i in 0..3 {
-            let mut expired =
-                PersistedEmailDraft::new(user_id, "r@example.com", format!("Expired {i}"), "Body");
+            let mut expired = PersistedEmailDraft::new(
+                user_id,
+                email("r@example.com"),
+                format!("Expired {i}"),
+                "Body",
+            );
             expired.expires_at = Utc::now() - Duration::hours(1);
             store.save(&expired).await.unwrap();
         }
@@ -368,23 +398,25 @@ mod tests {
     async fn draft_with_cc_recipients() {
         let (_db, store) = setup().await;
 
-        let draft = PersistedEmailDraft::new(test_user_id(), "r@example.com", "Test", "Body")
-            .with_ccs(["cc1@example.com", "cc2@example.com"]);
+        let draft =
+            PersistedEmailDraft::new(test_user_id(), email("r@example.com"), "Test", "Body")
+                .with_ccs([email("cc1@example.com"), email("cc2@example.com")]);
 
         let draft_id = draft.id;
         store.save(&draft).await.unwrap();
 
         let retrieved = store.get(&draft_id).await.unwrap().unwrap();
         assert_eq!(retrieved.cc.len(), 2);
-        assert!(retrieved.cc.contains(&"cc1@example.com".to_string()));
-        assert!(retrieved.cc.contains(&"cc2@example.com".to_string()));
+        assert!(retrieved.cc.contains(&email("cc1@example.com")));
+        assert!(retrieved.cc.contains(&email("cc2@example.com")));
     }
 
     #[tokio::test]
     async fn draft_timestamps_preserved() {
         let (_db, store) = setup().await;
 
-        let draft = PersistedEmailDraft::new(test_user_id(), "r@example.com", "Test", "Body");
+        let draft =
+            PersistedEmailDraft::new(test_user_id(), email("r@example.com"), "Test", "Body");
         let draft_id = draft.id;
         let original_created = draft.created_at;
         let original_expires = draft.expires_at;

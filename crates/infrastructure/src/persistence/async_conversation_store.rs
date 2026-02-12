@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
     ChatMessage, Conversation, ConversationId, ConversationSource, MessageMetadata, MessageRole,
+    PhoneNumber,
 };
 use sqlx::SqlitePool;
 use tracing::{debug, instrument};
@@ -142,7 +143,7 @@ impl AsyncConversationStore {
                     updated_at: parse_datetime(&conv_row.updated_at)?,
                     persisted_message_count: message_count,
                     source: Self::parse_source(&conv_row.source)?,
-                    phone_number: conv_row.phone_number,
+                    phone_number: conv_row.phone_number.and_then(|p| PhoneNumber::new(p).ok()),
                 })
             })
             .collect()
@@ -174,7 +175,7 @@ impl ConversationStore for AsyncConversationStore {
         .bind(conversation.created_at.to_rfc3339())
         .bind(conversation.updated_at.to_rfc3339())
         .bind(conversation.source.as_str())
-        .bind(&conversation.phone_number)
+        .bind(conversation.phone_number.as_ref().map(PhoneNumber::as_str))
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
@@ -279,7 +280,7 @@ impl ConversationStore for AsyncConversationStore {
             // All loaded messages are already persisted
             persisted_message_count: message_count,
             source: Self::parse_source(&row.source)?,
-            phone_number: row.phone_number,
+            phone_number: row.phone_number.and_then(|p| PhoneNumber::new(p).ok()),
         };
 
         debug!("Conversation loaded");
@@ -355,7 +356,7 @@ impl ConversationStore for AsyncConversationStore {
             updated_at: parse_datetime(&row.updated_at)?,
             persisted_message_count: message_count,
             source: Self::parse_source(&row.source)?,
-            phone_number: row.phone_number,
+            phone_number: row.phone_number.and_then(|p| PhoneNumber::new(p).ok()),
         };
 
         debug!("Conversation loaded by phone number");

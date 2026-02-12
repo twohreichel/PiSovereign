@@ -8,6 +8,7 @@ use crate::errors::DomainError;
 
 /// A validated phone number in E.164 format (e.g., +491234567890)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct PhoneNumber {
     value: String,
 }

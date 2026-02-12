@@ -38,6 +38,7 @@ use crate::errors::DomainError;
 /// assert_eq!(email.domain(), "example.com");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Validate)]
+#[serde(transparent)]
 pub struct EmailAddress {
     #[validate(email)]
     value: String,

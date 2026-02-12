@@ -5,6 +5,7 @@
 
 use application::ports::SynthesisResult;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use domain::PhoneNumber;
 use domain::entities::{Conversation, ConversationSource};
 use integration_signal::Attachment;
 use serde::{Deserialize, Serialize};
@@ -356,6 +357,21 @@ async fn handle_text_message(
         "Processing Signal text message"
     );
 
+    // Parse phone number for domain type
+    let phone = match PhoneNumber::new(from) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(error = %e, from = %from, "Invalid phone number from Signal");
+            return MessageResponse {
+                timestamp,
+                from: from.to_string(),
+                status: "error".to_string(),
+                response: Some("Invalid sender phone number".to_string()),
+                response_type: None,
+            };
+        },
+    };
+
     // Get or create conversation for this phone number
     let mut conversation = if let Some(store) = &state.conversation_store {
         match store
@@ -372,16 +388,16 @@ async fn handle_text_message(
             },
             Ok(None) => {
                 debug!("Creating new Signal conversation for phone number");
-                Conversation::for_messenger(ConversationSource::Signal, from)
+                Conversation::for_messenger(ConversationSource::Signal, phone.clone())
             },
             Err(e) => {
                 warn!(error = %e, "Failed to load Signal conversation, creating new one");
-                Conversation::for_messenger(ConversationSource::Signal, from)
+                Conversation::for_messenger(ConversationSource::Signal, phone.clone())
             },
         }
     } else {
         // No persistence configured, create transient conversation
-        Conversation::for_messenger(ConversationSource::Signal, from)
+        Conversation::for_messenger(ConversationSource::Signal, phone)
     };
 
     // Add user message to conversation

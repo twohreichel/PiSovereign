@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use super::{ChatMessage, MessageRole};
-use crate::value_objects::ConversationId;
+use crate::value_objects::{ConversationId, PhoneNumber};
 
 /// Source of the conversation (how the user initiated it)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -87,7 +87,7 @@ pub struct Conversation {
     /// Phone number for messenger conversations (E.164 format)
     /// Only set for WhatsApp and Signal conversations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub phone_number: Option<String>,
+    pub phone_number: Option<PhoneNumber>,
 }
 
 impl Conversation {
@@ -120,10 +120,10 @@ impl Conversation {
     ///
     /// * `source` - The messenger source (WhatsApp or Signal)
     /// * `phone_number` - The phone number in E.164 format (e.g., "+1234567890")
-    pub fn for_messenger(source: ConversationSource, phone_number: impl Into<String>) -> Self {
+    pub fn for_messenger(source: ConversationSource, phone_number: PhoneNumber) -> Self {
         let mut conv = Self::new();
         conv.source = source;
-        conv.phone_number = Some(phone_number.into());
+        conv.phone_number = Some(phone_number);
         conv
     }
 
@@ -136,8 +136,8 @@ impl Conversation {
 
     /// Set the phone number for messenger conversations
     #[must_use]
-    pub fn with_phone_number(mut self, phone_number: impl Into<String>) -> Self {
-        self.phone_number = Some(phone_number.into());
+    pub fn with_phone_number(mut self, phone_number: PhoneNumber) -> Self {
+        self.phone_number = Some(phone_number);
         self
     }
 
@@ -553,9 +553,10 @@ mod tests {
 
     #[test]
     fn for_messenger_creates_conversation_with_source() {
-        let conv = Conversation::for_messenger(ConversationSource::WhatsApp, "+1234567890");
+        let phone = PhoneNumber::new("+1234567890").unwrap();
+        let conv = Conversation::for_messenger(ConversationSource::WhatsApp, phone.clone());
         assert_eq!(conv.source, ConversationSource::WhatsApp);
-        assert_eq!(conv.phone_number, Some("+1234567890".to_string()));
+        assert_eq!(conv.phone_number, Some(phone));
     }
 
     #[test]
@@ -566,19 +567,21 @@ mod tests {
 
     #[test]
     fn with_phone_number_sets_phone() {
-        let conv = Conversation::new().with_phone_number("+49123456789");
-        assert_eq!(conv.phone_number, Some("+49123456789".to_string()));
+        let phone = PhoneNumber::new("+49123456789").unwrap();
+        let conv = Conversation::new().with_phone_number(phone.clone());
+        assert_eq!(conv.phone_number, Some(phone));
     }
 
     #[test]
     fn conversation_with_source_serialization() {
-        let conv = Conversation::for_messenger(ConversationSource::Signal, "+1234567890");
+        let phone = PhoneNumber::new("+1234567890").unwrap();
+        let conv = Conversation::for_messenger(ConversationSource::Signal, phone.clone());
         let json = serde_json::to_string(&conv).unwrap();
         assert!(json.contains(r#""source":"signal""#));
         assert!(json.contains(r#""phone_number":"+1234567890""#));
 
         let parsed: Conversation = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.source, ConversationSource::Signal);
-        assert_eq!(parsed.phone_number, Some("+1234567890".to_string()));
+        assert_eq!(parsed.phone_number, Some(phone));
     }
 }

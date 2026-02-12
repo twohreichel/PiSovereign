@@ -3,7 +3,7 @@
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::value_objects::{DraftId, UserId};
+use crate::value_objects::{DraftId, EmailAddress, UserId};
 
 /// Default TTL for email drafts (7 days)
 pub const DEFAULT_DRAFT_TTL_DAYS: i64 = 7;
@@ -16,9 +16,9 @@ pub struct PersistedEmailDraft {
     /// Owner of the draft
     pub user_id: UserId,
     /// Recipient email address
-    pub to: String,
+    pub to: EmailAddress,
     /// CC recipients
-    pub cc: Vec<String>,
+    pub cc: Vec<EmailAddress>,
     /// Email subject
     pub subject: String,
     /// Email body (plain text)
@@ -33,7 +33,7 @@ impl PersistedEmailDraft {
     /// Create a new persisted draft with default TTL
     pub fn new(
         user_id: UserId,
-        to: impl Into<String>,
+        to: EmailAddress,
         subject: impl Into<String>,
         body: impl Into<String>,
     ) -> Self {
@@ -41,7 +41,7 @@ impl PersistedEmailDraft {
         Self {
             id: DraftId::new(),
             user_id,
-            to: to.into(),
+            to,
             cc: Vec::new(),
             subject: subject.into(),
             body: body.into(),
@@ -53,7 +53,7 @@ impl PersistedEmailDraft {
     /// Create a new persisted draft with custom TTL
     pub fn with_ttl(
         user_id: UserId,
-        to: impl Into<String>,
+        to: EmailAddress,
         subject: impl Into<String>,
         body: impl Into<String>,
         ttl: Duration,
@@ -62,7 +62,7 @@ impl PersistedEmailDraft {
         Self {
             id: DraftId::new(),
             user_id,
-            to: to.into(),
+            to,
             cc: Vec::new(),
             subject: subject.into(),
             body: body.into(),
@@ -73,15 +73,15 @@ impl PersistedEmailDraft {
 
     /// Add a CC recipient
     #[must_use]
-    pub fn with_cc(mut self, cc: impl Into<String>) -> Self {
-        self.cc.push(cc.into());
+    pub fn with_cc(mut self, cc: EmailAddress) -> Self {
+        self.cc.push(cc);
         self
     }
 
     /// Add multiple CC recipients
     #[must_use]
-    pub fn with_ccs(mut self, ccs: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.cc.extend(ccs.into_iter().map(Into::into));
+    pub fn with_ccs(mut self, ccs: impl IntoIterator<Item = EmailAddress>) -> Self {
+        self.cc.extend(ccs);
         self
     }
 
@@ -109,16 +109,20 @@ mod tests {
         UserId::new()
     }
 
+    fn test_email() -> EmailAddress {
+        EmailAddress::new("a@b.com").unwrap()
+    }
+
     #[test]
     fn new_draft_has_unique_id() {
-        let draft1 = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body");
-        let draft2 = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body");
+        let draft1 = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body");
+        let draft2 = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body");
         assert_ne!(draft1.id, draft2.id);
     }
 
     #[test]
     fn new_draft_has_default_ttl() {
-        let draft = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body");
+        let draft = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body");
         let expected_expires = draft.created_at + Duration::days(DEFAULT_DRAFT_TTL_DAYS);
         // Allow 1 second tolerance for test timing
         assert!((draft.expires_at - expected_expires).num_seconds().abs() <= 1);
@@ -128,41 +132,44 @@ mod tests {
     fn custom_ttl_is_respected() {
         let ttl = Duration::hours(24);
         let draft =
-            PersistedEmailDraft::with_ttl(test_user_id(), "a@b.com", "Subject", "Body", ttl);
+            PersistedEmailDraft::with_ttl(test_user_id(), test_email(), "Subject", "Body", ttl);
         let expected_expires = draft.created_at + ttl;
         assert!((draft.expires_at - expected_expires).num_seconds().abs() <= 1);
     }
 
     #[test]
     fn with_cc_adds_recipient() {
-        let draft = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body")
-            .with_cc("cc@b.com");
-        assert_eq!(draft.cc, vec!["cc@b.com"]);
+        let cc = EmailAddress::new("cc@b.com").unwrap();
+        let draft = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body")
+            .with_cc(cc.clone());
+        assert_eq!(draft.cc, vec![cc]);
     }
 
     #[test]
     fn with_ccs_adds_multiple_recipients() {
-        let draft = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body")
-            .with_ccs(["cc1@b.com", "cc2@b.com"]);
-        assert_eq!(draft.cc, vec!["cc1@b.com", "cc2@b.com"]);
+        let cc1 = EmailAddress::new("cc1@b.com").unwrap();
+        let cc2 = EmailAddress::new("cc2@b.com").unwrap();
+        let draft = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body")
+            .with_ccs([cc1.clone(), cc2.clone()]);
+        assert_eq!(draft.cc, vec![cc1, cc2]);
     }
 
     #[test]
     fn new_draft_is_not_expired() {
-        let draft = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body");
+        let draft = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body");
         assert!(!draft.is_expired());
     }
 
     #[test]
     fn expired_draft_is_detected() {
-        let mut draft = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body");
+        let mut draft = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body");
         draft.expires_at = Utc::now() - Duration::hours(1);
         assert!(draft.is_expired());
     }
 
     #[test]
     fn time_until_expiration_returns_some_for_valid_draft() {
-        let draft = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body");
+        let draft = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body");
         let remaining = draft.time_until_expiration();
         assert!(remaining.is_some());
         assert!(remaining.unwrap().num_days() >= 6); // Should be close to 7 days
@@ -170,15 +177,21 @@ mod tests {
 
     #[test]
     fn time_until_expiration_returns_none_for_expired_draft() {
-        let mut draft = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body");
+        let mut draft = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body");
         draft.expires_at = Utc::now() - Duration::hours(1);
         assert!(draft.time_until_expiration().is_none());
     }
 
     #[test]
     fn draft_serialization_roundtrip() {
-        let draft = PersistedEmailDraft::new(test_user_id(), "to@example.com", "Test", "Body")
-            .with_cc("cc@example.com");
+        let cc = EmailAddress::new("cc@example.com").unwrap();
+        let draft = PersistedEmailDraft::new(
+            test_user_id(),
+            EmailAddress::new("to@example.com").unwrap(),
+            "Test",
+            "Body",
+        )
+        .with_cc(cc);
         let json = serde_json::to_string(&draft).unwrap();
         let parsed: PersistedEmailDraft = serde_json::from_str(&json).unwrap();
         assert_eq!(draft.id, parsed.id);
@@ -188,7 +201,7 @@ mod tests {
 
     #[test]
     fn draft_debug_output() {
-        let draft = PersistedEmailDraft::new(test_user_id(), "a@b.com", "Subject", "Body");
+        let draft = PersistedEmailDraft::new(test_user_id(), test_email(), "Subject", "Body");
         let debug = format!("{draft:?}");
         assert!(debug.contains("PersistedEmailDraft"));
         assert!(debug.contains("a@b.com"));

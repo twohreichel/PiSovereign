@@ -1,6 +1,6 @@
 //! Email-related handlers: inbox summarization and draft creation
 
-use domain::{PersistedEmailDraft, UserId};
+use domain::{EmailAddress, PersistedEmailDraft, UserId};
 use tracing::{info, warn};
 
 use super::{AgentService, ExecutionResult};
@@ -51,17 +51,14 @@ impl AgentService {
     /// For now uses a default user ID. Future versions will map API keys to users.
     pub(super) async fn handle_draft_email(
         &self,
-        to: &str,
+        to: &EmailAddress,
         subject: Option<&str>,
         body: &str,
     ) -> Result<ExecutionResult, ApplicationError> {
         let user_id = UserId::default();
 
         // Generate subject if not provided
-        let subject = subject.map_or_else(
-            || format!("Re: {}", to.split('@').next().unwrap_or("Contact")),
-            String::from,
-        );
+        let subject = subject.map_or_else(|| format!("Re: {}", to.local_part()), String::from);
 
         // Check if draft store is configured
         let Some(ref draft_store) = self.draft_store else {
@@ -75,7 +72,7 @@ impl AgentService {
 
         // Create and save the draft
         let draft =
-            PersistedEmailDraft::new(user_id, to.to_string(), subject.clone(), body.to_string());
+            PersistedEmailDraft::new(user_id, to.clone(), subject.clone(), body.to_string());
         let draft_id = draft.id;
 
         draft_store.save(&draft).await?;
@@ -99,9 +96,13 @@ impl AgentService {
 mod tests {
     use std::sync::Arc;
 
-    use domain::AgentCommand;
+    use domain::{AgentCommand, EmailAddress};
 
     use super::super::{AgentService, test_support::MockInferenceEngine};
+
+    fn email(addr: &str) -> EmailAddress {
+        EmailAddress::new(addr).unwrap()
+    }
 
     #[tokio::test]
     async fn execute_summarize_inbox() {
@@ -163,7 +164,11 @@ mod tests {
         let service = AgentService::new(Arc::new(mock));
 
         let result = service
-            .handle_draft_email("test@example.com", Some("Test Subject"), "Test body")
+            .handle_draft_email(
+                &email("test@example.com"),
+                Some("Test Subject"),
+                "Test body",
+            )
             .await
             .unwrap();
 
@@ -185,7 +190,7 @@ mod tests {
 
         let result = service
             .handle_draft_email(
-                "recipient@example.com",
+                &email("recipient@example.com"),
                 Some("Test Subject"),
                 "Email body content",
             )
@@ -211,7 +216,7 @@ mod tests {
             AgentService::new(Arc::new(mock_inference)).with_draft_store(Arc::new(mock_store));
 
         let result = service
-            .handle_draft_email("john@example.com", None, "Hello!")
+            .handle_draft_email(&email("john@example.com"), None, "Hello!")
             .await
             .unwrap();
 
