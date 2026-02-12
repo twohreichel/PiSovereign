@@ -5,10 +5,10 @@
 use std::{sync::Arc, time::Duration};
 
 use application::{
-    AgentService, ApprovalService, ChatService, HealthService,
+    AgentService, ApprovalService, ChatService, HealthService, VoiceMessageService,
     ports::{
         CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
-        MessengerPort, ReminderPort, SuspiciousActivityPort, TransitPort, WeatherPort,
+        MessengerPort, ReminderPort, SpeechPort, SuspiciousActivityPort, TransitPort, WeatherPort,
     },
     services::PromptSanitizer,
 };
@@ -17,7 +17,7 @@ use infrastructure::{
     adapters::{
         CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig,
         InMemorySuspiciousActivityTracker, ProtonEmailAdapter, SignalMessengerAdapter,
-        TransitAdapter, WeatherAdapter, WhatsAppMessengerAdapter,
+        SpeechAdapter, TransitAdapter, WeatherAdapter, WhatsAppMessengerAdapter,
     },
     persistence::{
         AsyncConversationStore, AsyncDatabase, AsyncDatabaseConfig, SqliteApprovalQueue,
@@ -332,13 +332,30 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Initialize services
-    let chat_service = conversation_store.as_ref().map_or_else(
+    let chat_service = Arc::new(conversation_store.as_ref().map_or_else(
         || {
             warn!("⚠️ ChatService running without conversation persistence");
             ChatService::with_system_prompt(Arc::clone(&inference), SYSTEM_PROMPT)
         },
         |store| ChatService::with_all(Arc::clone(&inference), Arc::clone(store), SYSTEM_PROMPT),
-    );
+    ));
+
+    // Initialize voice message service if speech config is provided
+    let voice_message_service: Option<Arc<VoiceMessageService>> =
+        initial_config.speech.as_ref().and_then(|speech_config| {
+            match SpeechAdapter::new(speech_config.clone()) {
+                Ok(adapter) => {
+                    let speech_port: Arc<dyn SpeechPort> = Arc::new(adapter);
+                    let service = VoiceMessageService::new(speech_port, Arc::clone(&chat_service));
+                    info!("🎙️ VoiceMessageService initialized with speech support");
+                    Some(Arc::new(service))
+                },
+                Err(e) => {
+                    warn!(error = %e, "⚠️ Failed to initialize speech adapter");
+                    None
+                },
+            }
+        });
 
     // Build agent service with optional reminder and transit support
     let mut agent_service = AgentService::new(Arc::clone(&inference));
@@ -516,11 +533,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Create app state with reloadable config
     let state = AppState {
-        chat_service: Arc::new(chat_service),
+        chat_service: Arc::clone(&chat_service),
         agent_service: Arc::new(agent_service),
         approval_service,
         health_service: Some(Arc::new(health_service)),
-        voice_message_service: None, // VoiceMessageService not yet configured in main
+        voice_message_service,
         config: reloadable_config,
         metrics,
         messenger_adapter,
