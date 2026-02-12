@@ -170,6 +170,7 @@ version = "0.3.5"
 dependencies = [
  "aho-corasick",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "domain",
  "futures",

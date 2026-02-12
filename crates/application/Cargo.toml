@@ -22,6 +22,7 @@ fuzzydate.workspace = true
 futures = "0.3"
 parking_lot.workspace = true
 aho-corasick.workspace = true
+base64 = "0.22"
 
 [dev-dependencies]
 tokio-test.workspace = true

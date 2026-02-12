@@ -51,117 +51,14 @@ pub trait EncryptionPort: Send + Sync {
 
 /// Base64 encode bytes to string
 fn base64_encode(data: &[u8]) -> String {
-    use std::io::Write;
-    let mut output = String::new();
-    let mut encoder = Base64Encoder::new(&mut output);
-    encoder.write_all(data).unwrap_or_default();
-    encoder.finish();
-    output
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    STANDARD.encode(data)
 }
 
 /// Base64 decode string to bytes
-#[allow(clippy::cast_possible_truncation)] // Intentional truncation in base64 decoding
-fn base64_decode(data: &str) -> Result<Vec<u8>, Base64DecodeError> {
-    let mut output = Vec::with_capacity(data.len() * 3 / 4);
-    let mut buffer = 0u32;
-    let mut bits = 0u8;
-
-    for c in data.chars() {
-        let value = match c {
-            'A'..='Z' => c as u32 - 'A' as u32,
-            'a'..='z' => c as u32 - 'a' as u32 + 26,
-            '0'..='9' => c as u32 - '0' as u32 + 52,
-            '+' => 62,
-            '/' => 63,
-            '=' => continue, // padding
-            _ => return Err(Base64DecodeError::InvalidCharacter(c)),
-        };
-
-        buffer = (buffer << 6) | value;
-        bits += 6;
-
-        if bits >= 8 {
-            bits -= 8;
-            output.push((buffer >> bits) as u8);
-            buffer &= (1 << bits) - 1;
-        }
-    }
-
-    Ok(output)
-}
-
-/// Base64 decoding error
-#[derive(Debug)]
-pub enum Base64DecodeError {
-    /// Invalid character in input
-    InvalidCharacter(char),
-}
-
-impl std::fmt::Display for Base64DecodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidCharacter(c) => write!(f, "Invalid base64 character: {c}"),
-        }
-    }
-}
-
-impl std::error::Error for Base64DecodeError {}
-
-/// Simple base64 encoder
-struct Base64Encoder<'a> {
-    output: &'a mut String,
-    buffer: u32,
-    bits: u8,
-}
-
-impl<'a> Base64Encoder<'a> {
-    const fn new(output: &'a mut String) -> Self {
-        Self {
-            output,
-            buffer: 0,
-            bits: 0,
-        }
-    }
-
-    #[allow(clippy::cast_possible_truncation)] // Intentional truncation in base64 encoding
-    fn finish(mut self) {
-        if self.bits > 0 {
-            self.buffer <<= 6 - self.bits;
-            self.write_char(self.buffer as u8);
-            // Add padding
-            while self.bits < 6 {
-                self.output.push('=');
-                self.bits += 2;
-            }
-        }
-    }
-
-    fn write_char(&mut self, value: u8) {
-        const ALPHABET: &[u8; 64] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        self.output.push(ALPHABET[(value & 0x3F) as usize] as char);
-    }
-}
-
-impl std::io::Write for Base64Encoder<'_> {
-    #[allow(clippy::cast_possible_truncation)] // Intentional truncation in base64 encoding
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        for &byte in buf {
-            self.buffer = (self.buffer << 8) | u32::from(byte);
-            self.bits += 8;
-
-            while self.bits >= 6 {
-                self.bits -= 6;
-                self.write_char((self.buffer >> self.bits) as u8);
-                self.buffer &= (1 << self.bits) - 1;
-            }
-        }
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
+fn base64_decode(data: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    STANDARD.decode(data)
 }
 
 /// No-op encryption implementation for when encryption is disabled
