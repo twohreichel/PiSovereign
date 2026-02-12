@@ -724,6 +724,8 @@ mod tests {
         assert_eq!(config.username, "user");
     }
 
+    const DUMMY_PASSWORD: &str = "dummy-password-for-testing";
+
     #[test]
     fn caldav_config_serialization() {
         let config = test_caldav_config("https://cal.example.com", "user", "pass", None);
@@ -743,12 +745,12 @@ mod tests {
         let config = test_caldav_config(
             "https://cal.example.com",
             "user",
-            "dummy-password-for-testing",
+            DUMMY_PASSWORD,
             None,
         );
         let debug_output = format!("{config:?}");
         assert!(
-            !debug_output.contains("dummy-password-for-testing"),
+            !debug_output.contains(DUMMY_PASSWORD),
             "Password must not appear in Debug output"
         );
         assert!(
