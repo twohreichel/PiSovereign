@@ -585,18 +585,8 @@ fn parse_datetime(s: &str) -> Result<DateTime<Utc>, ApplicationError> {
         .map_err(|e| ApplicationError::Internal(format!("Invalid datetime: {e}")))
 }
 
-/// Map sqlx error to application error
-fn map_sqlx_error(e: sqlx::Error) -> ApplicationError {
-    match e {
-        sqlx::Error::RowNotFound => {
-            ApplicationError::NotFound("Database record not found".to_string())
-        },
-        sqlx::Error::Database(db_err) => {
-            ApplicationError::Internal(format!("Database error: {db_err}"))
-        },
-        other => ApplicationError::Internal(format!("Database error: {other}")),
-    }
-}
+/// Map sqlx error to application error — re-exported from shared module
+use super::error::map_sqlx_error;
 
 #[cfg(test)]
 mod tests {
