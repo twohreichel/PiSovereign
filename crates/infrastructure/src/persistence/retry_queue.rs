@@ -506,9 +506,9 @@ impl RetryQueueStore {
 
         #[allow(clippy::cast_possible_wrap)]
         let _dlq_result = sqlx::query(
-            "INSERT INTO retry_dead_letter (
+            "INSERT INTO dead_letter_queue (
                 id, original_id, operation_type, payload, target, attempt_count,
-                final_error, failed_at, created_at, correlation_id, user_id, tenant_id
+                last_error, failed_at, created_at, correlation_id, user_id, tenant_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         )
         .bind(Uuid::new_v4().to_string())

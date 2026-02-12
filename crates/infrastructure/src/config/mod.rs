@@ -1,14 +1,14 @@
 //! Application configuration
 //!
 //! Split into focused sub-modules by domain:
-//! - [`server`]: HTTP server settings
-//! - [`security`]: Authentication, rate limiting, TLS
-//! - [`cache`]: Cache TTL configuration
-//! - [`messenger`]: WhatsApp, Signal, persistence
-//! - [`database`]: SQLite database settings
-//! - [`integrations`]: Weather, web search, CalDAV, Proton, transit
-//! - [`resilience`]: Telemetry, retry, degraded mode, health
-//! - [`memory`]: Memory/RAG, embeddings, reminders
+//! - `server`: HTTP server settings
+//! - `security`: Authentication, rate limiting, TLS
+//! - `cache`: Cache TTL configuration
+//! - `messenger`: WhatsApp, Signal, persistence
+//! - `database`: SQLite database settings
+//! - `integrations`: Weather, web search, CalDAV, Proton, transit
+//! - `resilience`: Telemetry, retry, degraded mode, health
+//! - `memory`: Memory/RAG, embeddings, reminders
 
 mod cache;
 mod database;

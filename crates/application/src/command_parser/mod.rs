@@ -1,9 +1,9 @@
 //! Command parser - Parse natural language into typed commands
 //!
 //! This module is split into focused sub-modules:
-//! - [`quick_patterns`]: Fast keyword-based pattern matching (no LLM needed)
-//! - [`llm`]: LLM-powered intent detection and JSON parsing
-//! - [`intent_mapping`]: Mapping parsed intents to typed `AgentCommand` values
+//! - `quick_patterns`: Fast keyword-based pattern matching (no LLM needed)
+//! - `llm`: LLM-powered intent detection and JSON parsing
+//! - `intent_mapping`: Mapping parsed intents to typed `AgentCommand` values
 
 mod intent_mapping;
 mod llm;
