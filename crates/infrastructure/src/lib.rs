@@ -29,7 +29,8 @@ pub use config::{
 };
 pub use http::{CorrelatedClientConfig, CorrelatedHttpClient, RequestIdProvider, X_REQUEST_ID};
 pub use persistence::{
-    ConnectionPool, SqliteConversationStore, SqliteDatabaseHealth, SqliteDraftStore, create_pool,
+    AsyncConversationStore, AsyncDatabase, AsyncDatabaseConfig, SqliteDatabaseHealth,
+    SqliteDraftStore,
 };
 pub use retry::{RetryConfig, RetryResult, Retryable, retry, with_retry};
 pub use scheduler::{
