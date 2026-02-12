@@ -9,7 +9,7 @@ use application::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::{Memory, MemoryId, MemoryQuery, MemoryType, UserId};
+use domain::{Memory, MemoryId, MemoryQuery, MemoryType, UserId, cosine_similarity};
 use sqlx::SqlitePool;
 use tracing::{debug, instrument};
 
@@ -95,6 +95,14 @@ struct DecayRow {
     importance: f64,
     accessed_at: String,
     access_count: i64,
+}
+
+/// Lightweight row for similarity search (avoids loading full content)
+#[derive(sqlx::FromRow)]
+struct EmbeddingRow {
+    memory_id: String,
+    embedding: Vec<u8>,
+    importance: f64,
 }
 
 const SELECT_MEMORY: &str = "SELECT m.id, m.user_id, m.conversation_id, m.content, m.summary, \
@@ -245,36 +253,81 @@ impl MemoryStore for SqliteMemoryStore {
         limit: usize,
         min_similarity: f32,
     ) -> Result<Vec<SimilarMemory>, ApplicationError> {
-        let sql = format!("{SELECT_MEMORY_INNER} WHERE m.user_id = $1");
-        let rows: Vec<MemoryRow> = sqlx::query_as(&sql)
-            .bind(user_id.to_string())
-            .fetch_all(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
+        // Phase 1: Fetch only IDs, importance, and embeddings (avoids loading
+        // full content/summary/tags for all memories).
+        let emb_rows: Vec<EmbeddingRow> = sqlx::query_as(
+            "SELECT e.memory_id, e.embedding, m.importance
+             FROM memory_embeddings e
+             INNER JOIN memories m ON e.memory_id = m.id
+             WHERE m.user_id = $1",
+        )
+        .bind(user_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
 
-        let memories: Vec<Memory> = rows.into_iter().map(MemoryRow::to_memory).collect();
-        let query_embedding = embedding;
-
-        // Calculate similarities and filter
-        let mut similar: Vec<SimilarMemory> = memories
+        // Score each embedding and collect top-K candidates
+        let mut scored: Vec<(String, f32, f32)> = emb_rows
             .into_iter()
-            .filter_map(|memory| {
-                let emb = memory.embedding.clone()?;
-                let similarity = cosine_similarity(query_embedding, &emb);
-                Some((memory, similarity))
+            .filter_map(|row| {
+                let emb = bytes_to_embedding(&row.embedding);
+                let similarity = cosine_similarity(embedding, &emb);
+                if similarity >= min_similarity {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let importance = row.importance as f32;
+                    let relevance = similarity * 0.7 + importance * 0.3;
+                    Some((row.memory_id, similarity, relevance))
+                } else {
+                    None
+                }
             })
-            .filter(|(_, similarity)| *similarity >= min_similarity)
-            .map(|(memory, similarity)| SimilarMemory::new(memory, similarity))
             .collect();
 
-        // Sort by relevance score (similarity * 0.7 + importance * 0.3)
+        scored.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(limit);
+
+        let candidates: Vec<(String, f32)> = scored
+            .into_iter()
+            .map(|(id, similarity, _)| (id, similarity))
+            .collect();
+
+        if candidates.is_empty() {
+            debug!(found = 0, "Found similar memories");
+            return Ok(Vec::new());
+        }
+
+        // Phase 2: Fetch full memory objects only for the top-K candidates
+        let placeholders: String = candidates
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("{SELECT_MEMORY_INNER} WHERE m.id IN ({placeholders})");
+
+        let mut query = sqlx::query_as::<_, MemoryRow>(&sql);
+        for (id, _) in &candidates {
+            query = query.bind(id);
+        }
+
+        let rows: Vec<MemoryRow> = query.fetch_all(&self.pool).await.map_err(map_sqlx_error)?;
+
+        // Build lookup for similarity scores
+        let score_map: std::collections::HashMap<String, f32> = candidates.into_iter().collect();
+
+        let mut similar: Vec<SimilarMemory> = rows
+            .into_iter()
+            .filter_map(|row| {
+                let similarity = score_map.get(&row.id).copied()?;
+                Some(SimilarMemory::new(row.to_memory(), similarity))
+            })
+            .collect();
+
         similar.sort_by(|a, b| {
             b.relevance_score()
                 .partial_cmp(&a.relevance_score())
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-
-        similar.truncate(limit);
 
         debug!(found = similar.len(), "Found similar memories");
         Ok(similar)
@@ -546,23 +599,6 @@ fn bytes_to_embedding(bytes: &[u8]) -> Vec<f32> {
             f32::from_le_bytes(arr)
         })
         .collect()
-}
-
-/// Calculate cosine similarity between two vectors
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() || a.is_empty() {
-        return 0.0;
-    }
-
-    let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-    if norm_a == 0.0 || norm_b == 0.0 {
-        return 0.0;
-    }
-
-    dot_product / (norm_a * norm_b)
 }
 
 #[cfg(test)]

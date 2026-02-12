@@ -21,7 +21,7 @@ pub use briefing::{
 pub use chat_message::{ChatMessage, MessageMetadata, MessageRole};
 pub use conversation::{Conversation, ConversationSource};
 pub use email_draft::{DEFAULT_DRAFT_TTL_DAYS, PersistedEmailDraft};
-pub use memory::{Memory, MemoryQuery, MemoryType};
+pub use memory::{Memory, MemoryQuery, MemoryType, cosine_similarity};
 pub use prompt_security::{PromptAnalysisResult, SecurityThreat, ThreatCategory, ThreatLevel};
 pub use reminder::{Reminder, ReminderSource, ReminderStatus};
 pub use user_profile::UserProfile;

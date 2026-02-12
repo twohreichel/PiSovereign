@@ -306,6 +306,28 @@ impl MemoryQuery {
     }
 }
 
+/// Calculate cosine similarity between two embedding vectors
+///
+/// Returns a value between -1.0 and 1.0, where 1.0 means identical direction,
+/// 0.0 means orthogonal, and -1.0 means opposite direction.
+/// Returns 0.0 for empty or mismatched-length vectors.
+#[must_use]
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+
+    let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 0.0;
+    }
+
+    dot_product / (norm_a * norm_b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,5 +495,46 @@ mod tests {
         let tool_result = MemoryType::ToolResult;
         let serialized = serde_json::to_string(&tool_result).unwrap();
         assert_eq!(serialized, "\"tool_result\"");
+    }
+
+    #[test]
+    fn cosine_similarity_identical() {
+        let v = vec![1.0, 0.0, 0.0];
+        assert!((cosine_similarity(&v, &v) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn cosine_similarity_orthogonal() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![0.0, 1.0, 0.0];
+        assert!(cosine_similarity(&a, &b).abs() < 0.001);
+    }
+
+    #[test]
+    fn cosine_similarity_opposite() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![-1.0, 0.0, 0.0];
+        assert!((cosine_similarity(&a, &b) + 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn cosine_similarity_empty() {
+        let a: Vec<f32> = vec![];
+        let b: Vec<f32> = vec![];
+        assert!(cosine_similarity(&a, &b).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cosine_similarity_different_lengths() {
+        let a = vec![1.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        assert!(cosine_similarity(&a, &b).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cosine_similarity_zero_vectors() {
+        let a = vec![0.0, 0.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        assert!(cosine_similarity(&a, &b).abs() < f32::EPSILON);
     }
 }
