@@ -23,19 +23,17 @@ pub struct AsyncConversationStore {
 
 /// Mask a phone number before persisting or logging.
 /// Keeps at most the last 4 digits and replaces preceding characters with '*'.
-fn mask_phone_number(phone: Option<&PhoneNumber>) -> Option<String> {
-    phone.map(|p| {
-        let raw = p.as_str();
-        let len = raw.chars().count();
-        let visible = 4_usize.min(len);
-        let masked_len = len.saturating_sub(visible);
-        let mut masked = String::new();
-        for _ in 0..masked_len {
-            masked.push('*');
-        }
-        masked.extend(raw.chars().skip(masked_len));
-        masked
-    })
+fn mask_phone_number(phone: &PhoneNumber) -> String {
+    let raw = phone.as_str();
+    let len = raw.chars().count();
+    let visible = 4_usize.min(len);
+    let masked_len = len.saturating_sub(visible);
+    let mut masked = String::new();
+    for _ in 0..masked_len {
+        masked.push('*');
+    }
+    masked.extend(raw.chars().skip(masked_len));
+    masked
 }
 
 impl AsyncConversationStore {
@@ -192,7 +190,7 @@ impl ConversationStore for AsyncConversationStore {
         .bind(conversation.created_at.to_rfc3339())
         .bind(conversation.updated_at.to_rfc3339())
         .bind(conversation.source.as_str())
-        .bind(mask_phone_number(conversation.phone_number.as_ref()))
+        .bind(conversation.phone_number.as_ref().map(mask_phone_number))
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
