@@ -1,8 +1,8 @@
 //! SQLite audit log implementation
 //!
-//! Implements the AuditLogPort using SQLite for persistent audit logging.
+//! Implements the `AuditLogPort` using sqlx for persistent audit logging.
 
-use std::{net::IpAddr, sync::Arc};
+use std::net::IpAddr;
 
 use application::{
     error::ApplicationError,
@@ -11,23 +11,64 @@ use application::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{AuditEntry, AuditEventType};
-use rusqlite::{Row, params};
-use tokio::task;
+use sqlx::SqlitePool;
 use tracing::{debug, instrument};
 
-use super::connection::ConnectionPool;
+use super::error::map_sqlx_error;
 
 /// SQLite-based audit log implementation
 #[derive(Debug, Clone)]
 pub struct SqliteAuditLog {
-    pool: Arc<ConnectionPool>,
+    pool: SqlitePool,
 }
 
 impl SqliteAuditLog {
     /// Create a new SQLite audit log
     #[must_use]
-    pub const fn new(pool: Arc<ConnectionPool>) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
+    }
+}
+
+/// Row type for audit log queries
+#[derive(sqlx::FromRow)]
+struct AuditRow {
+    id: i64,
+    timestamp: String,
+    event_type: String,
+    actor: Option<String>,
+    resource_type: Option<String>,
+    resource_id: Option<String>,
+    action: String,
+    details: Option<String>,
+    ip_address: Option<String>,
+    success: i32,
+    request_id: Option<String>,
+}
+
+impl AuditRow {
+    fn to_entry(self) -> AuditEntry {
+        let timestamp = DateTime::parse_from_rfc3339(&self.timestamp)
+            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+        let event_type = parse_event_type(&self.event_type);
+        let ip_address = self.ip_address.and_then(|s| s.parse::<IpAddr>().ok());
+        let request_id = self
+            .request_id
+            .and_then(|s| uuid::Uuid::parse_str(&s).ok());
+
+        AuditEntry {
+            id: Some(self.id),
+            timestamp,
+            event_type,
+            actor: self.actor,
+            resource_type: self.resource_type,
+            resource_id: self.resource_id,
+            action: self.action,
+            details: self.details,
+            ip_address,
+            success: self.success != 0,
+            request_id,
+        }
     }
 }
 
@@ -35,98 +76,103 @@ impl SqliteAuditLog {
 impl AuditLogPort for SqliteAuditLog {
     #[instrument(skip(self, entry), fields(event_type = %entry.event_type, action = %entry.action))]
     async fn log(&self, entry: &AuditEntry) -> Result<(), ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let entry = entry.clone();
-
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            conn.execute(
-                "INSERT INTO audit_log (timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![
-                    entry.timestamp.to_rfc3339(),
-                    entry.event_type.to_string(),
-                    entry.actor,
-                    entry.resource_type,
-                    entry.resource_id,
-                    entry.action,
-                    entry.details,
-                    entry.ip_address.map(|ip| ip.to_string()),
-                    i32::from(entry.success),
-                    entry.request_id.map(|id| id.to_string()),
-                ],
-            )
-            .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            debug!("Recorded audit entry");
-            Ok(())
-        })
+        sqlx::query(
+            "INSERT INTO audit_log (timestamp, event_type, actor, resource_type, resource_id, \
+             action, details, ip_address, success, request_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(entry.timestamp.to_rfc3339())
+        .bind(entry.event_type.to_string())
+        .bind(&entry.actor)
+        .bind(&entry.resource_type)
+        .bind(&entry.resource_id)
+        .bind(&entry.action)
+        .bind(&entry.details)
+        .bind(entry.ip_address.map(|ip| ip.to_string()))
+        .bind(i32::from(entry.success))
+        .bind(entry.request_id.map(|id| id.to_string()))
+        .execute(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        .map_err(map_sqlx_error)?;
+
+        debug!("Recorded audit entry");
+        Ok(())
     }
 
     #[instrument(skip(self, query))]
     async fn query(&self, query: &AuditQuery) -> Result<Vec<AuditEntry>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let query = query.clone();
+        // Build dynamic query
+        let mut sql = String::from(
+            "SELECT id, timestamp, event_type, actor, resource_type, resource_id, \
+             action, details, ip_address, success, request_id
+             FROM audit_log WHERE 1=1",
+        );
+        let mut binds: Vec<String> = Vec::new();
 
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+        if let Some(ref event_type) = query.event_type {
+            binds.push(event_type.to_string());
+            sql.push_str(&format!(" AND event_type = ${}", binds.len()));
+        }
+        if let Some(ref actor) = query.actor {
+            binds.push(actor.clone());
+            sql.push_str(&format!(" AND actor = ${}", binds.len()));
+        }
+        if let Some(ref resource_type) = query.resource_type {
+            binds.push(resource_type.clone());
+            sql.push_str(&format!(" AND resource_type = ${}", binds.len()));
+        }
+        if let Some(ref resource_id) = query.resource_id {
+            binds.push(resource_id.clone());
+            sql.push_str(&format!(" AND resource_id = ${}", binds.len()));
+        }
+        if let Some(success) = query.success {
+            binds.push(i32::from(success).to_string());
+            sql.push_str(&format!(" AND success = ${}", binds.len()));
+        }
+        if let Some(from) = query.from {
+            binds.push(from.to_rfc3339());
+            sql.push_str(&format!(" AND timestamp >= ${}", binds.len()));
+        }
+        if let Some(to) = query.to {
+            binds.push(to.to_rfc3339());
+            sql.push_str(&format!(" AND timestamp <= ${}", binds.len()));
+        }
 
-            let (sql, params) = build_query_sql(&query);
+        sql.push_str(" ORDER BY timestamp DESC");
 
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+        if let Some(limit) = query.limit {
+            binds.push(limit.to_string());
+            sql.push_str(&format!(" LIMIT ${}", binds.len()));
+        }
+        if let Some(offset) = query.offset {
+            binds.push(offset.to_string());
+            sql.push_str(&format!(" OFFSET ${}", binds.len()));
+        }
 
-            let entries = stmt
-                .query_map(
-                    rusqlite::params_from_iter(params.iter()),
-                    row_to_audit_entry,
-                )
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?
-                .filter_map(Result::ok)
-                .collect();
+        let mut q = sqlx::query_as::<_, AuditRow>(&sql);
+        for bind in &binds {
+            q = q.bind(bind);
+        }
 
-            Ok(entries)
-        })
-        .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        let rows: Vec<AuditRow> = q.fetch_all(&self.pool).await.map_err(map_sqlx_error)?;
+        Ok(rows.into_iter().map(AuditRow::to_entry).collect())
     }
 
     #[instrument(skip(self))]
     async fn get_recent(&self, limit: u32) -> Result<Vec<AuditEntry>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id
-                     FROM audit_log
-                     ORDER BY timestamp DESC
-                     LIMIT ?1",
-                )
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let entries = stmt
-                .query_map([limit], row_to_audit_entry)
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?
-                .filter_map(Result::ok)
-                .collect();
-
-            Ok(entries)
-        })
+        let rows: Vec<AuditRow> = sqlx::query_as(
+            "SELECT id, timestamp, event_type, actor, resource_type, resource_id, \
+             action, details, ip_address, success, request_id
+             FROM audit_log
+             ORDER BY timestamp DESC
+             LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        .map_err(map_sqlx_error)?;
+
+        Ok(rows.into_iter().map(AuditRow::to_entry).collect())
     }
 
     #[instrument(skip(self))]
@@ -135,34 +181,20 @@ impl AuditLogPort for SqliteAuditLog {
         resource_type: &str,
         resource_id: &str,
     ) -> Result<Vec<AuditEntry>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let resource_type = resource_type.to_string();
-        let resource_id = resource_id.to_string();
-
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id
-                     FROM audit_log
-                     WHERE resource_type = ?1 AND resource_id = ?2
-                     ORDER BY timestamp DESC",
-                )
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let entries = stmt
-                .query_map([&resource_type, &resource_id], row_to_audit_entry)
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?
-                .filter_map(Result::ok)
-                .collect();
-
-            Ok(entries)
-        })
+        let rows: Vec<AuditRow> = sqlx::query_as(
+            "SELECT id, timestamp, event_type, actor, resource_type, resource_id, \
+             action, details, ip_address, success, request_id
+             FROM audit_log
+             WHERE resource_type = $1 AND resource_id = $2
+             ORDER BY timestamp DESC",
+        )
+        .bind(resource_type)
+        .bind(resource_id)
+        .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        .map_err(map_sqlx_error)?;
+
+        Ok(rows.into_iter().map(AuditRow::to_entry).collect())
     }
 
     #[instrument(skip(self))]
@@ -171,98 +203,67 @@ impl AuditLogPort for SqliteAuditLog {
         actor: &str,
         limit: u32,
     ) -> Result<Vec<AuditEntry>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let actor = actor.to_string();
-
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id
-                     FROM audit_log
-                     WHERE actor = ?1
-                     ORDER BY timestamp DESC
-                     LIMIT ?2",
-                )
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let entries = stmt
-                .query_map(params![actor, limit], row_to_audit_entry)
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?
-                .filter_map(Result::ok)
-                .collect();
-
-            Ok(entries)
-        })
+        let rows: Vec<AuditRow> = sqlx::query_as(
+            "SELECT id, timestamp, event_type, actor, resource_type, resource_id, \
+             action, details, ip_address, success, request_id
+             FROM audit_log
+             WHERE actor = $1
+             ORDER BY timestamp DESC
+             LIMIT $2",
+        )
+        .bind(actor)
+        .bind(limit)
+        .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        .map_err(map_sqlx_error)?;
+
+        Ok(rows.into_iter().map(AuditRow::to_entry).collect())
     }
 
     #[instrument(skip(self, query))]
     async fn count(&self, query: &AuditQuery) -> Result<u64, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let query = query.clone();
+        let mut sql = String::from("SELECT COUNT(*) FROM audit_log WHERE 1=1");
+        let mut binds: Vec<String> = Vec::new();
 
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+        if let Some(ref event_type) = query.event_type {
+            binds.push(event_type.to_string());
+            sql.push_str(&format!(" AND event_type = ${}", binds.len()));
+        }
+        if let Some(ref actor) = query.actor {
+            binds.push(actor.clone());
+            sql.push_str(&format!(" AND actor = ${}", binds.len()));
+        }
+        if let Some(ref resource_type) = query.resource_type {
+            binds.push(resource_type.clone());
+            sql.push_str(&format!(" AND resource_type = ${}", binds.len()));
+        }
+        if let Some(ref resource_id) = query.resource_id {
+            binds.push(resource_id.clone());
+            sql.push_str(&format!(" AND resource_id = ${}", binds.len()));
+        }
+        if let Some(success) = query.success {
+            binds.push(i32::from(success).to_string());
+            sql.push_str(&format!(" AND success = ${}", binds.len()));
+        }
+        if let Some(from) = query.from {
+            binds.push(from.to_rfc3339());
+            sql.push_str(&format!(" AND timestamp >= ${}", binds.len()));
+        }
+        if let Some(to) = query.to {
+            binds.push(to.to_rfc3339());
+            sql.push_str(&format!(" AND timestamp <= ${}", binds.len()));
+        }
 
-            let (sql, params) = build_count_sql(&query);
+        let mut q = sqlx::query_scalar::<_, i64>(&sql);
+        for bind in &binds {
+            q = q.bind(bind);
+        }
 
-            let count: i64 = conn
-                .query_row(&sql, rusqlite::params_from_iter(params.iter()), |row| {
-                    row.get(0)
-                })
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+        let count: i64 = q.fetch_one(&self.pool).await.map_err(map_sqlx_error)?;
 
-            #[allow(clippy::cast_sign_loss)]
-            Ok(count as u64)
-        })
-        .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        #[allow(clippy::cast_sign_loss)]
+        Ok(count as u64)
     }
-}
-
-/// Convert a database row to an audit entry
-fn row_to_audit_entry(row: &Row<'_>) -> rusqlite::Result<AuditEntry> {
-    let id: i64 = row.get(0)?;
-    let timestamp_str: String = row.get(1)?;
-    let event_type_str: String = row.get(2)?;
-    let actor: Option<String> = row.get(3)?;
-    let resource_type: Option<String> = row.get(4)?;
-    let resource_id: Option<String> = row.get(5)?;
-    let action: String = row.get(6)?;
-    let details: Option<String> = row.get(7)?;
-    let ip_str: Option<String> = row.get(8)?;
-    let success: i32 = row.get(9)?;
-    let request_id_str: Option<String> = row.get(10)?;
-
-    let timestamp = DateTime::parse_from_rfc3339(&timestamp_str)
-        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-
-    let event_type = parse_event_type(&event_type_str);
-
-    let ip_address = ip_str.and_then(|s| s.parse::<IpAddr>().ok());
-
-    let request_id = request_id_str.and_then(|s| uuid::Uuid::parse_str(&s).ok());
-
-    Ok(AuditEntry {
-        id: Some(id),
-        timestamp,
-        event_type,
-        actor,
-        resource_type,
-        resource_id,
-        action,
-        details,
-        ip_address,
-        success: success != 0,
-        request_id,
-    })
 }
 
 /// Parse event type from string
@@ -280,123 +281,6 @@ fn parse_event_type(s: &str) -> AuditEventType {
     }
 }
 
-/// Build the SQL query based on the audit query parameters
-fn build_query_sql(query: &AuditQuery) -> (String, Vec<String>) {
-    let mut sql = String::from(
-        "SELECT id, timestamp, event_type, actor, resource_type, resource_id, action, details, ip_address, success, request_id
-         FROM audit_log WHERE 1=1",
-    );
-    let mut params: Vec<String> = Vec::new();
-    let mut param_idx = 1;
-
-    if let Some(ref event_type) = query.event_type {
-        sql.push_str(&format!(" AND event_type = ?{param_idx}"));
-        params.push(event_type.to_string());
-        param_idx += 1;
-    }
-
-    if let Some(ref actor) = query.actor {
-        sql.push_str(&format!(" AND actor = ?{param_idx}"));
-        params.push(actor.clone());
-        param_idx += 1;
-    }
-
-    if let Some(ref resource_type) = query.resource_type {
-        sql.push_str(&format!(" AND resource_type = ?{param_idx}"));
-        params.push(resource_type.clone());
-        param_idx += 1;
-    }
-
-    if let Some(ref resource_id) = query.resource_id {
-        sql.push_str(&format!(" AND resource_id = ?{param_idx}"));
-        params.push(resource_id.clone());
-        param_idx += 1;
-    }
-
-    if let Some(success) = query.success {
-        sql.push_str(&format!(" AND success = ?{param_idx}"));
-        params.push(i32::from(success).to_string());
-        param_idx += 1;
-    }
-
-    if let Some(from) = query.from {
-        sql.push_str(&format!(" AND timestamp >= ?{param_idx}"));
-        params.push(from.to_rfc3339());
-        param_idx += 1;
-    }
-
-    if let Some(to) = query.to {
-        sql.push_str(&format!(" AND timestamp <= ?{param_idx}"));
-        params.push(to.to_rfc3339());
-        param_idx += 1;
-    }
-
-    sql.push_str(" ORDER BY timestamp DESC");
-
-    if let Some(limit) = query.limit {
-        sql.push_str(&format!(" LIMIT ?{param_idx}"));
-        params.push(limit.to_string());
-        param_idx += 1;
-    }
-
-    if let Some(offset) = query.offset {
-        sql.push_str(&format!(" OFFSET ?{param_idx}"));
-        params.push(offset.to_string());
-    }
-
-    (sql, params)
-}
-
-/// Build the count SQL based on the query parameters
-fn build_count_sql(query: &AuditQuery) -> (String, Vec<String>) {
-    let mut sql = String::from("SELECT COUNT(*) FROM audit_log WHERE 1=1");
-    let mut params: Vec<String> = Vec::new();
-    let mut param_idx = 1;
-
-    if let Some(ref event_type) = query.event_type {
-        sql.push_str(&format!(" AND event_type = ?{param_idx}"));
-        params.push(event_type.to_string());
-        param_idx += 1;
-    }
-
-    if let Some(ref actor) = query.actor {
-        sql.push_str(&format!(" AND actor = ?{param_idx}"));
-        params.push(actor.clone());
-        param_idx += 1;
-    }
-
-    if let Some(ref resource_type) = query.resource_type {
-        sql.push_str(&format!(" AND resource_type = ?{param_idx}"));
-        params.push(resource_type.clone());
-        param_idx += 1;
-    }
-
-    if let Some(ref resource_id) = query.resource_id {
-        sql.push_str(&format!(" AND resource_id = ?{param_idx}"));
-        params.push(resource_id.clone());
-        param_idx += 1;
-    }
-
-    if let Some(success) = query.success {
-        sql.push_str(&format!(" AND success = ?{param_idx}"));
-        params.push(i32::from(success).to_string());
-        param_idx += 1;
-    }
-
-    if let Some(from) = query.from {
-        sql.push_str(&format!(" AND timestamp >= ?{param_idx}"));
-        params.push(from.to_rfc3339());
-        param_idx += 1;
-    }
-
-    if let Some(to) = query.to {
-        sql.push_str(&format!(" AND timestamp <= ?{param_idx}"));
-        params.push(to.to_rfc3339());
-    }
-
-    (sql, params)
-}
-
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
@@ -404,29 +288,26 @@ mod tests {
     use chrono::Duration;
 
     use super::*;
-    use crate::{config::DatabaseConfig, persistence::create_pool};
+    use crate::persistence::async_connection::AsyncDatabase;
 
-    fn create_test_pool() -> Arc<ConnectionPool> {
-        let config = DatabaseConfig {
-            path: ":memory:".to_string(),
-            max_connections: 1,
-            run_migrations: true,
-        };
-        Arc::new(create_pool(&config).expect("Failed to create pool"))
+    async fn setup() -> (AsyncDatabase, SqliteAuditLog) {
+        let db = AsyncDatabase::in_memory().await.unwrap();
+        db.migrate().await.unwrap();
+        let audit = SqliteAuditLog::new(db.pool().clone());
+        (db, audit)
     }
 
     #[tokio::test]
     async fn log_and_query_entry() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
+        let (_db, audit_log) = setup().await;
 
         let entry = AuditEntry::success(AuditEventType::CommandExecution, "test_action")
             .with_actor("user123")
             .with_resource("conversation", "conv-001");
 
-        audit_log.log(&entry).await.expect("Failed to log entry");
+        audit_log.log(&entry).await.unwrap();
 
-        let entries = audit_log.get_recent(10).await.expect("Failed to query");
+        let entries = audit_log.get_recent(10).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].action, "test_action");
         assert_eq!(entries[0].actor, Some("user123".to_string()));
@@ -434,174 +315,184 @@ mod tests {
 
     #[tokio::test]
     async fn get_for_resource() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
+        let (_db, audit_log) = setup().await;
 
-        // Log entries for different resources
-        let entry1 = AuditEntry::success(AuditEventType::DataAccess, "read")
+        let e1 = AuditEntry::success(AuditEventType::DataAccess, "read")
             .with_resource("conversation", "conv-001");
-        let entry2 = AuditEntry::success(AuditEventType::DataAccess, "write")
+        let e2 = AuditEntry::success(AuditEventType::DataAccess, "write")
             .with_resource("conversation", "conv-001");
-        let entry3 = AuditEntry::success(AuditEventType::DataAccess, "read")
+        let e3 = AuditEntry::success(AuditEventType::DataAccess, "read")
             .with_resource("conversation", "conv-002");
 
-        audit_log.log(&entry1).await.unwrap();
-        audit_log.log(&entry2).await.unwrap();
-        audit_log.log(&entry3).await.unwrap();
+        audit_log.log(&e1).await.unwrap();
+        audit_log.log(&e2).await.unwrap();
+        audit_log.log(&e3).await.unwrap();
 
         let entries = audit_log
             .get_for_resource("conversation", "conv-001")
             .await
-            .expect("Failed to query");
-
+            .unwrap();
         assert_eq!(entries.len(), 2);
     }
 
     #[tokio::test]
     async fn get_for_actor() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
+        let (_db, audit_log) = setup().await;
 
-        let entry1 =
-            AuditEntry::success(AuditEventType::Authentication, "login").with_actor("user1");
-        let entry2 =
+        let e1 = AuditEntry::success(AuditEventType::Authentication, "login").with_actor("user1");
+        let e2 =
             AuditEntry::success(AuditEventType::CommandExecution, "echo").with_actor("user1");
-        let entry3 =
-            AuditEntry::success(AuditEventType::Authentication, "login").with_actor("user2");
+        let e3 = AuditEntry::success(AuditEventType::Authentication, "login").with_actor("user2");
 
-        audit_log.log(&entry1).await.unwrap();
-        audit_log.log(&entry2).await.unwrap();
-        audit_log.log(&entry3).await.unwrap();
+        audit_log.log(&e1).await.unwrap();
+        audit_log.log(&e2).await.unwrap();
+        audit_log.log(&e3).await.unwrap();
 
-        let entries = audit_log
-            .get_for_actor("user1", 10)
-            .await
-            .expect("Failed to query");
-
+        let entries = audit_log.get_for_actor("user1", 10).await.unwrap();
         assert_eq!(entries.len(), 2);
     }
 
     #[tokio::test]
     async fn query_with_event_type_filter() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
+        let (_db, audit_log) = setup().await;
 
-        let entry1 = AuditEntry::success(AuditEventType::Authentication, "login");
-        let entry2 = AuditEntry::success(AuditEventType::CommandExecution, "echo");
-        let entry3 = AuditEntry::success(AuditEventType::Authentication, "logout");
-
-        audit_log.log(&entry1).await.unwrap();
-        audit_log.log(&entry2).await.unwrap();
-        audit_log.log(&entry3).await.unwrap();
+        audit_log
+            .log(&AuditEntry::success(
+                AuditEventType::Authentication,
+                "login",
+            ))
+            .await
+            .unwrap();
+        audit_log
+            .log(&AuditEntry::success(
+                AuditEventType::CommandExecution,
+                "echo",
+            ))
+            .await
+            .unwrap();
+        audit_log
+            .log(&AuditEntry::success(
+                AuditEventType::Authentication,
+                "logout",
+            ))
+            .await
+            .unwrap();
 
         let query = AuditQuery::new().with_event_type(AuditEventType::Authentication);
-        let entries = audit_log.query(&query).await.expect("Failed to query");
-
+        let entries = audit_log.query(&query).await.unwrap();
         assert_eq!(entries.len(), 2);
     }
 
     #[tokio::test]
     async fn query_with_success_filter() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
+        let (_db, audit_log) = setup().await;
 
-        let entry1 = AuditEntry::success(AuditEventType::Authentication, "login");
-        let entry2 = AuditEntry::failure(AuditEventType::Authentication, "login");
-        let entry3 = AuditEntry::success(AuditEventType::Authentication, "logout");
-
-        audit_log.log(&entry1).await.unwrap();
-        audit_log.log(&entry2).await.unwrap();
-        audit_log.log(&entry3).await.unwrap();
+        audit_log
+            .log(&AuditEntry::success(
+                AuditEventType::Authentication,
+                "login",
+            ))
+            .await
+            .unwrap();
+        audit_log
+            .log(&AuditEntry::failure(
+                AuditEventType::Authentication,
+                "login",
+            ))
+            .await
+            .unwrap();
+        audit_log
+            .log(&AuditEntry::success(
+                AuditEventType::Authentication,
+                "logout",
+            ))
+            .await
+            .unwrap();
 
         let query = AuditQuery::new().with_success(false);
-        let entries = audit_log.query(&query).await.expect("Failed to query");
-
+        let entries = audit_log.query(&query).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert!(!entries[0].success);
     }
 
     #[tokio::test]
     async fn query_with_time_range() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
-
+        let (_db, audit_log) = setup().await;
         let now = Utc::now();
-        let entry1 = AuditEntry::success(AuditEventType::System, "startup");
 
-        audit_log.log(&entry1).await.unwrap();
+        audit_log
+            .log(&AuditEntry::success(AuditEventType::System, "startup"))
+            .await
+            .unwrap();
 
-        // Query with a time range that includes now
         let from = now - Duration::hours(1);
         let to = now + Duration::hours(1);
         let query = AuditQuery::new().with_time_range(from, to);
-        let entries = audit_log.query(&query).await.expect("Failed to query");
-
+        let entries = audit_log.query(&query).await.unwrap();
         assert_eq!(entries.len(), 1);
     }
 
     #[tokio::test]
     async fn query_with_pagination() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
+        let (_db, audit_log) = setup().await;
 
         for i in 0..10 {
             let entry = AuditEntry::success(AuditEventType::System, format!("action_{i}"));
             audit_log.log(&entry).await.unwrap();
         }
 
-        let query = AuditQuery::new().with_limit(3).with_offset(0);
-        let page1 = audit_log.query(&query).await.expect("Failed to query");
+        let page1 = audit_log
+            .query(&AuditQuery::new().with_limit(3).with_offset(0))
+            .await
+            .unwrap();
         assert_eq!(page1.len(), 3);
 
-        let query = AuditQuery::new().with_limit(3).with_offset(3);
-        let page2 = audit_log.query(&query).await.expect("Failed to query");
+        let page2 = audit_log
+            .query(&AuditQuery::new().with_limit(3).with_offset(3))
+            .await
+            .unwrap();
         assert_eq!(page2.len(), 3);
     }
 
     #[tokio::test]
     async fn count_entries() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
+        let (_db, audit_log) = setup().await;
 
         for i in 0..5 {
             let entry = AuditEntry::success(AuditEventType::CommandExecution, format!("cmd_{i}"));
             audit_log.log(&entry).await.unwrap();
         }
 
-        let query = AuditQuery::new();
-        let count = audit_log.count(&query).await.expect("Failed to count");
-
+        let count = audit_log.count(&AuditQuery::new()).await.unwrap();
         assert_eq!(count, 5);
     }
 
     #[tokio::test]
     async fn log_entry_with_ip_address() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
+        let (_db, audit_log) = setup().await;
 
         let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
         let entry = AuditEntry::success(AuditEventType::Authentication, "login")
             .with_actor("user1")
             .with_ip_address(ip);
 
-        audit_log.log(&entry).await.expect("Failed to log entry");
+        audit_log.log(&entry).await.unwrap();
 
-        let entries = audit_log.get_recent(1).await.expect("Failed to query");
+        let entries = audit_log.get_recent(1).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].ip_address, Some(ip));
     }
 
     #[tokio::test]
     async fn log_entry_with_details() {
-        let pool = create_test_pool();
-        let audit_log = SqliteAuditLog::new(pool);
+        let (_db, audit_log) = setup().await;
 
         let entry = AuditEntry::success(AuditEventType::ConfigChange, "update_setting")
             .with_details(r#"{"key": "timeout", "old": 30, "new": 60}"#);
 
-        audit_log.log(&entry).await.expect("Failed to log entry");
+        audit_log.log(&entry).await.unwrap();
 
-        let entries = audit_log.get_recent(1).await.expect("Failed to query");
+        let entries = audit_log.get_recent(1).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert!(entries[0].details.as_ref().unwrap().contains("timeout"));
     }
