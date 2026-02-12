@@ -90,6 +90,7 @@ Options:
     --native        Build from source and install native binaries (default)
     --docker        Use Docker containers instead of native binaries
     --monitoring    Install Prometheus + Grafana monitoring stack
+    --otel          Install OpenTelemetry Collector (Docker)
     --baikal        Install Baïkal CalDAV server (Docker)
     --branch NAME   Git branch to build from (default: main)
     --skip-security Skip security hardening steps
@@ -99,6 +100,8 @@ Options:
 Examples:
     sudo $0                      # Native build (recommended for Pi)
     sudo $0 --monitoring         # With Prometheus + Grafana monitoring
+    sudo $0 --otel               # With OpenTelemetry Collector
+    sudo $0 --monitoring --otel  # Full observability stack
     sudo $0 --baikal             # With Baïkal CalDAV server
     sudo $0 --docker             # Docker deployment
     sudo $0 --branch develop     # Build from develop branch
@@ -109,6 +112,7 @@ Environment Variables:
     PISOVEREIGN_VERSION Version tag to install (default: latest)
     PISOVEREIGN_BRANCH  Git branch for source builds (default: main)
     INSTALL_MONITORING  true or false (default: false)
+    INSTALL_OTEL        true or false (default: false)
     INSTALL_BAIKAL      true or false (default: false)
 
 EOF
@@ -119,6 +123,7 @@ parse_args() {
     SKIP_SECURITY=false
     SKIP_BUILD=false
     INSTALL_MONITORING=${INSTALL_MONITORING:-false}
+    INSTALL_OTEL=${INSTALL_OTEL:-false}
     INSTALL_BAIKAL=${INSTALL_BAIKAL:-false}
     
     while [[ $# -gt 0 ]]; do
@@ -133,6 +138,10 @@ parse_args() {
                 ;;
             --monitoring)
                 INSTALL_MONITORING=true
+                shift
+                ;;
+            --otel)
+                INSTALL_OTEL=true
                 shift
                 ;;
             --baikal)
@@ -1202,6 +1211,29 @@ l1_max_entries = 10000
 
 [telemetry]
 enabled = false
+EOF
+
+    # Add OpenTelemetry OTLP configuration if OTel Collector is enabled
+    if [[ "$INSTALL_OTEL" == "true" ]]; then
+        # Update telemetry section with OTLP endpoint
+        if [[ "$DEPLOY_MODE" == "docker" ]]; then
+            cat >> "$PISOVEREIGN_CONFIG_DIR/config.toml" << EOF
+
+[telemetry.otlp]
+endpoint = "http://otel-collector:4317"
+protocol = "grpc"
+EOF
+        else
+            cat >> "$PISOVEREIGN_CONFIG_DIR/config.toml" << EOF
+
+[telemetry.otlp]
+endpoint = "http://localhost:4317"
+protocol = "grpc"
+EOF
+        fi
+    fi
+
+    cat >> "$PISOVEREIGN_CONFIG_DIR/config.toml" << EOF
 
 [degraded_mode]
 enabled = true
@@ -1523,6 +1555,314 @@ DBEOF
 }
 
 # =============================================================================
+# OpenTelemetry Collector Setup
+# =============================================================================
+
+setup_otel_native() {
+    if [[ "$INSTALL_OTEL" != "true" ]]; then
+        return 0
+    fi
+
+    step "Setting up OpenTelemetry Collector (Native - Docker container)"
+
+    # Even in native mode, run the OTel Collector as a Docker container
+    # for easier management and updates
+    if ! command -v docker &>/dev/null; then
+        info "Installing Docker for OpenTelemetry Collector..."
+        install_docker
+    fi
+
+    mkdir -p "$PISOVEREIGN_DIR/otel"
+
+    # Create OTel Collector config
+    cat > "$PISOVEREIGN_DIR/otel/otel-collector-config.yaml" << 'OTELEOF'
+# OpenTelemetry Collector Configuration for PiSovereign
+# =====================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  resource:
+    attributes:
+      - key: service.namespace
+        value: pisovereign
+        action: upsert
+
+exporters:
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+  zpages:
+    endpoint: "0.0.0.0:55679"
+
+service:
+  extensions: [health_check, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+OTELEOF
+
+    # If monitoring (Prometheus) is also enabled, add the Prometheus exporter
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        cat > "$PISOVEREIGN_DIR/otel/otel-collector-config.yaml" << 'OTELEOF'
+# OpenTelemetry Collector Configuration for PiSovereign
+# =====================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  resource:
+    attributes:
+      - key: service.namespace
+        value: pisovereign
+        action: upsert
+
+exporters:
+  debug:
+    verbosity: basic
+  otlphttp/prometheus:
+    endpoint: "http://localhost:9090/api/v1/otlp"
+    tls:
+      insecure: true
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+  zpages:
+    endpoint: "0.0.0.0:55679"
+
+service:
+  extensions: [health_check, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug, otlphttp/prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+OTELEOF
+    fi
+
+    # Create systemd service for OTel Collector (via Docker)
+    cat > /etc/systemd/system/otel-collector.service << EOF
+[Unit]
+Description=OpenTelemetry Collector (Docker)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=10
+ExecStartPre=-/usr/bin/docker rm -f otel-collector
+ExecStart=/usr/bin/docker run --rm --name otel-collector \\
+    --network host \\
+    -v $PISOVEREIGN_DIR/otel/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro \\
+    otel/opentelemetry-collector-contrib:latest
+ExecStop=/usr/bin/docker stop otel-collector
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable otel-collector.service
+
+    # Pull the image
+    info "Pulling OpenTelemetry Collector Docker image..."
+    docker pull otel/opentelemetry-collector-contrib:latest
+
+    # Start the service
+    systemctl start otel-collector.service
+
+    # Add firewall rules if UFW is active
+    if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+        ufw allow from 127.0.0.1 to any port 4317 proto tcp comment 'OTel gRPC (local only)'
+        ufw allow from 127.0.0.1 to any port 4318 proto tcp comment 'OTel HTTP (local only)'
+        ufw allow from 127.0.0.1 to any port 13133 proto tcp comment 'OTel Health (local only)'
+        info "Added firewall rules for OpenTelemetry Collector (localhost only)"
+    fi
+
+    success "OpenTelemetry Collector installed (Native via Docker)"
+    info "OTLP gRPC: http://localhost:4317"
+    info "OTLP HTTP: http://localhost:4318"
+    info "Health:    http://localhost:13133"
+}
+
+setup_otel_docker() {
+    if [[ "$INSTALL_OTEL" != "true" ]]; then
+        return 0
+    fi
+
+    step "Setting up OpenTelemetry Collector (Docker)"
+
+    mkdir -p "$PISOVEREIGN_DIR/otel"
+
+    # Create OTel Collector config
+    cat > "$PISOVEREIGN_DIR/otel/otel-collector-config.yaml" << 'OTELEOF'
+# OpenTelemetry Collector Configuration for PiSovereign
+# =====================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  resource:
+    attributes:
+      - key: service.namespace
+        value: pisovereign
+        action: upsert
+
+exporters:
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+  zpages:
+    endpoint: "0.0.0.0:55679"
+
+service:
+  extensions: [health_check, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+OTELEOF
+
+    # If monitoring (Prometheus) is also enabled, add the Prometheus exporter
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        cat > "$PISOVEREIGN_DIR/otel/otel-collector-config.yaml" << 'OTELEOF'
+# OpenTelemetry Collector Configuration for PiSovereign
+# =====================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  resource:
+    attributes:
+      - key: service.namespace
+        value: pisovereign
+        action: upsert
+
+exporters:
+  debug:
+    verbosity: basic
+  otlphttp/prometheus:
+    endpoint: "http://prometheus:9090/api/v1/otlp"
+    tls:
+      insecure: true
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+  zpages:
+    endpoint: "0.0.0.0:55679"
+
+service:
+  extensions: [health_check, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug, otlphttp/prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+OTELEOF
+        info "Configured OTel Collector with Prometheus OTLP export"
+    fi
+
+    success "OpenTelemetry Collector configuration prepared for Docker"
+}
+
+# =============================================================================
 # Docker Compose Setup
 # =============================================================================
 
@@ -1540,6 +1880,11 @@ setup_docker_compose() {
     # Setup monitoring configs first if enabled
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
         setup_monitoring_docker
+    fi
+    
+    # Setup OpenTelemetry Collector configs if enabled
+    if [[ "$INSTALL_OTEL" == "true" ]]; then
+        setup_otel_docker
     fi
     
     # Create docker-compose.yml - services section first
@@ -1562,6 +1907,17 @@ services:
       - PISOVEREIGN_CONFIG=/etc/pisovereign/config.toml
       - PISOVEREIGN_ENVIRONMENT=production
       - RUST_LOG=info
+EOF
+
+    # Add OTEL environment variables if enabled
+    if [[ "$INSTALL_OTEL" == "true" ]]; then
+        cat >> docker-compose.yml << 'EOF'
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=pisovereign
+EOF
+    fi
+
+    cat >> docker-compose.yml << 'EOF'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -1667,6 +2023,32 @@ MONEOF
       start_period: 10s
 EOF
         info "Added Baïkal CalDAV service"
+    fi
+
+    # Add OpenTelemetry Collector service if enabled
+    if [[ "$INSTALL_OTEL" == "true" ]]; then
+        cat >> docker-compose.yml << 'EOF'
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+      - "127.0.0.1:13133:13133" # Health check
+      - "127.0.0.1:55679:55679" # zPages
+    volumes:
+      - ./otel/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks:
+      - pisovereign-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:13133"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+EOF
+        info "Added OpenTelemetry Collector service"
     fi
 
     # Add networks section
@@ -2119,6 +2501,15 @@ verify_installation() {
         fi
     fi
     
+    # Check OpenTelemetry Collector (if installed)
+    if [[ "$INSTALL_OTEL" == "true" ]]; then
+        if curl -sf http://localhost:13133 &>/dev/null; then
+            success "OpenTelemetry Collector: OK"
+        else
+            warn "OpenTelemetry Collector: Starting..."
+        fi
+    fi
+    
     # Check auto-update timer
     if systemctl is-active pisovereign-update.timer &>/dev/null; then
         success "Auto-update timer: OK"
@@ -2170,6 +2561,12 @@ print_summary() {
         echo "  Grafana:        http://localhost:$grafana_port (admin/$grafana_pass)"
     fi
     
+    if [[ "$INSTALL_OTEL" == "true" ]]; then
+        echo "  OTel Collector: gRPC=localhost:4317, HTTP=localhost:4318"
+        echo "  OTel Health:    http://localhost:13133"
+        echo "  OTel zPages:    http://localhost:55679/debug/tracez"
+    fi
+    
     if [[ "$INSTALL_BAIKAL" == "true" ]]; then
         echo "  Baïkal CalDAV:   http://localhost:5232"
     fi
@@ -2192,6 +2589,22 @@ print_summary() {
     
     echo "  Update now:     $PISOVEREIGN_DIR/scripts/auto-update.sh"
     echo "  Update timer:   systemctl status pisovereign-update.timer"
+    
+    if [[ "$INSTALL_OTEL" == "true" ]]; then
+        echo
+        echo -e "${CYAN}OpenTelemetry:${NC}"
+        echo "  OTLP gRPC endpoint:   http://localhost:4317"
+        echo "  OTLP HTTP endpoint:   http://localhost:4318"
+        echo "  Health check:         http://localhost:13133"
+        echo "  Debug zPages:         http://localhost:55679/debug/tracez"
+        echo "  Config:               $PISOVEREIGN_DIR/otel/otel-collector-config.yaml"
+        if [[ "$DEPLOY_MODE" == "native" ]]; then
+            echo "  Status:               systemctl status otel-collector"
+            echo "  Logs:                 journalctl -u otel-collector -f"
+        else
+            echo "  Logs:                 docker compose logs otel-collector -f"
+        fi
+    fi
     echo
     echo -e "${CYAN}Security:${NC}"
     echo "  SSH port:       2222 (if hardening was applied)"
@@ -2302,6 +2715,11 @@ main() {
         # Monitoring stack (Native mode)
         if [[ "$INSTALL_MONITORING" == "true" ]]; then
             setup_monitoring_native
+        fi
+        
+        # OpenTelemetry Collector (Native mode - runs as Docker container)
+        if [[ "$INSTALL_OTEL" == "true" ]]; then
+            setup_otel_native
         fi
     else
         # Docker deployment
