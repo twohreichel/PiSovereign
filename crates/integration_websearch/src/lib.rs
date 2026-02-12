@@ -29,6 +29,7 @@ mod duckduckgo;
 mod error;
 mod models;
 mod provider;
+mod urlencoding;
 
 pub use brave::BraveSearchClient;
 pub use config::WebSearchConfig;

@@ -5,8 +5,7 @@
 
 use application::ports::SynthesisResult;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use domain::entities::{AudioFormat, Conversation, ConversationSource};
-use domain::value_objects::ConversationId;
+use domain::entities::{Conversation, ConversationSource};
 use integration_signal::Attachment;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
@@ -547,10 +546,10 @@ async fn handle_audio_message(
     );
 
     // Parse audio format
-    let format = parse_audio_format(&attachment.content_type);
+    let format = super::common::parse_audio_format(&attachment.content_type);
 
     // Create a deterministic conversation ID from phone number
-    let conversation_id = conversation_id_from_phone(from);
+    let conversation_id = super::common::conversation_id_from_phone("signal", from);
 
     // Process through voice message service
     let result = voice_service
@@ -645,7 +644,7 @@ async fn send_audio_response(
         .await
         .map_err(|e| format!("Failed to create temp dir: {e}"))?;
 
-    let ext = format_extension(audio_response.format);
+    let ext = super::common::format_extension(audio_response.format);
     let filename = format!("{}.{}", uuid::Uuid::new_v4(), ext);
     let temp_path = temp_dir.join(&filename);
 
@@ -665,142 +664,9 @@ async fn send_audio_response(
     result.map(|_| ())
 }
 
-/// Create a deterministic conversation ID from a phone number
-fn conversation_id_from_phone(phone: &str) -> ConversationId {
-    use std::hash::{DefaultHasher, Hash, Hasher};
-
-    // Create a deterministic UUID from phone number hash
-    let mut hasher = DefaultHasher::new();
-    "signal".hash(&mut hasher);
-    phone.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    // Create UUID bytes from hash
-    let bytes: [u8; 16] = {
-        let mut b = [0u8; 16];
-        b[0..8].copy_from_slice(&hash.to_be_bytes());
-        b[8..16].copy_from_slice(&hash.wrapping_mul(31).to_be_bytes());
-        // Set version 4 (random) and variant bits
-        b[6] = (b[6] & 0x0f) | 0x40;
-        b[8] = (b[8] & 0x3f) | 0x80;
-        b
-    };
-
-    ConversationId::from_uuid(uuid::Uuid::from_bytes(bytes))
-}
-
-/// Parse audio format from MIME type
-fn parse_audio_format(mime_type: &str) -> AudioFormat {
-    let mime_lower = mime_type.to_lowercase();
-
-    if mime_lower.contains("opus") {
-        AudioFormat::Opus
-    } else if mime_lower.contains("ogg") {
-        AudioFormat::Ogg
-    } else if mime_lower.contains("mp3") || mime_lower.contains("mpeg") {
-        AudioFormat::Mp3
-    } else if mime_lower.contains("wav") {
-        AudioFormat::Wav
-    } else {
-        // Default to Ogg for Signal voice messages
-        AudioFormat::Ogg
-    }
-}
-
-/// Get file extension for audio format
-const fn format_extension(format: AudioFormat) -> &'static str {
-    match format {
-        AudioFormat::Opus => "opus",
-        AudioFormat::Ogg => "ogg",
-        AudioFormat::Mp3 => "mp3",
-        AudioFormat::Wav => "wav",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::hash::{DefaultHasher, Hash, Hasher};
-
-    #[test]
-    fn conversation_id_deterministic() {
-        let id1 = conversation_id_from_phone("+491234567890");
-        let id2 = conversation_id_from_phone("+491234567890");
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn conversation_id_differs_for_different_phones() {
-        let id1 = conversation_id_from_phone("+491234567890");
-        let id2 = conversation_id_from_phone("+491234567891");
-        assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn conversation_id_differs_from_whatsapp() {
-        // Signal uses "signal" hash prefix, WhatsApp uses "whatsapp"
-        // So same phone number should produce different IDs
-        let signal_id = conversation_id_from_phone("+491234567890");
-
-        // Simulate WhatsApp's conversation ID generation
-        let mut hasher = DefaultHasher::new();
-        "whatsapp".hash(&mut hasher);
-        "+491234567890".hash(&mut hasher);
-        let hash = hasher.finish();
-        let bytes: [u8; 16] = {
-            let mut b = [0u8; 16];
-            b[0..8].copy_from_slice(&hash.to_be_bytes());
-            b[8..16].copy_from_slice(&hash.wrapping_mul(31).to_be_bytes());
-            b[6] = (b[6] & 0x0f) | 0x40;
-            b[8] = (b[8] & 0x3f) | 0x80;
-            b
-        };
-        let whatsapp_id = ConversationId::from_uuid(uuid::Uuid::from_bytes(bytes));
-
-        assert_ne!(signal_id, whatsapp_id);
-    }
-
-    #[test]
-    fn parse_audio_format_opus() {
-        assert_eq!(
-            parse_audio_format("audio/ogg; codecs=opus"),
-            AudioFormat::Opus
-        );
-        assert_eq!(parse_audio_format("audio/opus"), AudioFormat::Opus);
-    }
-
-    #[test]
-    fn parse_audio_format_ogg() {
-        assert_eq!(parse_audio_format("audio/ogg"), AudioFormat::Ogg);
-    }
-
-    #[test]
-    fn parse_audio_format_mp3() {
-        assert_eq!(parse_audio_format("audio/mp3"), AudioFormat::Mp3);
-        assert_eq!(parse_audio_format("audio/mpeg"), AudioFormat::Mp3);
-    }
-
-    #[test]
-    fn parse_audio_format_wav() {
-        assert_eq!(parse_audio_format("audio/wav"), AudioFormat::Wav);
-    }
-
-    #[test]
-    fn parse_audio_format_unknown_defaults_to_ogg() {
-        assert_eq!(parse_audio_format("audio/unknown"), AudioFormat::Ogg);
-        assert_eq!(
-            parse_audio_format("application/octet-stream"),
-            AudioFormat::Ogg
-        );
-    }
-
-    #[test]
-    fn format_extension_returns_correct_extensions() {
-        assert_eq!(format_extension(AudioFormat::Opus), "opus");
-        assert_eq!(format_extension(AudioFormat::Ogg), "ogg");
-        assert_eq!(format_extension(AudioFormat::Mp3), "mp3");
-        assert_eq!(format_extension(AudioFormat::Wav), "wav");
-    }
 
     #[test]
     fn poll_query_default_timeout() {

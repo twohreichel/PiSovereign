@@ -737,7 +737,7 @@ async fn execute_command_status() {
     response.assert_status_ok();
     let body: serde_json::Value = response.json();
     assert_eq!(body["success"], true);
-    assert_eq!(body["command_type"], "system");
+    assert_eq!(body["command_type"], "status");
 }
 
 #[tokio::test]
@@ -949,7 +949,7 @@ async fn execute_version_command() {
 
     response.assert_status_ok();
     let body: serde_json::Value = response.json();
-    assert_eq!(body["command_type"], "system");
+    assert_eq!(body["command_type"], "version");
     assert!(body["response"].as_str().unwrap().contains("PiSovereign"));
 }
 
@@ -968,7 +968,7 @@ async fn execute_models_command() {
 
     response.assert_status_ok();
     let body: serde_json::Value = response.json();
-    assert_eq!(body["command_type"], "system");
+    assert_eq!(body["command_type"], "list_models");
 }
 
 // ============ Inbox Command Integration ============
@@ -1621,8 +1621,8 @@ mod workflow_tests {
         let commands = vec![
             ("echo Hello", "echo"),
             ("help", "help"),
-            ("status", "system"),
-            ("version", "system"),
+            ("status", "status"),
+            ("version", "version"),
         ];
 
         for (input, expected_type) in commands {

@@ -35,6 +35,7 @@ mod client;
 mod imap_client;
 mod reconnect;
 mod smtp_client;
+mod tls;
 
 pub use client::{
     EmailComposition, EmailSummary, ProtonBridgeClient, ProtonClient, ProtonConfig, ProtonError,

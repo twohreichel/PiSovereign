@@ -11,7 +11,6 @@ use axum::{
     response::IntoResponse,
 };
 use domain::entities::{AudioFormat, Conversation, ConversationSource};
-use domain::value_objects::ConversationId;
 use integration_whatsapp::{
     IncomingMessage, WebhookPayload, WhatsAppClient, WhatsAppClientConfig, extract_all_messages,
     verify_signature,
@@ -459,11 +458,11 @@ async fn handle_audio_message(
     );
 
     // Parse audio format from MIME type (prefer downloaded MIME type)
-    let format = parse_audio_format(&downloaded.mime_type);
+    let format = super::common::parse_audio_format(&downloaded.mime_type);
 
     // Create a deterministic conversation ID from phone number
     // This allows continuing conversations
-    let conversation_id = conversation_id_from_phone(from);
+    let conversation_id = super::common::conversation_id_from_phone("whatsapp", from);
 
     // Process through voice message service
     let result = voice_service
@@ -555,30 +554,6 @@ async fn handle_audio_message(
     }
 }
 
-/// Create a deterministic conversation ID from a phone number
-fn conversation_id_from_phone(phone: &str) -> ConversationId {
-    use std::hash::{DefaultHasher, Hash, Hasher};
-
-    // Create a deterministic UUID from phone number hash
-    let mut hasher = DefaultHasher::new();
-    "whatsapp".hash(&mut hasher);
-    phone.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    // Create UUID bytes from hash
-    let bytes: [u8; 16] = {
-        let mut b = [0u8; 16];
-        b[0..8].copy_from_slice(&hash.to_be_bytes());
-        b[8..16].copy_from_slice(&hash.wrapping_mul(31).to_be_bytes());
-        // Set version 4 (random) and variant bits
-        b[6] = (b[6] & 0x0f) | 0x40;
-        b[8] = (b[8] & 0x3f) | 0x80;
-        b
-    };
-
-    ConversationId::from_uuid(uuid::Uuid::from_bytes(bytes))
-}
-
 /// Upload audio to WhatsApp and send it as an audio message
 async fn upload_and_send_audio(
     client: &WhatsAppClient,
@@ -587,7 +562,7 @@ async fn upload_and_send_audio(
     format: &AudioFormat,
 ) -> Result<(), String> {
     let mime_type = format_to_mime(*format);
-    let filename = format!("response.{}", format_extension(*format));
+    let filename = format!("response.{}", super::common::format_extension(*format));
 
     // Upload the audio
     let upload_result = client
@@ -602,34 +577,6 @@ async fn upload_and_send_audio(
         .map_err(|e| format!("Failed to send audio message: {e}"))?;
 
     Ok(())
-}
-
-/// Get file extension for audio format
-const fn format_extension(format: AudioFormat) -> &'static str {
-    match format {
-        AudioFormat::Opus => "opus",
-        AudioFormat::Ogg => "ogg",
-        AudioFormat::Mp3 => "mp3",
-        AudioFormat::Wav => "wav",
-    }
-}
-
-/// Parse audio format from MIME type
-fn parse_audio_format(mime_type: &str) -> AudioFormat {
-    let mime_lower = mime_type.to_lowercase();
-
-    if mime_lower.contains("opus") {
-        AudioFormat::Opus
-    } else if mime_lower.contains("ogg") {
-        AudioFormat::Ogg
-    } else if mime_lower.contains("mp3") || mime_lower.contains("mpeg") {
-        AudioFormat::Mp3
-    } else if mime_lower.contains("wav") {
-        AudioFormat::Wav
-    } else {
-        // Default to Ogg for WhatsApp voice messages
-        AudioFormat::Ogg
-    }
 }
 
 /// Convert audio format to MIME type
@@ -789,43 +736,6 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("audio"));
         assert!(json.contains("Transcribed text"));
-    }
-
-    #[test]
-    fn parse_audio_format_opus() {
-        assert!(matches!(
-            parse_audio_format("audio/ogg; codecs=opus"),
-            AudioFormat::Opus
-        ));
-        assert!(matches!(
-            parse_audio_format("audio/opus"),
-            AudioFormat::Opus
-        ));
-    }
-
-    #[test]
-    fn parse_audio_format_ogg() {
-        assert!(matches!(parse_audio_format("audio/ogg"), AudioFormat::Ogg));
-    }
-
-    #[test]
-    fn parse_audio_format_mp3() {
-        assert!(matches!(parse_audio_format("audio/mp3"), AudioFormat::Mp3));
-        assert!(matches!(parse_audio_format("audio/mpeg"), AudioFormat::Mp3));
-    }
-
-    #[test]
-    fn parse_audio_format_wav() {
-        assert!(matches!(parse_audio_format("audio/wav"), AudioFormat::Wav));
-    }
-
-    #[test]
-    fn parse_audio_format_unknown_defaults_to_ogg() {
-        assert!(matches!(
-            parse_audio_format("audio/unknown"),
-            AudioFormat::Ogg
-        ));
-        assert!(matches!(parse_audio_format("video/mp4"), AudioFormat::Ogg));
     }
 
     #[test]
