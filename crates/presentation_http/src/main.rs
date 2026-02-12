@@ -20,8 +20,8 @@ use infrastructure::{
         TransitAdapter, WeatherAdapter, WhatsAppMessengerAdapter,
     },
     persistence::{
-        SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, SqliteDatabaseHealth,
-        SqliteReminderStore, create_pool,
+        AsyncConversationStore, AsyncDatabase, AsyncDatabaseConfig, SqliteApprovalQueue,
+        SqliteAuditLog, SqliteDatabaseHealth, SqliteReminderStore,
     },
     telemetry::{TelemetryConfig, init_telemetry},
 };
@@ -287,27 +287,39 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|t| t.home_location.as_ref())
         .and_then(infrastructure::config::GeoLocationConfig::to_geo_location);
 
-    // Initialize database connection pool
-    let (approval_service, conversation_store, database_health_port, reminder_port) =
-        match create_pool(&initial_config.database) {
-            Ok(pool) => {
-                let pool = Arc::new(pool);
-                let approval_queue = Arc::new(SqliteApprovalQueue::new(Arc::clone(&pool)));
-                let audit_log = Arc::new(SqliteAuditLog::new(Arc::clone(&pool)));
-                let approval_service = ApprovalService::new(approval_queue, audit_log);
-                let conversation_store: Arc<dyn ConversationStore> =
-                    Arc::new(SqliteConversationStore::new(Arc::clone(&pool)));
-                let database_health: Arc<dyn DatabaseHealthPort> =
-                    Arc::new(SqliteDatabaseHealth::new(Arc::clone(&pool)));
-                let reminder_store: Arc<dyn ReminderPort> =
-                    Arc::new(SqliteReminderStore::new(Arc::clone(&pool)));
-                info!("✅ Database initialized with conversation, approval, and reminder stores");
-                (
-                    Some(Arc::new(approval_service)),
-                    Some(conversation_store),
-                    Some(database_health),
-                    Some(reminder_store),
-                )
+    // Initialize async database
+    let (approval_service, conversation_store, database_health_port, reminder_port) = {
+        let db_config = AsyncDatabaseConfig::file(&initial_config.database.path);
+        match AsyncDatabase::new(db_config).await {
+            Ok(db) => match db.migrate().await {
+                Ok(()) => {
+                    let pool = db.pool().clone();
+                    let approval_queue = Arc::new(SqliteApprovalQueue::new(pool.clone()));
+                    let audit_log = Arc::new(SqliteAuditLog::new(pool.clone()));
+                    let approval_service = ApprovalService::new(approval_queue, audit_log);
+                    let conversation_store: Arc<dyn ConversationStore> =
+                        Arc::new(AsyncConversationStore::new(pool.clone()));
+                    let database_health: Arc<dyn DatabaseHealthPort> =
+                        Arc::new(SqliteDatabaseHealth::new(pool.clone()));
+                    let reminder_store: Arc<dyn ReminderPort> =
+                        Arc::new(SqliteReminderStore::new(pool));
+                    info!(
+                        "✅ Database initialized with conversation, approval, and reminder stores"
+                    );
+                    (
+                        Some(Arc::new(approval_service)),
+                        Some(conversation_store),
+                        Some(database_health),
+                        Some(reminder_store),
+                    )
+                },
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        "⚠️ Failed to run database migrations, persistence features disabled"
+                    );
+                    (None, None, None, None)
+                },
             },
             Err(e) => {
                 warn!(
@@ -316,7 +328,8 @@ async fn main() -> anyhow::Result<()> {
                 );
                 (None, None, None, None)
             },
-        };
+        }
+    };
 
     // Initialize services
     let chat_service = conversation_store.as_ref().map_or_else(
