@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1](https://github.com/twohreichel/PiSovereign/compare/v0.4.0...v0.4.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* include missing crates and migrations in Dockerfile for proper build ([575f846](https://github.com/twohreichel/PiSovereign/commit/575f8463ed5f8ce2d00599c504bbbfb7d2fef799))
+* resolve clippy and compilation lint errors ([50393ee](https://github.com/twohreichel/PiSovereign/commit/50393ee88d8e5af83e3cd0f4c1fce11e201fbd0f))
+* update package versions to 0.4.0 in Cargo.lock ([ce73ae7](https://github.com/twohreichel/PiSovereign/commit/ce73ae7a90bd776f32fc7b0c9eddaeae6dd9b9eb))
+
 ## [0.4.0](https://github.com/twohreichel/PiSovereign/compare/v0.3.5...v0.4.0) (2026-02-12)
 
 
