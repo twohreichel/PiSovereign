@@ -19,11 +19,12 @@ use integration_whatsapp::{
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
 /// Query parameters for webhook verification
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct WebhookVerifyQuery {
     /// The mode (should be "subscribe")
     #[serde(rename = "hub.mode")]
@@ -37,7 +38,7 @@ pub struct WebhookVerifyQuery {
 }
 
 /// Response for incoming messages
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MessageResponse {
     /// Message ID
     pub message_id: String,
@@ -57,6 +58,22 @@ pub struct MessageResponse {
 ///
 /// Meta sends a GET request to verify webhook ownership during setup.
 /// We must verify the token and return the challenge.
+#[utoipa::path(
+    get,
+    path = "/webhook/whatsapp",
+    tag = "whatsapp",
+    params(
+        ("hub.mode" = Option<String>, Query, description = "Must be 'subscribe'"),
+        ("hub.verify_token" = Option<String>, Query, description = "Token to verify"),
+        ("hub.challenge" = Option<String>, Query, description = "Challenge to return")
+    ),
+    responses(
+        (status = 200, description = "Webhook verified, challenge returned", body = String),
+        (status = 400, description = "Missing or invalid parameters"),
+        (status = 403, description = "Token mismatch"),
+        (status = 503, description = "WhatsApp not configured")
+    )
+)]
 #[instrument(skip(state, query))]
 pub async fn verify_webhook(
     State(state): State<AppState>,
@@ -110,6 +127,18 @@ pub async fn verify_webhook(
 ///
 /// Receives incoming messages from WhatsApp Business API.
 /// Must verify signature and process messages.
+#[utoipa::path(
+    post,
+    path = "/webhook/whatsapp",
+    tag = "whatsapp",
+    request_body(content = Vec<u8>, description = "Raw webhook payload from Meta", content_type = "application/json"),
+    responses(
+        (status = 200, description = "Messages processed successfully"),
+        (status = 400, description = "Invalid payload"),
+        (status = 401, description = "Invalid signature"),
+        (status = 503, description = "WhatsApp not configured")
+    )
+)]
 #[instrument(skip(state, headers, body))]
 pub async fn handle_webhook(
     State(state): State<AppState>,

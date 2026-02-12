@@ -10,11 +10,12 @@ use domain::value_objects::ConversationId;
 use integration_signal::Attachment;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
 /// Query parameters for message polling
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct PollQuery {
     /// Timeout in seconds (0 for non-blocking, default: 1)
     #[serde(default = "default_timeout")]
@@ -26,7 +27,7 @@ const fn default_timeout() -> u64 {
 }
 
 /// Response for polling messages
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PollResponse {
     /// Number of messages processed
     pub processed: usize,
@@ -37,7 +38,7 @@ pub struct PollResponse {
 }
 
 /// Response for a single processed message
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MessageResponse {
     /// Message timestamp (Signal's unique ID)
     pub timestamp: i64,
@@ -54,7 +55,7 @@ pub struct MessageResponse {
 }
 
 /// Health check for Signal integration
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SignalHealthResponse {
     /// Whether Signal is available
     pub available: bool,
@@ -68,6 +69,15 @@ pub struct SignalHealthResponse {
 /// Check Signal service availability
 ///
 /// Returns the status of the signal-cli daemon connection.
+#[utoipa::path(
+    get,
+    path = "/health/signal",
+    tag = "signal",
+    responses(
+        (status = 200, description = "Signal daemon is available", body = SignalHealthResponse),
+        (status = 503, description = "Signal daemon is unavailable", body = SignalHealthResponse)
+    )
+)]
 #[instrument(skip(state))]
 pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.config.load();
@@ -151,6 +161,21 @@ pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
 ///
 /// This endpoint polls the signal-cli daemon for new messages and processes them.
 /// Use this endpoint for periodic polling (e.g., every few seconds).
+#[utoipa::path(
+    post,
+    path = "/v1/signal/poll",
+    tag = "signal",
+    params(
+        ("timeout" = u64, Query, description = "Timeout in seconds (0 for non-blocking, default: 1)")
+    ),
+    responses(
+        (status = 200, description = "Messages polled and processed", body = PollResponse),
+        (status = 503, description = "Signal not available", body = PollResponse)
+    ),
+    security(
+        ("api_key" = [])
+    )
+)]
 #[instrument(skip(state))]
 pub async fn poll_messages(
     State(state): State<AppState>,
