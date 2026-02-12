@@ -47,6 +47,7 @@ struct MemoryRow {
 }
 
 impl MemoryRow {
+    #[allow(clippy::wrong_self_convention)]
     fn to_memory(self) -> Memory {
         let id = MemoryId::parse(&self.id).unwrap_or_else(|_| MemoryId::new());
         let user_id = UserId::parse(&self.user_id).unwrap_or_else(|_| UserId::new());
@@ -148,7 +149,8 @@ impl MemoryStore for SqliteMemoryStore {
         // If embedding exists, store separately
         if let Some(ref embedding) = memory.embedding {
             let embedding_bytes = embedding_to_bytes(embedding);
-            sqlx::query(
+            #[allow(clippy::cast_possible_wrap)]
+            let _ = sqlx::query(
                 "INSERT INTO memory_embeddings (memory_id, embedding, dimensions, model, \
                  created_at)
                  VALUES ($1, $2, $3, $4, $5)",
@@ -204,7 +206,8 @@ impl MemoryStore for SqliteMemoryStore {
         // Upsert embedding if present
         if let Some(ref embedding) = memory.embedding {
             let embedding_bytes = embedding_to_bytes(embedding);
-            sqlx::query(
+            #[allow(clippy::cast_possible_wrap)]
+            let _ = sqlx::query(
                 "INSERT OR REPLACE INTO memory_embeddings \
                  (memory_id, embedding, dimensions, model, created_at)
                  VALUES ($1, $2, $3, $4, $5)",
@@ -273,9 +276,9 @@ impl MemoryStore for SqliteMemoryStore {
                 let emb = bytes_to_embedding(&row.embedding);
                 let similarity = cosine_similarity(embedding, &emb);
                 if similarity >= min_similarity {
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[allow(clippy::cast_possible_truncation, clippy::suboptimal_flops)]
                     let importance = row.importance as f32;
-                    let relevance = similarity * 0.7 + importance * 0.3;
+                    let relevance = similarity.mul_add(0.7, importance * 0.3);
                     Some((row.memory_id, similarity, relevance))
                 } else {
                     None
@@ -475,6 +478,7 @@ impl MemoryStore for SqliteMemoryStore {
             .await
             .map_err(map_sqlx_error)?;
 
+        #[allow(clippy::cast_possible_truncation)]
         let deleted = result.rows_affected() as usize;
         debug!(deleted = deleted, "Cleaned up low-importance memories");
         Ok(deleted)
@@ -516,7 +520,7 @@ impl MemoryStore for SqliteMemoryStore {
             .await
             .map_err(map_sqlx_error)?;
 
-            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             by_type.push((*memory_type, count as usize));
         }
 
@@ -538,7 +542,7 @@ impl MemoryStore for SqliteMemoryStore {
         .await
         .map_err(map_sqlx_error)?;
 
-        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         Ok(MemoryStats {
             total_count: total_count as usize,
             by_type,

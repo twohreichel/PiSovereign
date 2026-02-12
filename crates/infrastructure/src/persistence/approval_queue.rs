@@ -210,6 +210,7 @@ struct ApprovalRow {
 }
 
 impl ApprovalRow {
+    #[allow(clippy::wrong_self_convention)]
     fn to_request(self) -> Result<ApprovalRequest, ApplicationError> {
         let id = ApprovalId::parse(&self.id)
             .map_err(|e| ApplicationError::Internal(format!("Invalid approval_id: {e}")))?;

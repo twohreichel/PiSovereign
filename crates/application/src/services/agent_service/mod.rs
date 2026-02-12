@@ -319,7 +319,7 @@ impl AgentService {
 
             // Draft email - create and store draft
             AgentCommand::DraftEmail { to, subject, body } => {
-                self.handle_draft_email(&to, subject.as_deref(), body).await
+                self.handle_draft_email(to, subject.as_deref(), body).await
             },
 
             // List tasks - read-only, doesn't require approval

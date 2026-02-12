@@ -50,6 +50,7 @@ struct ReminderRow {
 }
 
 impl ReminderRow {
+    #[allow(clippy::wrong_self_convention)]
     fn to_reminder(self) -> Reminder {
         let id = ReminderId::parse(&self.id).unwrap_or_else(|_| ReminderId::from(Uuid::new_v4()));
         let user_id = UserId::parse(&self.user_id).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));

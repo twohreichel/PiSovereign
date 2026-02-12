@@ -463,11 +463,11 @@ mod draft_store_tests {
     fn create_test_draft() -> PersistedEmailDraft {
         PersistedEmailDraft::new(
             UserId::new(),
-            EmailAddress::new("recipient@example.com").unwrap(),
+            EmailAddress::new("recipient@example.com").expect("valid email"),
             "Test Subject",
             "Test body content",
         )
-        .with_cc(EmailAddress::new("cc@example.com").unwrap())
+        .with_cc(EmailAddress::new("cc@example.com").expect("valid email"))
     }
 
     #[tokio::test]

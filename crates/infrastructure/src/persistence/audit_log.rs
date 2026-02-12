@@ -47,6 +47,7 @@ struct AuditRow {
 }
 
 impl AuditRow {
+    #[allow(clippy::wrong_self_convention)]
     fn to_entry(self) -> AuditEntry {
         let timestamp = DateTime::parse_from_rfc3339(&self.timestamp)
             .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));

@@ -40,10 +40,12 @@ struct DraftRow {
 }
 
 impl DraftRow {
+    #[allow(clippy::wrong_self_convention)]
     fn to_draft(self) -> PersistedEmailDraft {
         let id = DraftId::parse(&self.id).unwrap_or_else(|_| DraftId::from(Uuid::new_v4()));
         let user_id = UserId::parse(&self.user_id).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
 
+        #[allow(clippy::expect_used)]
         let to = EmailAddress::new(&self.to_address).unwrap_or_else(|_| {
             EmailAddress::new("unknown@invalid.local").expect("fallback email")
         });
@@ -178,6 +180,7 @@ impl DraftStorePort for SqliteDraftStore {
             .await
             .map_err(map_sqlx_error)?;
 
+        #[allow(clippy::cast_possible_truncation)]
         let deleted = result.rows_affected() as usize;
         debug!(deleted_count = deleted, "Cleaned up expired drafts");
         Ok(deleted)
@@ -193,6 +196,7 @@ impl SqliteDraftStore {
     ) -> Result<Vec<PersistedEmailDraft>, ApplicationError> {
         let now = Utc::now().to_rfc3339();
 
+        #[allow(clippy::cast_possible_wrap)]
         let rows: Vec<DraftRow> = sqlx::query_as(
             "SELECT id, user_id, to_address, cc, subject, body, created_at, expires_at
              FROM email_drafts

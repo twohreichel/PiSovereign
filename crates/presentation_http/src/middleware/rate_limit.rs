@@ -337,8 +337,7 @@ pub fn extract_client_ip(req: &Request, trusted_proxies: &HashSet<IpAddr>) -> Ip
     let connecting_ip: IpAddr = req
         .extensions()
         .get::<ConnectInfo<std::net::SocketAddr>>()
-        .map(|ci| ci.0.ip())
-        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+        .map_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), |ci| ci.0.ip());
 
     // Only trust X-Forwarded-For if the connecting IP is a trusted proxy
     if !trusted_proxies.is_empty() && trusted_proxies.contains(&connecting_ip) {

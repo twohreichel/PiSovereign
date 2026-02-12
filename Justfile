@@ -40,7 +40,8 @@ lint-clippy:
         -A clippy::unnested_or_patterns \
         -A clippy::literal_string_with_formatting_args \
         -A clippy::significant_drop_tightening \
-        -A clippy::format_push_string
+        -A clippy::format_push_string \
+        -A clippy::missing_const_for_fn
 
 # Run clippy with auto-fix (applies safe fixes)
 lint-fix:

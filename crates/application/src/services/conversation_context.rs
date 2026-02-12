@@ -462,7 +462,8 @@ mod tests {
                 .values()
                 .find(|c| {
                     c.source == source
-                        && c.phone_number.as_ref().map(|p| p.as_str()) == Some(phone_number)
+                        && c.phone_number.as_ref().map(domain::PhoneNumber::as_str)
+                            == Some(phone_number)
                 })
                 .cloned())
         }

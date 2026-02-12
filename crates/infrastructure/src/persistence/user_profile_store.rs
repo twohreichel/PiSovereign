@@ -40,6 +40,7 @@ struct ProfileRow {
 }
 
 impl ProfileRow {
+    #[allow(clippy::wrong_self_convention)]
     fn to_profile(self) -> Result<UserProfile, ApplicationError> {
         let user_id = UserId::parse(&self.user_id)
             .map_err(|e| ApplicationError::Internal(format!("Invalid user_id: {e}")))?;

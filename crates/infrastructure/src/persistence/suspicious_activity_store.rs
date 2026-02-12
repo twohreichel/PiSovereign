@@ -56,7 +56,7 @@ impl SqliteSuspiciousActivityTracker {
         .unwrap_or(0);
 
         // +1 for the new violation being recorded
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let violations_in_window = (count as u32) + 1;
         violations_in_window >= self.config.max_violations_before_block
     }
@@ -194,8 +194,8 @@ impl SuspiciousActivityPort for SqliteSuspiciousActivityTracker {
         .await
         .unwrap_or(None);
 
-        let (first_violation_at, last_violation_at) = timestamps
-            .map(|(first, last)| {
+        let (first_violation_at, last_violation_at) =
+            timestamps.map_or((None, None), |(first, last)| {
                 (
                     DateTime::parse_from_rfc3339(&first)
                         .ok()
@@ -204,9 +204,9 @@ impl SuspiciousActivityPort for SqliteSuspiciousActivityTracker {
                         .ok()
                         .map(|dt| dt.with_timezone(&Utc)),
                 )
-            })
-            .unwrap_or((None, None));
+            });
 
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         ViolationSummary {
             total_violations: total as u32,
             violations_in_window: in_window as u32,

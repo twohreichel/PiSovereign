@@ -223,7 +223,7 @@ struct RetryRow {
 }
 
 impl RetryRow {
-    #[allow(clippy::cast_sign_loss)]
+    #[allow(clippy::cast_sign_loss, clippy::wrong_self_convention)]
     fn to_item(self) -> RetryItem {
         RetryItem {
             id: self.id,
@@ -262,7 +262,7 @@ struct DlqRow {
 }
 
 impl DlqRow {
-    #[allow(clippy::cast_sign_loss)]
+    #[allow(clippy::cast_sign_loss, clippy::wrong_self_convention)]
     fn to_item(self) -> DeadLetterItem {
         DeadLetterItem {
             id: self.id,
@@ -343,6 +343,7 @@ impl RetryQueueStore {
 
     /// Enqueue a new item for retry
     #[instrument(skip(self), fields(operation = %item.operation_type, target = %item.target))]
+    #[allow(clippy::cast_possible_wrap)]
     pub async fn enqueue(&self, item: RetryItem) -> Result<String, RetryQueueError> {
         sqlx::query(
             "INSERT INTO retry_queue (
@@ -374,6 +375,7 @@ impl RetryQueueStore {
 
     /// Fetch items due for retry, marking them as in-progress
     #[instrument(skip(self))]
+    #[allow(clippy::cast_possible_wrap)]
     pub async fn fetch_due_items(&self, limit: usize) -> Result<Vec<RetryItem>, RetryQueueError> {
         let now = Utc::now().to_rfc3339();
 
@@ -466,7 +468,8 @@ impl RetryQueueStore {
         let delay = item.calculate_next_delay(&self.retry_config);
         let next_retry = now + chrono::Duration::from_std(delay).unwrap_or_default();
 
-        sqlx::query(
+        #[allow(clippy::cast_possible_wrap)]
+        let _ = sqlx::query(
             "UPDATE retry_queue SET
                 status = 'pending',
                 attempt_count = $1,
@@ -501,10 +504,11 @@ impl RetryQueueStore {
     ) -> Result<(), RetryQueueError> {
         let now = Utc::now();
 
-        sqlx::query(
-            "INSERT INTO dead_letter_queue (
+        #[allow(clippy::cast_possible_wrap)]
+        let _dlq_result = sqlx::query(
+            "INSERT INTO retry_dead_letter (
                 id, original_id, operation_type, payload, target, attempt_count,
-                last_error, created_at, failed_at, correlation_id, user_id, tenant_id
+                final_error, failed_at, created_at, correlation_id, user_id, tenant_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         )
         .bind(Uuid::new_v4().to_string())
@@ -575,6 +579,7 @@ impl RetryQueueStore {
     }
 
     /// Get items from the dead letter queue
+    #[allow(clippy::cast_possible_wrap)]
     pub async fn get_dead_letter_items(
         &self,
         limit: usize,

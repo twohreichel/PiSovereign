@@ -6,6 +6,7 @@ use super::{CommandParser, QuickPattern};
 
 impl CommandParser {
     /// Build the list of quick-match patterns
+    #[allow(clippy::too_many_lines)]
     pub(super) fn build_quick_patterns() -> Vec<QuickPattern> {
         vec![
             // Echo command
