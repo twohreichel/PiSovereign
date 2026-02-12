@@ -23,7 +23,9 @@ use infrastructure::persistence::{
 // ============================================================================
 
 async fn create_test_db() -> AsyncDatabase {
-    let db = AsyncDatabase::in_memory().await.expect("Failed to create in-memory database");
+    let db = AsyncDatabase::in_memory()
+        .await
+        .expect("Failed to create in-memory database");
     db.migrate().await.expect("Failed to run migrations");
     db
 }

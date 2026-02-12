@@ -52,9 +52,7 @@ impl AuditRow {
             .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
         let event_type = parse_event_type(&self.event_type);
         let ip_address = self.ip_address.and_then(|s| s.parse::<IpAddr>().ok());
-        let request_id = self
-            .request_id
-            .and_then(|s| uuid::Uuid::parse_str(&s).ok());
+        let request_id = self.request_id.and_then(|s| uuid::Uuid::parse_str(&s).ok());
 
         AuditEntry {
             id: Some(self.id),
@@ -340,8 +338,7 @@ mod tests {
         let (_db, audit_log) = setup().await;
 
         let e1 = AuditEntry::success(AuditEventType::Authentication, "login").with_actor("user1");
-        let e2 =
-            AuditEntry::success(AuditEventType::CommandExecution, "echo").with_actor("user1");
+        let e2 = AuditEntry::success(AuditEventType::CommandExecution, "echo").with_actor("user1");
         let e3 = AuditEntry::success(AuditEventType::Authentication, "login").with_actor("user2");
 
         audit_log.log(&e1).await.unwrap();

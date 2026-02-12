@@ -26,8 +26,7 @@ impl SqliteDatabaseHealth {
 impl DatabaseHealthPort for SqliteDatabaseHealth {
     #[instrument(skip(self))]
     async fn is_available(&self) -> bool {
-        let result: Result<(i32,), _> =
-            sqlx::query_as("SELECT 1").fetch_one(&self.pool).await;
+        let result: Result<(i32,), _> = sqlx::query_as("SELECT 1").fetch_one(&self.pool).await;
 
         match result {
             Ok(_) => {

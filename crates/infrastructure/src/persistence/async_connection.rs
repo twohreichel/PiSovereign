@@ -179,10 +179,9 @@ impl AsyncDatabase {
         }
 
         // Check the legacy version tracker
-        let user_version: i64 =
-            sqlx::query_scalar("SELECT * FROM pragma_user_version")
-                .fetch_one(&self.pool)
-                .await?;
+        let user_version: i64 = sqlx::query_scalar("SELECT * FROM pragma_user_version")
+            .fetch_one(&self.pool)
+            .await?;
 
         if user_version == 0 {
             // Fresh database — sqlx will handle everything from scratch

@@ -34,9 +34,7 @@ impl ApprovalQueuePort for SqliteApprovalQueue {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()
-            .map_err(|e| {
-                ApplicationError::Internal(format!("Failed to serialize reason: {e}"))
-            })?;
+            .map_err(|e| ApplicationError::Internal(format!("Failed to serialize reason: {e}")))?;
 
         sqlx::query(
             "INSERT INTO approval_requests
@@ -78,9 +76,7 @@ impl ApprovalQueuePort for SqliteApprovalQueue {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()
-            .map_err(|e| {
-                ApplicationError::Internal(format!("Failed to serialize reason: {e}"))
-            })?;
+            .map_err(|e| ApplicationError::Internal(format!("Failed to serialize reason: {e}")))?;
 
         sqlx::query(
             "UPDATE approval_requests

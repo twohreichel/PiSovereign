@@ -414,12 +414,11 @@ impl RetryQueueStore {
     /// Mark an item as completed and remove it from the queue
     #[instrument(skip(self))]
     pub async fn mark_completed(&self, id: &str) -> Result<(), RetryQueueError> {
-        let result = sqlx::query(
-            "DELETE FROM retry_queue WHERE id = $1 AND status = 'in_progress'",
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM retry_queue WHERE id = $1 AND status = 'in_progress'")
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
 
         if result.rows_affected() == 0 {
             return Err(RetryQueueError::NotFound(id.to_string()));
@@ -553,22 +552,19 @@ impl RetryQueueStore {
 
     /// Get queue statistics
     pub async fn get_stats(&self) -> Result<QueueStats, RetryQueueError> {
-        let pending: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM retry_queue WHERE status = 'pending'",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        let in_progress: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM retry_queue WHERE status = 'in_progress'",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        let dead_letter: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM dead_letter_queue")
+        let pending: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM retry_queue WHERE status = 'pending'")
                 .fetch_one(&self.pool)
                 .await?;
+
+        let in_progress: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM retry_queue WHERE status = 'in_progress'")
+                .fetch_one(&self.pool)
+                .await?;
+
+        let dead_letter: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM dead_letter_queue")
+            .fetch_one(&self.pool)
+            .await?;
 
         #[allow(clippy::cast_sign_loss)]
         Ok(QueueStats {
@@ -648,10 +644,7 @@ impl RetryQueueStore {
     }
 
     /// Clean up old completed/cancelled items older than retention period
-    pub async fn cleanup_old_items(
-        &self,
-        retention_days: u32,
-    ) -> Result<u64, RetryQueueError> {
+    pub async fn cleanup_old_items(&self, retention_days: u32) -> Result<u64, RetryQueueError> {
         let cutoff = Utc::now() - chrono::Duration::days(i64::from(retention_days));
 
         let result = sqlx::query(

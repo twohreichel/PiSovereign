@@ -358,12 +358,11 @@ impl MemoryStore for SqliteMemoryStore {
 
     #[instrument(skip(self), fields(decay_rate = decay_rate))]
     async fn apply_decay(&self, decay_rate: f32) -> Result<Vec<MemoryId>, ApplicationError> {
-        let rows: Vec<DecayRow> = sqlx::query_as(
-            "SELECT id, importance, accessed_at, access_count FROM memories",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
+        let rows: Vec<DecayRow> =
+            sqlx::query_as("SELECT id, importance, accessed_at, access_count FROM memories")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(map_sqlx_error)?;
 
         let mut below_threshold = Vec::new();
 
@@ -375,8 +374,7 @@ impl MemoryStore for SqliteMemoryStore {
                 .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
             #[allow(clippy::cast_precision_loss)]
-            let days_since_access =
-                Utc::now().signed_duration_since(accessed_at).num_days() as f32;
+            let days_since_access = Utc::now().signed_duration_since(accessed_at).num_days() as f32;
 
             // Exponential decay with access boost
             let decay_factor = (-decay_rate * days_since_access).exp();
@@ -674,7 +672,10 @@ mod tests {
         );
         store.save(&pref).await.unwrap();
 
-        let facts = store.list_by_type(&user_id, MemoryType::Fact, 10).await.unwrap();
+        let facts = store
+            .list_by_type(&user_id, MemoryType::Fact, 10)
+            .await
+            .unwrap();
         assert_eq!(facts.len(), 1);
     }
 

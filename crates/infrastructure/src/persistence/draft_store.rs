@@ -42,8 +42,7 @@ struct DraftRow {
 impl DraftRow {
     fn to_draft(self) -> PersistedEmailDraft {
         let id = DraftId::parse(&self.id).unwrap_or_else(|_| DraftId::from(Uuid::new_v4()));
-        let user_id =
-            UserId::parse(&self.user_id).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
+        let user_id = UserId::parse(&self.user_id).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
 
         let cc = self
             .cc
@@ -273,8 +272,20 @@ mod tests {
         let draft_id = draft.id;
         store.save(&draft).await.unwrap();
 
-        assert!(store.get_for_user(&draft_id, &user1).await.unwrap().is_some());
-        assert!(store.get_for_user(&draft_id, &user2).await.unwrap().is_none());
+        assert!(
+            store
+                .get_for_user(&draft_id, &user1)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            store
+                .get_for_user(&draft_id, &user2)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -297,12 +308,8 @@ mod tests {
         let user2 = test_user_id();
 
         for i in 0..5 {
-            let draft = PersistedEmailDraft::new(
-                user1,
-                "r@example.com",
-                format!("Subject {i}"),
-                "Body",
-            );
+            let draft =
+                PersistedEmailDraft::new(user1, "r@example.com", format!("Subject {i}"), "Body");
             store.save(&draft).await.unwrap();
         }
 
@@ -347,12 +354,8 @@ mod tests {
         store.save(&valid).await.unwrap();
 
         for i in 0..3 {
-            let mut expired = PersistedEmailDraft::new(
-                user_id,
-                "r@example.com",
-                format!("Expired {i}"),
-                "Body",
-            );
+            let mut expired =
+                PersistedEmailDraft::new(user_id, "r@example.com", format!("Expired {i}"), "Body");
             expired.expires_at = Utc::now() - Duration::hours(1);
             store.save(&expired).await.unwrap();
         }

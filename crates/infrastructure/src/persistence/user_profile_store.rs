@@ -75,9 +75,9 @@ impl UserProfileStore for SqliteUserProfileStore {
     #[instrument(skip(self, profile), fields(user_id = %profile.id()))]
     async fn save(&self, profile: &UserProfile) -> Result<(), ApplicationError> {
         let now = Utc::now().to_rfc3339();
-        let (latitude, longitude) = profile
-            .location()
-            .map_or((None, None), |loc| (Some(loc.latitude()), Some(loc.longitude())));
+        let (latitude, longitude) = profile.location().map_or((None, None), |loc| {
+            (Some(loc.latitude()), Some(loc.longitude()))
+        });
 
         sqlx::query(
             "INSERT INTO user_profiles (user_id, latitude, longitude, timezone, created_at, updated_at)

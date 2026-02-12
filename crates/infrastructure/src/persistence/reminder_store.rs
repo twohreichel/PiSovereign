@@ -51,10 +51,8 @@ struct ReminderRow {
 
 impl ReminderRow {
     fn to_reminder(self) -> Reminder {
-        let id =
-            ReminderId::parse(&self.id).unwrap_or_else(|_| ReminderId::from(Uuid::new_v4()));
-        let user_id =
-            UserId::parse(&self.user_id).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
+        let id = ReminderId::parse(&self.id).unwrap_or_else(|_| ReminderId::from(Uuid::new_v4()));
+        let user_id = UserId::parse(&self.user_id).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
         let source = str_to_source(&self.source);
         let status = str_to_status(&self.status);
 

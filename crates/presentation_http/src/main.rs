@@ -290,7 +290,7 @@ async fn main() -> anyhow::Result<()> {
     // Initialize async database
     let (approval_service, conversation_store, database_health_port, reminder_port) = {
         let db_config = AsyncDatabaseConfig::file(&initial_config.database.path);
-        match AsyncDatabase::new(db_config).await {
+        match AsyncDatabase::new(&db_config).await {
             Ok(db) => match db.migrate().await {
                 Ok(()) => {
                     let pool = db.pool().clone();
