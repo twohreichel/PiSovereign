@@ -46,12 +46,20 @@ impl std::fmt::Debug for WhatsAppConfig {
         f.debug_struct("WhatsAppConfig")
             .field(
                 "access_token",
-                &self.access_token.as_ref().map(|_| "[REDACTED]"),
+                &if self.access_token.is_some() {
+                    Some("[REDACTED]")
+                } else {
+                    None
+                },
             )
             .field("phone_number_id", &self.phone_number_id)
             .field(
                 "app_secret",
-                &self.app_secret.as_ref().map(|_| "[REDACTED]"),
+                &if self.app_secret.is_some() {
+                    Some("[REDACTED]")
+                } else {
+                    None
+                },
             )
             .field("verify_token", &self.verify_token)
             .field("signature_required", &self.signature_required)
@@ -88,10 +96,13 @@ impl WhatsAppConfig {
         self.access_token.as_ref().map(ExposeSecret::expose_secret)
     }
 
-    /// Get the app secret as a string reference (for signature verification)
+    /// Get the app secret as a SecretString reference (for signature verification)
+    ///
+    /// Callers that need a `&str` must explicitly use `ExposeSecret::expose_secret`
+    /// at the call site, to avoid accidental cleartext logging.
     #[must_use]
-    pub fn app_secret_str(&self) -> Option<&str> {
-        self.app_secret.as_ref().map(ExposeSecret::expose_secret)
+    pub fn app_secret_str(&self) -> Option<&SecretString> {
+        self.app_secret.as_ref()
     }
 }
 

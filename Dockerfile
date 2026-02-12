@@ -35,22 +35,35 @@ COPY crates/domain/Cargo.toml crates/domain/
 COPY crates/application/Cargo.toml crates/application/
 COPY crates/infrastructure/Cargo.toml crates/infrastructure/
 COPY crates/ai_core/Cargo.toml crates/ai_core/
+COPY crates/ai_speech/Cargo.toml crates/ai_speech/
 COPY crates/presentation_http/Cargo.toml crates/presentation_http/
 COPY crates/presentation_cli/Cargo.toml crates/presentation_cli/
 COPY crates/integration_whatsapp/Cargo.toml crates/integration_whatsapp/
+COPY crates/integration_signal/Cargo.toml crates/integration_signal/
 COPY crates/integration_caldav/Cargo.toml crates/integration_caldav/
 COPY crates/integration_proton/Cargo.toml crates/integration_proton/
+COPY crates/integration_weather/Cargo.toml crates/integration_weather/
+COPY crates/integration_websearch/Cargo.toml crates/integration_websearch/
+COPY crates/integration_transit/Cargo.toml crates/integration_transit/
+
+# Copy migrations directory (required by sqlx::migrate! macro at compile time)
+COPY migrations/ migrations/
 
 # Create dummy source files to cache dependency compilation
 RUN mkdir -p crates/domain/src && echo "pub fn dummy() {}" > crates/domain/src/lib.rs && \
     mkdir -p crates/application/src && echo "pub fn dummy() {}" > crates/application/src/lib.rs && \
     mkdir -p crates/infrastructure/src && echo "pub fn dummy() {}" > crates/infrastructure/src/lib.rs && \
     mkdir -p crates/ai_core/src && echo "pub fn dummy() {}" > crates/ai_core/src/lib.rs && \
+    mkdir -p crates/ai_speech/src && echo "pub fn dummy() {}" > crates/ai_speech/src/lib.rs && \
     mkdir -p crates/presentation_http/src && echo "fn main() {}" > crates/presentation_http/src/main.rs && \
     mkdir -p crates/presentation_cli/src && echo "fn main() {}" > crates/presentation_cli/src/main.rs && \
     mkdir -p crates/integration_whatsapp/src && echo "pub fn dummy() {}" > crates/integration_whatsapp/src/lib.rs && \
+    mkdir -p crates/integration_signal/src && echo "pub fn dummy() {}" > crates/integration_signal/src/lib.rs && \
     mkdir -p crates/integration_caldav/src && echo "pub fn dummy() {}" > crates/integration_caldav/src/lib.rs && \
-    mkdir -p crates/integration_proton/src && echo "pub fn dummy() {}" > crates/integration_proton/src/lib.rs
+    mkdir -p crates/integration_proton/src && echo "pub fn dummy() {}" > crates/integration_proton/src/lib.rs && \
+    mkdir -p crates/integration_weather/src && echo "pub fn dummy() {}" > crates/integration_weather/src/lib.rs && \
+    mkdir -p crates/integration_websearch/src && echo "pub fn dummy() {}" > crates/integration_websearch/src/lib.rs && \
+    mkdir -p crates/integration_transit/src && echo "pub fn dummy() {}" > crates/integration_transit/src/lib.rs
 
 # Build dependencies only (cached layer)
 RUN cargo build --release --workspace 2>/dev/null || true

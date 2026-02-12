@@ -23,9 +23,12 @@ pub fn build_native_tls_connector(
     // Configure certificate verification
     if !tls_config.should_verify() {
         warn!(
-            "⚠️ TLS certificate verification disabled - only recommended for local Proton Bridge"
+            "⚠️ TLS certificate verification requested to be disabled - this is no longer supported in this connector"
         );
-        builder.danger_accept_invalid_certs(true);
+        return Err(ProtonError::ConnectionFailed(
+            "TLS certificate verification cannot be disabled for Proton Bridge connections"
+                .to_string(),
+        ));
     } else if let Some(ca_cert_path) = &tls_config.ca_cert_path {
         // Load custom CA certificate
         debug!(path = %ca_cert_path.display(), "Loading custom CA certificate");
