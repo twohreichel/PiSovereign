@@ -1,8 +1,8 @@
 //! Persistent retry queue for failed operations with exponential backoff
 //!
 //! Provides durable storage for failed webhook deliveries, messages, and other
-//! retryable operations. Uses SQLite for persistence with automatic cleanup
-//! of completed items and dead letter queue for permanently failed items.
+//! retryable operations. Uses SQLite (via sqlx) for persistence with automatic
+//! cleanup of completed items and dead letter queue for permanently failed items.
 //!
 //! # Architecture
 //!
@@ -17,36 +17,10 @@
 //!                         │  Dead Letter Q  │     │  Completed      │
 //!                         └─────────────────┘     └─────────────────┘
 //! ```
-//!
-//! # Example
-//!
-//! ```rust,ignore
-//! use infrastructure::persistence::RetryQueueStore;
-//!
-//! let store = RetryQueueStore::new(connection_pool);
-//!
-//! // Enqueue a failed webhook
-//! store.enqueue(RetryItem::new(
-//!     "webhook",
-//!     serde_json::to_string(&payload)?,
-//!     "https://api.example.com/webhook",
-//! )).await?;
-//!
-//! // Process due items
-//! let due = store.fetch_due_items(10).await?;
-//! for item in due {
-//!     match process(&item).await {
-//!         Ok(_) => store.mark_completed(&item.id).await?,
-//!         Err(e) => store.mark_failed(&item.id, &e.to_string()).await?,
-//!     }
-//! }
-//! ```
 
 use chrono::{DateTime, Utc};
-use r2d2::{Pool, PooledConnection};
-use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
 use thiserror::Error;
 use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
@@ -58,11 +32,7 @@ use crate::retry::RetryConfig;
 pub enum RetryQueueError {
     /// Database operation failed
     #[error("Database error: {0}")]
-    Database(#[from] rusqlite::Error),
-
-    /// Connection pool error
-    #[error("Connection pool error: {0}")]
-    Pool(#[from] r2d2::Error),
+    Database(#[from] sqlx::Error),
 
     /// Serialization error
     #[error("Serialization error: {0}")]
@@ -233,6 +203,84 @@ impl RetryItem {
     }
 }
 
+/// Row type for retry queue queries
+#[derive(sqlx::FromRow)]
+struct RetryRow {
+    id: String,
+    operation_type: String,
+    payload: String,
+    target: String,
+    attempt_count: i32,
+    max_retries: i32,
+    next_retry_at: String,
+    status: String,
+    last_error: Option<String>,
+    created_at: String,
+    updated_at: String,
+    correlation_id: Option<String>,
+    user_id: Option<String>,
+    tenant_id: Option<String>,
+}
+
+impl RetryRow {
+    #[allow(clippy::cast_sign_loss)]
+    fn to_item(self) -> RetryItem {
+        RetryItem {
+            id: self.id,
+            operation_type: self.operation_type,
+            payload: self.payload,
+            target: self.target,
+            attempt_count: self.attempt_count as u32,
+            max_retries: self.max_retries as u32,
+            next_retry_at: parse_datetime(&self.next_retry_at),
+            status: self.status.parse().unwrap_or(RetryStatus::Pending),
+            last_error: self.last_error,
+            created_at: parse_datetime(&self.created_at),
+            updated_at: parse_datetime(&self.updated_at),
+            correlation_id: self.correlation_id,
+            user_id: self.user_id,
+            tenant_id: self.tenant_id,
+        }
+    }
+}
+
+/// Row type for dead letter queue queries
+#[derive(sqlx::FromRow)]
+struct DlqRow {
+    id: String,
+    original_id: String,
+    operation_type: String,
+    payload: String,
+    target: String,
+    attempt_count: i32,
+    last_error: Option<String>,
+    created_at: String,
+    failed_at: String,
+    correlation_id: Option<String>,
+    user_id: Option<String>,
+    tenant_id: Option<String>,
+}
+
+impl DlqRow {
+    #[allow(clippy::cast_sign_loss)]
+    fn to_item(self) -> DeadLetterItem {
+        DeadLetterItem {
+            id: self.id,
+            original_id: self.original_id,
+            operation_type: self.operation_type,
+            payload: self.payload,
+            target: self.target,
+            attempt_count: self.attempt_count as u32,
+            last_error: self.last_error,
+            created_at: parse_datetime(&self.created_at),
+            failed_at: parse_datetime(&self.failed_at),
+            correlation_id: self.correlation_id,
+            user_id: self.user_id,
+            tenant_id: self.tenant_id,
+        }
+    }
+}
+
 /// A dead letter queue item
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeadLetterItem {
@@ -262,10 +310,10 @@ pub struct DeadLetterItem {
     pub tenant_id: Option<String>,
 }
 
-/// Persistent retry queue store backed by SQLite
+/// Persistent retry queue store backed by SQLite (via sqlx)
 #[derive(Clone)]
 pub struct RetryQueueStore {
-    pool: Pool<SqliteConnectionManager>,
+    pool: SqlitePool,
     retry_config: RetryConfig,
 }
 
@@ -280,7 +328,7 @@ impl std::fmt::Debug for RetryQueueStore {
 impl RetryQueueStore {
     /// Create a new retry queue store with default retry config
     #[must_use]
-    pub fn new(pool: Pool<SqliteConnectionManager>) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self {
             pool,
             retry_config: RetryConfig::default(),
@@ -289,44 +337,36 @@ impl RetryQueueStore {
 
     /// Create a new retry queue store with custom retry config
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn with_config(pool: Pool<SqliteConnectionManager>, retry_config: RetryConfig) -> Self {
+    pub fn with_config(pool: SqlitePool, retry_config: RetryConfig) -> Self {
         Self { pool, retry_config }
-    }
-
-    /// Get a connection from the pool
-    fn conn(&self) -> Result<PooledConnection<SqliteConnectionManager>, RetryQueueError> {
-        Ok(self.pool.get()?)
     }
 
     /// Enqueue a new item for retry
     #[instrument(skip(self), fields(operation = %item.operation_type, target = %item.target))]
-    pub fn enqueue(&self, item: RetryItem) -> Result<String, RetryQueueError> {
-        let conn = self.conn()?;
-
-        conn.execute(
-            r"INSERT INTO retry_queue (
+    pub async fn enqueue(&self, item: RetryItem) -> Result<String, RetryQueueError> {
+        sqlx::query(
+            "INSERT INTO retry_queue (
                 id, operation_type, payload, target, attempt_count, max_retries,
                 next_retry_at, status, last_error, created_at, updated_at,
                 correlation_id, user_id, tenant_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                item.id,
-                item.operation_type,
-                item.payload,
-                item.target,
-                item.attempt_count,
-                item.max_retries,
-                item.next_retry_at.to_rfc3339(),
-                item.status.to_string(),
-                item.last_error,
-                item.created_at.to_rfc3339(),
-                item.updated_at.to_rfc3339(),
-                item.correlation_id,
-                item.user_id,
-                item.tenant_id,
-            ],
-        )?;
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+        )
+        .bind(&item.id)
+        .bind(&item.operation_type)
+        .bind(&item.payload)
+        .bind(&item.target)
+        .bind(item.attempt_count as i32)
+        .bind(item.max_retries as i32)
+        .bind(item.next_retry_at.to_rfc3339())
+        .bind(item.status.to_string())
+        .bind(&item.last_error)
+        .bind(item.created_at.to_rfc3339())
+        .bind(item.updated_at.to_rfc3339())
+        .bind(&item.correlation_id)
+        .bind(&item.user_id)
+        .bind(&item.tenant_id)
+        .execute(&self.pool)
+        .await?;
 
         info!(id = %item.id, "Enqueued item for retry");
         Ok(item.id)
@@ -334,61 +374,37 @@ impl RetryQueueStore {
 
     /// Fetch items due for retry, marking them as in-progress
     #[instrument(skip(self))]
-    #[allow(clippy::cast_possible_wrap)]
-    pub fn fetch_due_items(&self, limit: usize) -> Result<Vec<RetryItem>, RetryQueueError> {
-        let conn = self.conn()?;
+    pub async fn fetch_due_items(&self, limit: usize) -> Result<Vec<RetryItem>, RetryQueueError> {
         let now = Utc::now().to_rfc3339();
 
-        // Select and lock items in a single transaction
-        let tx = conn;
-        let mut stmt = tx.prepare(
-            r"SELECT id, operation_type, payload, target, attempt_count, max_retries,
-                     next_retry_at, status, last_error, created_at, updated_at,
-                     correlation_id, user_id, tenant_id
-              FROM retry_queue
-              WHERE status = 'pending' AND next_retry_at <= ?1
-              ORDER BY next_retry_at ASC
-              LIMIT ?2",
-        )?;
+        let rows: Vec<RetryRow> = sqlx::query_as(
+            "SELECT id, operation_type, payload, target, attempt_count, max_retries,
+                    next_retry_at, status, last_error, created_at, updated_at,
+                    correlation_id, user_id, tenant_id
+             FROM retry_queue
+             WHERE status = 'pending' AND next_retry_at <= $1
+             ORDER BY next_retry_at ASC
+             LIMIT $2",
+        )
+        .bind(&now)
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await?;
 
-        let items: Vec<RetryItem> = stmt
-            .query_map(params![now, limit as i64], |row| {
-                Ok(RetryItem {
-                    id: row.get(0)?,
-                    operation_type: row.get(1)?,
-                    payload: row.get(2)?,
-                    target: row.get(3)?,
-                    attempt_count: row.get(4)?,
-                    max_retries: row.get(5)?,
-                    next_retry_at: parse_datetime(row.get::<_, String>(6)?),
-                    status: row
-                        .get::<_, String>(7)?
-                        .parse()
-                        .unwrap_or(RetryStatus::Pending),
-                    last_error: row.get(8)?,
-                    created_at: parse_datetime(row.get::<_, String>(9)?),
-                    updated_at: parse_datetime(row.get::<_, String>(10)?),
-                    correlation_id: row.get(11)?,
-                    user_id: row.get(12)?,
-                    tenant_id: row.get(13)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+        let items: Vec<RetryItem> = rows.into_iter().map(RetryRow::to_item).collect();
 
         // Mark fetched items as in-progress
         if !items.is_empty() {
-            let ids: Vec<_> = items.iter().map(|i| i.id.as_str()).collect();
-            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-            let sql = format!(
-                "UPDATE retry_queue SET status = 'in_progress', updated_at = ?1 WHERE id IN ({placeholders})"
-            );
-
-            let mut stmt = tx.prepare(&sql)?;
             let now_str = Utc::now().to_rfc3339();
-            let mut params_vec: Vec<&dyn rusqlite::ToSql> = vec![&now_str];
-            params_vec.extend(ids.iter().map(|s| s as &dyn rusqlite::ToSql));
-            stmt.execute(params_vec.as_slice())?;
-
+            for item in &items {
+                sqlx::query(
+                    "UPDATE retry_queue SET status = 'in_progress', updated_at = $1 WHERE id = $2",
+                )
+                .bind(&now_str)
+                .bind(&item.id)
+                .execute(&self.pool)
+                .await?;
+            }
             debug!(count = items.len(), "Fetched due items for processing");
         }
 
@@ -397,15 +413,15 @@ impl RetryQueueStore {
 
     /// Mark an item as completed and remove it from the queue
     #[instrument(skip(self))]
-    pub fn mark_completed(&self, id: &str) -> Result<(), RetryQueueError> {
-        let conn = self.conn()?;
+    pub async fn mark_completed(&self, id: &str) -> Result<(), RetryQueueError> {
+        let result = sqlx::query(
+            "DELETE FROM retry_queue WHERE id = $1 AND status = 'in_progress'",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
 
-        let rows = conn.execute(
-            "DELETE FROM retry_queue WHERE id = ?1 AND status = 'in_progress'",
-            params![id],
-        )?;
-
-        if rows == 0 {
+        if result.rows_affected() == 0 {
             return Err(RetryQueueError::NotFound(id.to_string()));
         }
 
@@ -415,76 +431,58 @@ impl RetryQueueStore {
 
     /// Mark an item as failed, scheduling next retry or moving to DLQ
     #[instrument(skip(self), fields(error = %error_message))]
-    pub fn mark_failed(&self, id: &str, error_message: &str) -> Result<bool, RetryQueueError> {
-        let conn = self.conn()?;
-
+    pub async fn mark_failed(
+        &self,
+        id: &str,
+        error_message: &str,
+    ) -> Result<bool, RetryQueueError> {
         // Get current item state
-        let item: RetryItem = conn
-            .query_row(
-                r"SELECT id, operation_type, payload, target, attempt_count, max_retries,
-                         next_retry_at, status, last_error, created_at, updated_at,
-                         correlation_id, user_id, tenant_id
-                  FROM retry_queue WHERE id = ?1",
-                params![id],
-                |row| {
-                    Ok(RetryItem {
-                        id: row.get(0)?,
-                        operation_type: row.get(1)?,
-                        payload: row.get(2)?,
-                        target: row.get(3)?,
-                        attempt_count: row.get(4)?,
-                        max_retries: row.get(5)?,
-                        next_retry_at: parse_datetime(row.get::<_, String>(6)?),
-                        status: row
-                            .get::<_, String>(7)?
-                            .parse()
-                            .unwrap_or(RetryStatus::Pending),
-                        last_error: row.get(8)?,
-                        created_at: parse_datetime(row.get::<_, String>(9)?),
-                        updated_at: parse_datetime(row.get::<_, String>(10)?),
-                        correlation_id: row.get(11)?,
-                        user_id: row.get(12)?,
-                        tenant_id: row.get(13)?,
-                    })
-                },
-            )
-            .optional()?
-            .ok_or_else(|| RetryQueueError::NotFound(id.to_string()))?;
+        let row: RetryRow = sqlx::query_as(
+            "SELECT id, operation_type, payload, target, attempt_count, max_retries,
+                    next_retry_at, status, last_error, created_at, updated_at,
+                    correlation_id, user_id, tenant_id
+             FROM retry_queue WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| RetryQueueError::NotFound(id.to_string()))?;
 
+        let item = row.to_item();
         let new_attempt_count = item.attempt_count + 1;
         let now = Utc::now();
 
         if new_attempt_count >= item.max_retries {
-            // Move to dead letter queue using the same connection
-            Self::move_to_dlq_with_conn(&conn, &item, error_message)?;
+            // Move to dead letter queue
+            self.move_to_dlq(&item, error_message).await?;
             warn!(
                 %id,
                 attempts = new_attempt_count,
                 "Item exhausted retries, moved to dead letter queue"
             );
-            return Ok(false); // No more retries
+            return Ok(false);
         }
 
         // Calculate next retry time
         let delay = item.calculate_next_delay(&self.retry_config);
         let next_retry = now + chrono::Duration::from_std(delay).unwrap_or_default();
 
-        conn.execute(
-            r"UPDATE retry_queue SET
+        sqlx::query(
+            "UPDATE retry_queue SET
                 status = 'pending',
-                attempt_count = ?1,
-                next_retry_at = ?2,
-                last_error = ?3,
-                updated_at = ?4
-              WHERE id = ?5",
-            params![
-                new_attempt_count,
-                next_retry.to_rfc3339(),
-                error_message,
-                now.to_rfc3339(),
-                id,
-            ],
-        )?;
+                attempt_count = $1,
+                next_retry_at = $2,
+                last_error = $3,
+                updated_at = $4
+             WHERE id = $5",
+        )
+        .bind(new_attempt_count as i32)
+        .bind(next_retry.to_rfc3339())
+        .bind(error_message)
+        .bind(now.to_rfc3339())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
 
         debug!(
             %id,
@@ -493,56 +491,59 @@ impl RetryQueueStore {
             "Scheduled next retry"
         );
 
-        Ok(true) // Will retry
+        Ok(true)
     }
 
-    /// Move an item to the dead letter queue (uses existing connection)
-    fn move_to_dlq_with_conn(
-        conn: &PooledConnection<SqliteConnectionManager>,
+    /// Move an item to the dead letter queue
+    async fn move_to_dlq(
+        &self,
         item: &RetryItem,
         error_message: &str,
     ) -> Result<(), RetryQueueError> {
         let now = Utc::now();
 
-        // Insert into DLQ
-        conn.execute(
-            r"INSERT INTO dead_letter_queue (
+        sqlx::query(
+            "INSERT INTO dead_letter_queue (
                 id, original_id, operation_type, payload, target, attempt_count,
                 last_error, created_at, failed_at, correlation_id, user_id, tenant_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![
-                Uuid::new_v4().to_string(),
-                item.id,
-                item.operation_type,
-                item.payload,
-                item.target,
-                item.attempt_count + 1,
-                error_message,
-                item.created_at.to_rfc3339(),
-                now.to_rfc3339(),
-                item.correlation_id,
-                item.user_id,
-                item.tenant_id,
-            ],
-        )?;
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&item.id)
+        .bind(&item.operation_type)
+        .bind(&item.payload)
+        .bind(&item.target)
+        .bind((item.attempt_count + 1) as i32)
+        .bind(error_message)
+        .bind(item.created_at.to_rfc3339())
+        .bind(now.to_rfc3339())
+        .bind(&item.correlation_id)
+        .bind(&item.user_id)
+        .bind(&item.tenant_id)
+        .execute(&self.pool)
+        .await?;
 
-        // Remove from retry queue
-        conn.execute("DELETE FROM retry_queue WHERE id = ?1", params![item.id])?;
+        sqlx::query("DELETE FROM retry_queue WHERE id = $1")
+            .bind(&item.id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
 
     /// Cancel a pending retry item
     #[instrument(skip(self))]
-    pub fn cancel(&self, id: &str) -> Result<(), RetryQueueError> {
-        let conn = self.conn()?;
+    pub async fn cancel(&self, id: &str) -> Result<(), RetryQueueError> {
+        let result = sqlx::query(
+            "UPDATE retry_queue SET status = 'cancelled', updated_at = $1 \
+             WHERE id = $2 AND status IN ('pending', 'in_progress')",
+        )
+        .bind(Utc::now().to_rfc3339())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
 
-        let rows = conn.execute(
-            "UPDATE retry_queue SET status = 'cancelled', updated_at = ?1 WHERE id = ?2 AND status IN ('pending', 'in_progress')",
-            params![Utc::now().to_rfc3339(), id],
-        )?;
-
-        if rows == 0 {
+        if result.rows_affected() == 0 {
             return Err(RetryQueueError::NotFound(id.to_string()));
         }
 
@@ -551,157 +552,122 @@ impl RetryQueueStore {
     }
 
     /// Get queue statistics
-    pub fn get_stats(&self) -> Result<QueueStats, RetryQueueError> {
-        let conn = self.conn()?;
-
-        let pending: i64 = conn.query_row(
+    pub async fn get_stats(&self) -> Result<QueueStats, RetryQueueError> {
+        let pending: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM retry_queue WHERE status = 'pending'",
-            [],
-            |row| row.get(0),
-        )?;
+        )
+        .fetch_one(&self.pool)
+        .await?;
 
-        let in_progress: i64 = conn.query_row(
+        let in_progress: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM retry_queue WHERE status = 'in_progress'",
-            [],
-            |row| row.get(0),
-        )?;
+        )
+        .fetch_one(&self.pool)
+        .await?;
 
-        let failed: i64 = conn.query_row("SELECT COUNT(*) FROM dead_letter_queue", [], |row| {
-            row.get(0)
-        })?;
+        let dead_letter: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM dead_letter_queue")
+                .fetch_one(&self.pool)
+                .await?;
 
         #[allow(clippy::cast_sign_loss)]
         Ok(QueueStats {
             pending: pending as u64,
             in_progress: in_progress as u64,
-            dead_letter: failed as u64,
+            dead_letter: dead_letter as u64,
         })
     }
 
     /// Get items from the dead letter queue
-    #[allow(clippy::cast_possible_wrap)]
-    pub fn get_dead_letter_items(
+    pub async fn get_dead_letter_items(
         &self,
         limit: usize,
     ) -> Result<Vec<DeadLetterItem>, RetryQueueError> {
-        let conn = self.conn()?;
+        let rows: Vec<DlqRow> = sqlx::query_as(
+            "SELECT id, original_id, operation_type, payload, target, attempt_count,
+                    last_error, created_at, failed_at, correlation_id, user_id, tenant_id
+             FROM dead_letter_queue
+             ORDER BY failed_at DESC
+             LIMIT $1",
+        )
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await?;
 
-        let mut stmt = conn.prepare(
-            r"SELECT id, original_id, operation_type, payload, target, attempt_count,
-                     last_error, created_at, failed_at, correlation_id, user_id, tenant_id
-              FROM dead_letter_queue
-              ORDER BY failed_at DESC
-              LIMIT ?1",
-        )?;
-
-        let items = stmt
-            .query_map(params![limit as i64], |row| {
-                Ok(DeadLetterItem {
-                    id: row.get(0)?,
-                    original_id: row.get(1)?,
-                    operation_type: row.get(2)?,
-                    payload: row.get(3)?,
-                    target: row.get(4)?,
-                    attempt_count: row.get(5)?,
-                    last_error: row.get(6)?,
-                    created_at: parse_datetime(row.get::<_, String>(7)?),
-                    failed_at: parse_datetime(row.get::<_, String>(8)?),
-                    correlation_id: row.get(9)?,
-                    user_id: row.get(10)?,
-                    tenant_id: row.get(11)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(items)
+        Ok(rows.into_iter().map(DlqRow::to_item).collect())
     }
 
     /// Requeue an item from the dead letter queue
     #[instrument(skip(self))]
-    pub fn requeue_from_dlq(&self, dlq_id: &str) -> Result<String, RetryQueueError> {
-        let conn = self.conn()?;
+    pub async fn requeue_from_dlq(&self, dlq_id: &str) -> Result<String, RetryQueueError> {
+        let row: DlqRow = sqlx::query_as(
+            "SELECT id, original_id, operation_type, payload, target, attempt_count,
+                    last_error, created_at, failed_at, correlation_id, user_id, tenant_id
+             FROM dead_letter_queue WHERE id = $1",
+        )
+        .bind(dlq_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| RetryQueueError::NotFound(dlq_id.to_string()))?;
 
-        // Get DLQ item
-        let dlq_item: DeadLetterItem = conn
-            .query_row(
-                r"SELECT id, original_id, operation_type, payload, target, attempt_count,
-                         last_error, created_at, failed_at, correlation_id, user_id, tenant_id
-                  FROM dead_letter_queue WHERE id = ?1",
-                params![dlq_id],
-                |row| {
-                    Ok(DeadLetterItem {
-                        id: row.get(0)?,
-                        original_id: row.get(1)?,
-                        operation_type: row.get(2)?,
-                        payload: row.get(3)?,
-                        target: row.get(4)?,
-                        attempt_count: row.get(5)?,
-                        last_error: row.get(6)?,
-                        created_at: parse_datetime(row.get::<_, String>(7)?),
-                        failed_at: parse_datetime(row.get::<_, String>(8)?),
-                        correlation_id: row.get(9)?,
-                        user_id: row.get(10)?,
-                        tenant_id: row.get(11)?,
-                    })
-                },
-            )
-            .optional()?
-            .ok_or_else(|| RetryQueueError::NotFound(dlq_id.to_string()))?;
-
-        // Create new retry item
+        let dlq_item = row.to_item();
         let now = Utc::now();
         let new_id = Uuid::new_v4().to_string();
 
-        // Insert directly into retry queue (don't call self.enqueue to avoid getting another connection)
-        conn.execute(
-            r"INSERT INTO retry_queue (
+        sqlx::query(
+            "INSERT INTO retry_queue (
                 id, operation_type, payload, target, attempt_count, max_retries,
                 next_retry_at, status, last_error, created_at, updated_at,
                 correlation_id, user_id, tenant_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                new_id,
-                dlq_item.operation_type,
-                dlq_item.payload,
-                dlq_item.target,
-                0i32, // Reset attempts
-                5i32, // max_retries
-                now.to_rfc3339(),
-                "pending",
-                Option::<String>::None,
-                now.to_rfc3339(),
-                now.to_rfc3339(),
-                dlq_item.correlation_id,
-                dlq_item.user_id,
-                dlq_item.tenant_id,
-            ],
-        )?;
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+        )
+        .bind(&new_id)
+        .bind(&dlq_item.operation_type)
+        .bind(&dlq_item.payload)
+        .bind(&dlq_item.target)
+        .bind(0_i32)
+        .bind(5_i32)
+        .bind(now.to_rfc3339())
+        .bind("pending")
+        .bind(Option::<String>::None)
+        .bind(now.to_rfc3339())
+        .bind(now.to_rfc3339())
+        .bind(&dlq_item.correlation_id)
+        .bind(&dlq_item.user_id)
+        .bind(&dlq_item.tenant_id)
+        .execute(&self.pool)
+        .await?;
 
-        // Remove from DLQ
-        conn.execute(
-            "DELETE FROM dead_letter_queue WHERE id = ?1",
-            params![dlq_id],
-        )?;
+        sqlx::query("DELETE FROM dead_letter_queue WHERE id = $1")
+            .bind(dlq_id)
+            .execute(&self.pool)
+            .await?;
 
         info!(dlq_id = %dlq_id, new_id = %new_id, "Requeued item from DLQ");
         Ok(new_id)
     }
 
-    /// Clean up old completed items and cancelled items older than retention period
-    pub fn cleanup_old_items(&self, retention_days: u32) -> Result<u64, RetryQueueError> {
-        let conn = self.conn()?;
+    /// Clean up old completed/cancelled items older than retention period
+    pub async fn cleanup_old_items(
+        &self,
+        retention_days: u32,
+    ) -> Result<u64, RetryQueueError> {
         let cutoff = Utc::now() - chrono::Duration::days(i64::from(retention_days));
 
-        let deleted = conn.execute(
-            "DELETE FROM retry_queue WHERE status IN ('completed', 'cancelled') AND updated_at < ?1",
-            params![cutoff.to_rfc3339()],
-        )?;
+        let result = sqlx::query(
+            "DELETE FROM retry_queue \
+             WHERE status IN ('completed', 'cancelled') AND updated_at < $1",
+        )
+        .bind(cutoff.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
 
+        let deleted = result.rows_affected();
         if deleted > 0 {
             info!(deleted, "Cleaned up old retry queue items");
         }
 
-        Ok(deleted as u64)
+        Ok(deleted)
     }
 }
 
@@ -717,191 +683,136 @@ pub struct QueueStats {
 }
 
 /// Parse ISO8601 datetime string
-#[allow(clippy::needless_pass_by_value)]
-fn parse_datetime(s: String) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(&s).map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc))
+fn parse_datetime(s: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(s).map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use r2d2_sqlite::SqliteConnectionManager;
+    use crate::persistence::async_connection::AsyncDatabase;
 
-    const RETRY_QUEUE_SCHEMA: &str = r"
-        CREATE TABLE IF NOT EXISTS retry_queue (
-            id TEXT PRIMARY KEY,
-            operation_type TEXT NOT NULL,
-            payload TEXT NOT NULL,
-            target TEXT NOT NULL,
-            attempt_count INTEGER NOT NULL DEFAULT 0,
-            max_retries INTEGER NOT NULL DEFAULT 5,
-            next_retry_at TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'failed', 'cancelled')),
-            last_error TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            correlation_id TEXT,
-            user_id TEXT,
-            tenant_id TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS dead_letter_queue (
-            id TEXT PRIMARY KEY,
-            original_id TEXT NOT NULL,
-            operation_type TEXT NOT NULL,
-            payload TEXT NOT NULL,
-            target TEXT NOT NULL,
-            attempt_count INTEGER NOT NULL,
-            last_error TEXT,
-            created_at TEXT NOT NULL,
-            failed_at TEXT NOT NULL,
-            correlation_id TEXT,
-            user_id TEXT,
-            tenant_id TEXT
-        );
-    ";
-
-    fn setup_test_db() -> Pool<SqliteConnectionManager> {
-        let manager = SqliteConnectionManager::memory();
-        let pool = Pool::builder().max_size(1).build(manager).unwrap();
-
-        // Create tables
-        let conn = pool.get().unwrap();
-        conn.execute_batch(RETRY_QUEUE_SCHEMA).unwrap();
-
-        pool
+    async fn setup() -> (AsyncDatabase, RetryQueueStore) {
+        let db = AsyncDatabase::in_memory().await.unwrap();
+        db.migrate().await.unwrap();
+        let store = RetryQueueStore::new(db.pool().clone());
+        (db, store)
     }
 
-    #[test]
-    fn test_enqueue_and_fetch() {
-        let pool = setup_test_db();
-        let store = RetryQueueStore::new(pool);
+    #[tokio::test]
+    async fn enqueue_and_fetch() {
+        let (_db, store) = setup().await;
 
         let item = RetryItem::new("webhook", r#"{"test": true}"#, "https://example.com/hook")
             .with_correlation_id("test-123");
 
-        let id = store.enqueue(item).unwrap();
+        let id = store.enqueue(item).await.unwrap();
 
-        let due = store.fetch_due_items(10).unwrap();
+        let due = store.fetch_due_items(10).await.unwrap();
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].id, id);
         assert_eq!(due[0].operation_type, "webhook");
     }
 
-    #[test]
-    fn test_mark_completed() {
-        let pool = setup_test_db();
-        let store = RetryQueueStore::new(pool);
+    #[tokio::test]
+    async fn mark_completed() {
+        let (_db, store) = setup().await;
 
         let item = RetryItem::new("webhook", "{}", "https://example.com");
-        let id = store.enqueue(item).unwrap();
+        let id = store.enqueue(item).await.unwrap();
 
-        // Fetch to mark as in_progress
-        let _ = store.fetch_due_items(10).unwrap();
+        let _ = store.fetch_due_items(10).await.unwrap();
+        store.mark_completed(&id).await.unwrap();
 
-        // Mark completed
-        store.mark_completed(&id).unwrap();
-
-        // Should be removed
-        let stats = store.get_stats().unwrap();
+        let stats = store.get_stats().await.unwrap();
         assert_eq!(stats.pending, 0);
         assert_eq!(stats.in_progress, 0);
     }
 
-    #[test]
-    fn test_retry_backoff() {
-        let pool = setup_test_db();
-        let config = RetryConfig {
-            initial_delay_ms: 100,
-            max_delay_ms: 10000,
-            multiplier: 2.0,
-            max_retries: 5,
-            jitter_enabled: false,
-            jitter_factor: 0.0,
-        };
-        let store = RetryQueueStore::with_config(pool, config);
+    #[tokio::test]
+    async fn retry_backoff() {
+        let (_db, store) = setup().await;
+        // Override config for deterministic test
+        let store = RetryQueueStore::with_config(
+            store.pool.clone(),
+            RetryConfig {
+                initial_delay_ms: 100,
+                max_delay_ms: 10000,
+                multiplier: 2.0,
+                max_retries: 5,
+                jitter_enabled: false,
+                jitter_factor: 0.0,
+            },
+        );
 
         let item = RetryItem::new("webhook", "{}", "https://example.com").with_max_retries(3);
-        let id = store.enqueue(item).unwrap();
+        let id = store.enqueue(item).await.unwrap();
 
-        // Fetch and fail
-        let _ = store.fetch_due_items(10).unwrap();
-        let will_retry = store.mark_failed(&id, "Connection refused").unwrap();
+        let _ = store.fetch_due_items(10).await.unwrap();
+        let will_retry = store.mark_failed(&id, "Connection refused").await.unwrap();
         assert!(will_retry);
 
-        // Check stats
-        let stats = store.get_stats().unwrap();
+        let stats = store.get_stats().await.unwrap();
         assert_eq!(stats.pending, 1);
         assert_eq!(stats.dead_letter, 0);
     }
 
-    #[test]
-    fn test_dead_letter_queue() {
-        let pool = setup_test_db();
-        let store = RetryQueueStore::new(pool);
+    #[tokio::test]
+    async fn dead_letter_queue() {
+        let (_db, store) = setup().await;
 
         let item = RetryItem::new("webhook", "{}", "https://example.com").with_max_retries(1);
-        let id = store.enqueue(item).unwrap();
+        let id = store.enqueue(item).await.unwrap();
 
-        // Fetch and fail - should move to DLQ since max_retries=1
-        let _ = store.fetch_due_items(10).unwrap();
-        let will_retry = store.mark_failed(&id, "Connection refused").unwrap();
+        let _ = store.fetch_due_items(10).await.unwrap();
+        let will_retry = store.mark_failed(&id, "Connection refused").await.unwrap();
         assert!(!will_retry);
 
-        // Check DLQ
-        let stats = store.get_stats().unwrap();
+        let stats = store.get_stats().await.unwrap();
         assert_eq!(stats.pending, 0);
         assert_eq!(stats.dead_letter, 1);
 
-        // Get DLQ items
-        let dlq_items = store.get_dead_letter_items(10).unwrap();
+        let dlq_items = store.get_dead_letter_items(10).await.unwrap();
         assert_eq!(dlq_items.len(), 1);
         assert_eq!(dlq_items[0].original_id, id);
     }
 
-    #[test]
-    fn test_requeue_from_dlq() {
-        let pool = setup_test_db();
-        let store = RetryQueueStore::new(pool);
+    #[tokio::test]
+    async fn requeue_from_dlq() {
+        let (_db, store) = setup().await;
 
         let item = RetryItem::new("webhook", "{}", "https://example.com").with_max_retries(1);
-        let id = store.enqueue(item).unwrap();
+        let id = store.enqueue(item).await.unwrap();
 
-        // Move to DLQ
-        let _ = store.fetch_due_items(10).unwrap();
-        store.mark_failed(&id, "Error").unwrap();
+        let _ = store.fetch_due_items(10).await.unwrap();
+        store.mark_failed(&id, "Error").await.unwrap();
 
-        // Get DLQ item ID
-        let dlq_items = store.get_dead_letter_items(10).unwrap();
+        let dlq_items = store.get_dead_letter_items(10).await.unwrap();
         let dlq_id = &dlq_items[0].id;
 
-        // Requeue
-        let new_id = store.requeue_from_dlq(dlq_id).unwrap();
+        let new_id = store.requeue_from_dlq(dlq_id).await.unwrap();
         assert_ne!(new_id, id);
 
-        // Verify stats
-        let stats = store.get_stats().unwrap();
+        let stats = store.get_stats().await.unwrap();
         assert_eq!(stats.pending, 1);
         assert_eq!(stats.dead_letter, 0);
     }
 
-    #[test]
-    fn test_cancel() {
-        let pool = setup_test_db();
-        let store = RetryQueueStore::new(pool);
+    #[tokio::test]
+    async fn cancel_item() {
+        let (_db, store) = setup().await;
 
         let item = RetryItem::new("webhook", "{}", "https://example.com");
-        let id = store.enqueue(item).unwrap();
+        let id = store.enqueue(item).await.unwrap();
 
-        store.cancel(&id).unwrap();
+        store.cancel(&id).await.unwrap();
 
-        // Should not be fetchable
-        let due = store.fetch_due_items(10).unwrap();
+        let due = store.fetch_due_items(10).await.unwrap();
         assert!(due.is_empty());
     }
 
     #[test]
-    fn test_retry_status_display() {
+    fn retry_status_display() {
         assert_eq!(RetryStatus::Pending.to_string(), "pending");
         assert_eq!(RetryStatus::InProgress.to_string(), "in_progress");
         assert_eq!(RetryStatus::Completed.to_string(), "completed");
@@ -910,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retry_status_parse() {
+    fn retry_status_parse() {
         assert_eq!(
             "pending".parse::<RetryStatus>().unwrap(),
             RetryStatus::Pending
@@ -920,5 +831,11 @@ mod tests {
             RetryStatus::InProgress
         );
         assert!("invalid".parse::<RetryStatus>().is_err());
+    }
+
+    #[test]
+    fn retry_queue_store_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<RetryQueueStore>();
     }
 }
