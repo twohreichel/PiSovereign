@@ -36,13 +36,14 @@ pub enum CalDavError {
 }
 
 /// CalDAV server configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CalDavConfig {
     /// Server URL (e.g., <https://cal.example.com>)
     pub server_url: String,
     /// Username
     pub username: String,
-    /// Password
+    /// Password (excluded from serialization to prevent leaks)
+    #[serde(skip_serializing, default)]
     pub password: String,
     /// Default calendar path
     pub calendar_path: Option<String>,
@@ -52,6 +53,19 @@ pub struct CalDavConfig {
     /// Connection timeout in seconds (default: 30)
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
+}
+
+impl std::fmt::Debug for CalDavConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CalDavConfig")
+            .field("server_url", &self.server_url)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("calendar_path", &self.calendar_path)
+            .field("verify_certs", &self.verify_certs)
+            .field("timeout_secs", &self.timeout_secs)
+            .finish()
+    }
 }
 
 const fn default_true() -> bool {
@@ -716,6 +730,26 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         assert!(json.contains("server_url"));
         assert!(json.contains("username"));
+        // Password must NOT appear in serialized output
+        assert!(!json.contains("pass"), "Password must not be serialized");
+        assert!(
+            !json.contains("password"),
+            "Password field must be skipped in serialization"
+        );
+    }
+
+    #[test]
+    fn caldav_config_debug_redacts_password() {
+        let config = test_caldav_config("https://cal.example.com", "user", "supersecret", None);
+        let debug_output = format!("{config:?}");
+        assert!(
+            !debug_output.contains("supersecret"),
+            "Password must not appear in Debug output"
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output must show [REDACTED] for password"
+        );
     }
 
     #[test]

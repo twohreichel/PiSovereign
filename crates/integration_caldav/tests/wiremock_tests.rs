@@ -524,6 +524,11 @@ mod config_tests {
         assert!(json.contains("server_url"));
         assert!(json.contains("username"));
         assert!(json.contains("verify_certs"));
+        // Password must NOT appear in serialized output
+        assert!(
+            !json.contains("password"),
+            "Password field must be skipped in serialization"
+        );
     }
 
     #[test]
@@ -689,7 +694,7 @@ mod proptest_tests {
         }
 
         #[test]
-        fn config_serialization_roundtrip(
+        fn config_serialization_excludes_password(
             server_url in "https://[a-z]+\\.[a-z]+\\.com",
             username in "[a-z]{3,10}",
             password in "[a-zA-Z0-9]{8,20}"
@@ -697,17 +702,20 @@ mod proptest_tests {
             let config = integration_caldav::CalDavConfig {
                 server_url,
                 username: username.clone(),
-                password,
+                password: password.clone(),
                 calendar_path: None,
                 verify_certs: true,
                 timeout_secs: 30,
             };
 
             let json = serde_json::to_string(&config).unwrap();
-            let parsed: integration_caldav::CalDavConfig = serde_json::from_str(&json).unwrap();
 
-            prop_assert_eq!(config.username, parsed.username);
-            prop_assert_eq!(config.verify_certs, parsed.verify_certs);
+            // Password must NOT appear in serialized output
+            prop_assert!(!json.contains(&password));
+            prop_assert!(!json.contains("password"));
+
+            // Username and other fields should still roundtrip
+            prop_assert!(json.contains(&username));
         }
     }
 }
