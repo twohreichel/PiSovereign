@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/twohreichel/PiSovereign/compare/v0.3.5...v0.4.0) (2026-02-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **persistence:** ConnectionPool and create_pool() removed. Use AsyncDatabase and AsyncDatabaseConfig instead.
+
+### Features
+
+* **database:** add initial schema and migration scripts for core tables ([e326a5e](https://github.com/twohreichel/PiSovereign/commit/e326a5eaa83cc2b423eaeded78847c2794eae32d))
+* persist suspicious activity tracker to SQLite\n\nAdd SqliteSuspiciousActivityTracker as a durable alternative to the\nin-memory tracker. Security violations and IP blocks survive restarts\nand can be shared across instances.\n\n- Add migration 11_suspicious_activity.sql with security_violations\n  and ip_blocks tables\n- Add SqliteSuspiciousActivityTracker implementing SuspiciousActivityPort\n- Add FromStr impl for ThreatLevel to support DB round-tripping\n- Use severity-ordered SQL query for correct max threat level\n- Include 12 integration tests with in-memory SQLite" ([c5c8f3e](https://github.com/twohreichel/PiSovereign/commit/c5c8f3e7eb1ecf864222c8970c1efcce743d615e))
+* **persistence:** add shared error mapping for sqlx persistence layer ([976fb45](https://github.com/twohreichel/PiSovereign/commit/976fb459bc04a52daa4187a7345a30ea381c77d5))
+* **server:** wire VoiceMessageService in main.rs ([2a575b9](https://github.com/twohreichel/PiSovereign/commit/2a575b9ac95622d85dd894273bb0e71dc5b316f7))
+
+
+### Bug Fixes
+
+* **database:** enhance async database connection and migration handling ([dd147f1](https://github.com/twohreichel/PiSovereign/commit/dd147f19ba61020113feab1daea64ee3fc72e2a7))
+* **dependencies:** remove unused r2d2 and scheduled-thread-pool packages from Cargo.lock ([882a55f](https://github.com/twohreichel/PiSovereign/commit/882a55f4eca4813a047452a6f31ea008970ec5ec))
+* **persistence:** re-export map_sqlx_error from shared module to streamline error handling ([03c3ba0](https://github.com/twohreichel/PiSovereign/commit/03c3ba04ee3865b338d1665aca75c67ee3fd4c13))
+* **persistence:** refactor database initialization to use async database handling ([39e0635](https://github.com/twohreichel/PiSovereign/commit/39e06352a1ccbe657680c54671b77d6013838cbe))
+* **persistence:** refactor RetryQueueStore to use sqlx for async database operations and improve query handling ([26062d5](https://github.com/twohreichel/PiSovereign/commit/26062d566e94d3398796e40f8f6ef93ebc158248))
+* **persistence:** refactor SqliteApprovalQueue to use sqlx for database operations ([9c33a6f](https://github.com/twohreichel/PiSovereign/commit/9c33a6fac0a832c4bb8364f2b77105baee412fac))
+* **persistence:** refactor SqliteAuditLog to use sqlx for database operations and improve query handling ([1b16983](https://github.com/twohreichel/PiSovereign/commit/1b16983498d39a05c09df80e54fc398550a06086))
+* **persistence:** refactor SqliteDraftStore to use sqlx for database operations ([542b58b](https://github.com/twohreichel/PiSovereign/commit/542b58bda1b05ad083f3c0225462b4d3912009f1))
+* **persistence:** refactor SqliteMemoryStore to use sqlx for database operations and improve memory handling ([0890483](https://github.com/twohreichel/PiSovereign/commit/08904838c60c5062188e2d1cc3ba2b7235f893ee))
+* **persistence:** refactor SqliteReminderStore to use sqlx for async database operations and improve query handling ([7e46c18](https://github.com/twohreichel/PiSovereign/commit/7e46c1861a09641c90bcde6121b9f290f52c07eb))
+* **persistence:** refactor SqliteUserProfileStore to use sqlx and simplify database interactions ([689a8ac](https://github.com/twohreichel/PiSovereign/commit/689a8ac8be07231a27900e2667dc6a1bb1cd6eb4))
+* **persistence:** remove unused dependencies and update persistence module exports ([5d8c618](https://github.com/twohreichel/PiSovereign/commit/5d8c6182b8da21d94831d4a206c6dd1dc2466f0f))
+* **persistence:** streamline error handling and improve code readability across multiple files ([e93222d](https://github.com/twohreichel/PiSovereign/commit/e93222d28b9b6fe922c2bf126d6be6d567449941))
+* remove unrouted location handler ([d20f2be](https://github.com/twohreichel/PiSovereign/commit/d20f2beb19958d1bc7614aaf766360366c314c7b))
+* remove unused SendTypingParams from integration_signal ([fdd77ad](https://github.com/twohreichel/PiSovereign/commit/fdd77ad0459f7e8f32bd0571a0db7d156bf3cc43))
+* **security:** protect CalDAV password from serialization and debug output\n\nAdd #[serde(skip_serializing)] to CalDavConfig.password to prevent\npassword leaking in JSON serialization output. Implement custom Debug\ntrait to show [REDACTED] instead of the actual password value.\n\nThis prevents accidental password exposure through logging or API\nresponses that serialize the config struct.\n\nUpdated all tests to verify password exclusion from serialized output\nand debug formatting." ([20548bd](https://github.com/twohreichel/PiSovereign/commit/20548bdaa63afccb02ff86afc8bd595e828c4ce7))
+* **security:** wire ConnectInfo for real client IP extraction in rate limiter\n\nReplace hardcoded 127.0.0.1 fallback in extract_client_ip() with actual\nTCP socket address from axum ConnectInfo. The server now uses\ninto_make_service_with_connect_info::&lt;SocketAddr&gt;() to inject the real\nclient IP into request extensions.\n\nThis ensures rate limiting tracks actual client IPs instead of treating\nall clients as localhost. X-Forwarded-For is still only trusted from\nconfigured trusted_proxies.\n\nAdded tests for ConnectInfo extraction, localhost fallback, and\nuntrusted proxy rejection." ([4592fec](https://github.com/twohreichel/PiSovereign/commit/4592fec07c2cb6bbedaa696afdd54d43cadcfbaf))
+* **tests:** remove persistence integration tests for SQLite databases ([b95b0c2](https://github.com/twohreichel/PiSovereign/commit/b95b0c20b742b342b88f46449c6da14556c4538b))
+
+
+### Performance Improvements
+
+* **infrastructure:** fix N+1 query in list_recent and search conversations ([f7c131b](https://github.com/twohreichel/PiSovereign/commit/f7c131be401da9408a4aed253885352b0742409f))
+* optimize cosine similarity with two-phase query\n\nDeduplicate cosine_similarity into domain crate and optimize\nsearch_similar to avoid loading full Memory objects for all records.\n\n- Move cosine_similarity to domain::entities::memory as canonical impl\n- Delegate from EmbeddingPort default method and OllamaEmbeddingEngine\n- Remove duplicate implementations from memory_store.rs and ai_core\n- Two-phase query: first fetch only IDs + embeddings + importance,\n  compute similarity and select top-K, then load full Memory objects\n  only for matching candidates (O(K) vs O(n) memory for content)" ([b2c7e18](https://github.com/twohreichel/PiSovereign/commit/b2c7e18f31d8d521001ea20cb3906cca6b152181))
+
+
+### Security
+
+* add #![forbid(unsafe_code)] to all crates ([baa928e](https://github.com/twohreichel/PiSovereign/commit/baa928efdcf74a82832e66ef44b040494815186f))
+
+
+### Documentation
+
+* document alpha IMAP dependency risk in integration_proton ([9db2abe](https://github.com/twohreichel/PiSovereign/commit/9db2abe2602be1267521f18811288a4302e0948a))
+* **openapi:** add missing Signal and WhatsApp endpoint documentation ([0be358b](https://github.com/twohreichel/PiSovereign/commit/0be358b3e4cb3d9319ffa7557750acfe31c1c612))
+
+
+### Code Refactoring
+
+* **persistence:** consolidate database layer to sqlx-only ([0125c3c](https://github.com/twohreichel/PiSovereign/commit/0125c3c44c1bafc69289bab25a69c89c15f755f5))
+
 ## [0.3.5](https://github.com/twohreichel/PiSovereign/compare/v0.3.4...v0.3.5) (2026-02-12)
 
 
