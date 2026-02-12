@@ -180,7 +180,7 @@ jobs:
       - name: Build release
         run: cargo build --release --workspace --all-features
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: binaries-${{ matrix.target }}
           path: |
