@@ -85,7 +85,7 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                 });
                                 migrated += 1;
                                 println!(
-                                    "  ✅ Migrated legacy api_key → api_keys[0] (user_id: {default_user_id})"
+                                    "  ✅ Migrated legacy api_key → api_keys[0] (default user_id)"
                                 );
                             },
                             Err(e) => {
@@ -120,13 +120,13 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                         });
                                         migrated += 1;
                                         println!(
-                                            "  ✅ Migrated api_key_users entry → api_keys (user_id: {user_id_str})"
+                                            "  ✅ Migrated api_key_users entry → api_keys (for a user)"
                                         );
                                     },
                                     Err(e) => {
                                         failed += 1;
                                         println!(
-                                            "  ❌ Failed to hash key for user_id {user_id_str}: {e}"
+                                            "  ❌ Failed to hash key for an api_key_users entry: {e}"
                                         );
                                     },
                                 }
@@ -167,9 +167,7 @@ pub fn migrate_config(input_path: &Path, dry_run: bool) -> Result<MigrationResul
                                             user_id: user_id.to_string(),
                                         });
                                         migrated += 1;
-                                        println!(
-                                            "  ✅ Migrated plaintext hash → proper hash (user_id: {user_id})"
-                                        );
+                                        println!("  ✅ Migrated plaintext hash → proper hash");
                                     },
                                     Err(e) => {
                                         failed += 1;

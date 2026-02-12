@@ -59,7 +59,7 @@ allow = [
     "Unlicense",
     "MPL-2.0",  # Mozilla Public License (weak copyleft, file-level)
     "Unicode-3.0",
-    "Unicode-DFS-2016",
+    "OpenSSL",  # Used by aws-lc-sys (transitive via rustls)
     "CDLA-Permissive-2.0",  # Community Data License Agreement Permissive
 ]
 

@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4](https://github.com/twohreichel/PiSovereign/compare/v0.3.3...v0.3.4) (2026-02-11)
+
+
+### Features
+
+* add Baïkal CalDAV server Docker integration\n\nAdd --baikal CLI flag and interactive prompt to both setup-mac.sh and\nsetup-pi.sh scripts for deploying Baïkal as a Docker container.\n\n- Add ckulka/baikal:nginx service to docker-compose.yml generation\n- Bind to 127.0.0.1:5232 (localhost only, no external access)\n- PiSovereign accesses Baïkal internally via http://baikal:80/dav.php\n- Add baikal-config and baikal-data Docker volumes\n- Add CalDAV config prompt to setup-pi.sh (was missing entirely)\n- Dual CalDAV flow: Baïkal Docker OR external CalDAV server\n- Add setup wizard instructions to print_summary() in both scripts\n- Update config.toml.example with Docker-internal URL comment\n- Update external-services.md with Docker installation as primary method\n- Retain native Baïkal installation as documented alternative" ([bffafd6](https://github.com/twohreichel/PiSovereign/commit/bffafd662e6b311441fdd51e6de0925e989f5c2f))
+* **application:** add reminder and transit intents with AgentService wiring (Phase J) ([b256ec0](https://github.com/twohreichel/PiSovereign/commit/b256ec094742f13e4ceab9e04f2b8e0eadf43741))
+* **application:** add reminder formatter and notification service\n\n- Create ReminderFormatter with beautiful German message templates:\n  - format_calendar_event_reminder with event time, location, Maps link\n  - format_calendar_task_reminder for todo items  \n  - format_custom_reminder for user-created reminders\n  - format_morning_briefing with events, weather, reminders\n  - format_reminder_list, format_snooze_confirmation\n  - Time formatting helpers (format_event_time, format_time_until)\n- Create NotificationService for proactive reminder processing:\n  - process_due_reminders polls and formats all due notifications\n  - Optional transit integration (ÖPNV connections to event locations)\n  - Marks reminders as sent after notification formatted\n  - NotificationConfig with home coords and transit toggle\n- Register modules and re-export types from services/mod.rs\n- 26 new tests (18 formatter + 8 notification), all 641 app tests pass" ([85b181c](https://github.com/twohreichel/PiSovereign/commit/85b181c860150cecd65338388573fb4ec72be4c6))
+* **application:** add ReminderPort and ReminderService ([4ceca10](https://github.com/twohreichel/PiSovereign/commit/4ceca102415610e5671a1a4af0372534ae093578))
+* **config:** add MessengerPersistenceConfig for conversation storage ([ccba24e](https://github.com/twohreichel/PiSovereign/commit/ccba24e5ccc68093f1a55d27712f3f90f5df58a9))
+* **db:** add migration V009 for conversation source tracking ([02e17e2](https://github.com/twohreichel/PiSovereign/commit/02e17e26b706371a5c89989f1e159a2d3807ab6d))
+* **deps:** update clap and related packages to version 4.5.58 and 1.0.0 ([58a9f5e](https://github.com/twohreichel/PiSovereign/commit/58a9f5e44b71a23007fce47f12b3beff2ab70fff))
+* **deps:** upgrade breaking dependencies ([9c31b34](https://github.com/twohreichel/PiSovereign/commit/9c31b3498ed14bbc790b381b2a5b9eec062ec6d5))
+* **deps:** upgrade OpenTelemetry stack 0.27 -&gt; 0.31 ([8629ab7](https://github.com/twohreichel/PiSovereign/commit/8629ab763b09d9118c1ec62ba6abcc50e6dd7b0f))
+* **domain:** add Reminder entity and AgentCommand variants ([433e8ea](https://github.com/twohreichel/PiSovereign/commit/433e8ea82f1e036ebe77cf2f0223d517960c9b95))
+* **handlers:** integrate messenger conversation persistence ([4f13605](https://github.com/twohreichel/PiSovereign/commit/4f13605763736d8840db24438f6cf386237e7a8d))
+* **infrastructure:** add SqliteReminderStore and V006-V008 migrations\n\n- Create SqliteReminderStore implementing ReminderPort trait\n- Add save, get, get_by_source_id, update, delete, query, get_due_reminders,\n  count_active, cleanup_old operations with spawn_blocking pattern\n- Add dynamic SQL query builder for ReminderQuery with filters\n- Add row_to_reminder mapping and enum string conversion helpers\n- Register reminder_store module in persistence/mod.rs\n- Add inline migrations V006 (retry queue), V007 (memory storage),\n  V008 (reminders) to Rust migration runner\n- Bump SCHEMA_VERSION from 5 to 8\n- Fix FK mismatch in V007 (user_profiles.id → user_profiles.user_id)\n- Remove unnecessary FK constraint from reminders table\n- 13 integration tests for reminder store, all 807 infra tests passing" ([6c500d9](https://github.com/twohreichel/PiSovereign/commit/6c500d95dcae59f611be0252383fe57ff11e051c))
+* **integration:** add public transit integration and reminder configuration ([5fbc39d](https://github.com/twohreichel/PiSovereign/commit/5fbc39d8e87a7b87c3176ef405a3d729d8a88910))
+* **persistence:** extend conversation entities for messenger tracking ([c4c39a5](https://github.com/twohreichel/PiSovereign/commit/c4c39a5a799d4a8e65b2a9b7a2c789726d716b6d))
+* **ports:** add get_by_phone_number to ConversationStore ([a6d6c7a](https://github.com/twohreichel/PiSovereign/commit/a6d6c7a56f082a6da220d42128f922879df44f82))
+* **services:** add MessengerChatService for conversation persistence ([3e8dd87](https://github.com/twohreichel/PiSovereign/commit/3e8dd87a461a34775d953f8b3fe8beec50dc80dd))
+* **services:** add MessengerChatService for conversation persistence ([34b430c](https://github.com/twohreichel/PiSovereign/commit/34b430c22e4dfe76f2b42b8160aa4611327ce438))
+* **tasks:** add conversation retention cleanup task ([410a2e8](https://github.com/twohreichel/PiSovereign/commit/410a2e8fea795be8b88550081245c4178d0c5bb6))
+* **transit:** add integration_transit crate with HAFAS client and Nominatim geocoding\n\nImplements public transit routing via transport.rest v6 API (HAFAS)\nand address geocoding via Nominatim/OpenStreetMap.\n\n- HafasTransitClient: journey search, nearby stops, stop search\n- NominatimGeocodingClient: forward/reverse geocoding with rate limiting and caching\n- TransitConfig/NominatimConfig with serde defaults and validation\n- Typed models: Journey, Leg, Stop, LineInfo, TransitMode\n- Rich formatting with emoji per transit mode\n- Full unit tests (42) and wiremock integration tests (7)\n- Registered in workspace Cargo.toml ([c8ccead](https://github.com/twohreichel/PiSovereign/commit/c8cceadd821661e85717959c7b8b807d0814d558))
+* **transit:** add TransitPort, LocationHelper, and TransitAdapter ([b4d64ff](https://github.com/twohreichel/PiSovereign/commit/b4d64ff61a6cae59c8d57677184bc888db1a6ac7))
+
+
+### Bug Fixes
+
+* **benches:** update chat_pipeline benchmark for new ConversationStore trait ([11f9055](https://github.com/twohreichel/PiSovereign/commit/11f90551538d2a4111ceffd820a496c4e1ddf828))
+* **security:** add advisory ignores for rsa and rustls-pemfile vulnerabilities ([7f46adb](https://github.com/twohreichel/PiSovereign/commit/7f46adbf5d237444c749b1ceb3b3c48c76214431))
+* **security:** add workflow permissions and remove key prefix logging ([8e2fd97](https://github.com/twohreichel/PiSovereign/commit/8e2fd97ea68aef337b0e94ab394a6f47603d739d))
+
+
+### Documentation
+
+* add reminder system user guide ([4cc9448](https://github.com/twohreichel/PiSovereign/commit/4cc94489fcd1f90e2c3605820900c87870d11817))
+
 ## [0.3.3](https://github.com/twohreichel/PiSovereign/compare/v0.3.2...v0.3.3) (2026-02-10)
 
 
