@@ -1108,14 +1108,16 @@ mod tests {
 
     #[test]
     fn whatsapp_config_app_secret_str() {
-        use secrecy::{ExposeSecret, SecretString};
+        use secrecy::SecretString;
 
         let config = WhatsAppConfig {
             app_secret: Some(SecretString::from("test_secret")),
             ..Default::default()
         };
         assert_eq!(
-            config.app_secret_str().map(ExposeSecret::expose_secret),
+            config
+                .app_secret_str()
+                .map(secrecy::ExposeSecret::expose_secret),
             Some("test_secret")
         );
 
