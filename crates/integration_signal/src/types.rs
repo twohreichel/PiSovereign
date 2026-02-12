@@ -180,17 +180,6 @@ impl SendParams {
     }
 }
 
-/// Parameters for the `sendTyping` method
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)] // Part of public API for future use
-pub struct SendTypingParams {
-    /// Recipient phone number
-    pub recipient: Vec<String>,
-    /// Whether typing started (true) or stopped (false)
-    pub stop: bool,
-}
-
 /// Parameters for the `sendReceipt` method
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
