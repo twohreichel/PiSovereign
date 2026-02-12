@@ -75,7 +75,7 @@ pub async fn execute_command(
     Ok(Json(ExecuteCommandResponse {
         success: result.success,
         response: result.response,
-        command_type: command_type_name(&result.command),
+        command_type: super::common::command_type_name(&result.command),
         execution_time_ms: result.execution_time_ms,
         requires_approval: result
             .approval_status
@@ -140,38 +140,6 @@ pub async fn parse_command(
         description: command.description(),
         command,
     }))
-}
-
-/// Get the type name of a command
-fn command_type_name(cmd: &AgentCommand) -> String {
-    match cmd {
-        AgentCommand::MorningBriefing { .. } => "morning_briefing",
-        AgentCommand::CreateCalendarEvent { .. } => "create_calendar_event",
-        AgentCommand::UpdateCalendarEvent { .. } => "update_calendar_event",
-        AgentCommand::ListTasks { .. } => "list_tasks",
-        AgentCommand::CreateTask { .. } => "create_task",
-        AgentCommand::CompleteTask { .. } => "complete_task",
-        AgentCommand::UpdateTask { .. } => "update_task",
-        AgentCommand::DeleteTask { .. } => "delete_task",
-        AgentCommand::ListTaskLists => "list_task_lists",
-        AgentCommand::CreateTaskList { .. } => "create_task_list",
-        AgentCommand::SummarizeInbox { .. } => "summarize_inbox",
-        AgentCommand::DraftEmail { .. } => "draft_email",
-        AgentCommand::SendEmail { .. } => "send_email",
-        AgentCommand::Ask { .. } => "ask",
-        AgentCommand::System(_) => "system",
-        AgentCommand::Echo { .. } => "echo",
-        AgentCommand::Help { .. } => "help",
-        AgentCommand::WebSearch { .. } => "web_search",
-        AgentCommand::CreateReminder { .. } => "create_reminder",
-        AgentCommand::ListReminders { .. } => "list_reminders",
-        AgentCommand::SnoozeReminder { .. } => "snooze_reminder",
-        AgentCommand::AcknowledgeReminder { .. } => "acknowledge_reminder",
-        AgentCommand::DeleteReminder { .. } => "delete_reminder",
-        AgentCommand::SearchTransit { .. } => "search_transit",
-        AgentCommand::Unknown { .. } => "unknown",
-    }
-    .to_string()
 }
 
 #[cfg(test)]
@@ -280,7 +248,10 @@ mod tests {
     #[test]
     fn command_type_name_morning_briefing() {
         let cmd = AgentCommand::MorningBriefing { date: None };
-        assert_eq!(command_type_name(&cmd), "morning_briefing");
+        assert_eq!(
+            super::super::common::command_type_name(&cmd),
+            "morning_briefing"
+        );
     }
 
     #[test]
@@ -293,7 +264,10 @@ mod tests {
             attendees: None,
             location: None,
         };
-        assert_eq!(command_type_name(&cmd), "create_calendar_event");
+        assert_eq!(
+            super::super::common::command_type_name(&cmd),
+            "create_calendar_event"
+        );
     }
 
     #[test]
@@ -302,7 +276,10 @@ mod tests {
             count: None,
             only_important: None,
         };
-        assert_eq!(command_type_name(&cmd), "summarize_inbox");
+        assert_eq!(
+            super::super::common::command_type_name(&cmd),
+            "summarize_inbox"
+        );
     }
 
     #[test]
@@ -312,7 +289,7 @@ mod tests {
             subject: Some("Test".to_string()),
             body: "Body content".to_string(),
         };
-        assert_eq!(command_type_name(&cmd), "draft_email");
+        assert_eq!(super::super::common::command_type_name(&cmd), "draft_email");
     }
 
     #[test]
@@ -320,7 +297,7 @@ mod tests {
         let cmd = AgentCommand::SendEmail {
             draft_id: "draft-123".to_string(),
         };
-        assert_eq!(command_type_name(&cmd), "send_email");
+        assert_eq!(super::super::common::command_type_name(&cmd), "send_email");
     }
 
     #[test]
@@ -328,13 +305,13 @@ mod tests {
         let cmd = AgentCommand::Ask {
             question: "What?".to_string(),
         };
-        assert_eq!(command_type_name(&cmd), "ask");
+        assert_eq!(super::super::common::command_type_name(&cmd), "ask");
     }
 
     #[test]
     fn command_type_name_system() {
         let cmd = AgentCommand::System(SystemCommand::Status);
-        assert_eq!(command_type_name(&cmd), "system");
+        assert_eq!(super::super::common::command_type_name(&cmd), "status");
     }
 
     #[test]
@@ -342,13 +319,13 @@ mod tests {
         let cmd = AgentCommand::Echo {
             message: "hi".to_string(),
         };
-        assert_eq!(command_type_name(&cmd), "echo");
+        assert_eq!(super::super::common::command_type_name(&cmd), "echo");
     }
 
     #[test]
     fn command_type_name_help() {
         let cmd = AgentCommand::Help { command: None };
-        assert_eq!(command_type_name(&cmd), "help");
+        assert_eq!(super::super::common::command_type_name(&cmd), "help");
     }
 
     #[test]
@@ -356,7 +333,7 @@ mod tests {
         let cmd = AgentCommand::Unknown {
             original_input: "???".to_string(),
         };
-        assert_eq!(command_type_name(&cmd), "unknown");
+        assert_eq!(super::super::common::command_type_name(&cmd), "unknown");
     }
 
     #[test]

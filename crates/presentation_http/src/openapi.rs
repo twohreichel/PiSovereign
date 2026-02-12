@@ -35,7 +35,9 @@ use crate::{handlers, state::AppState};
         (name = "commands", description = "Natural language command execution"),
         (name = "approvals", description = "Approval workflow management"),
         (name = "system", description = "System status and model information"),
-        (name = "metrics", description = "Application metrics and observability")
+        (name = "metrics", description = "Application metrics and observability"),
+        (name = "signal", description = "Signal messenger integration"),
+        (name = "whatsapp", description = "WhatsApp Business API integration")
     ),
     paths(
         // Health endpoints
@@ -64,6 +66,12 @@ use crate::{handlers, state::AppState};
         // Metrics endpoints
         handlers::metrics::get_metrics,
         handlers::metrics::get_metrics_prometheus,
+        // Signal endpoints
+        handlers::signal::health_check,
+        handlers::signal::poll_messages,
+        // WhatsApp endpoints
+        handlers::whatsapp::verify_webhook,
+        handlers::whatsapp::handle_webhook,
     ),
     components(
         schemas(
@@ -99,6 +107,14 @@ use crate::{handlers, state::AppState};
             handlers::metrics::SystemMetrics,
             // Error schemas
             crate::error::ErrorResponse,
+            // Signal schemas
+            handlers::signal::SignalHealthResponse,
+            handlers::signal::PollQuery,
+            handlers::signal::PollResponse,
+            handlers::signal::MessageResponse,
+            // WhatsApp schemas
+            handlers::whatsapp::WebhookVerifyQuery,
+            handlers::whatsapp::MessageResponse,
             // Domain schemas (inline re-definitions for OpenAPI)
             AgentCommandSchema,
             SystemCommandSchema,

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! PiSovereign HTTP presentation layer
 //!
 //! This crate provides the HTTP API for PiSovereign.

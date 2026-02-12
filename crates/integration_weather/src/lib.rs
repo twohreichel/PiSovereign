@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Open-Meteo weather integration
 //!
 //! Client for the Open-Meteo Weather API (<https://open-meteo.com>).

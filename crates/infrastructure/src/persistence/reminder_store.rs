@@ -1,6 +1,6 @@
 //! SQLite-based reminder persistence
-
-use std::sync::Arc;
+//!
+//! Implements the `ReminderPort` using sqlx for async reminder storage.
 
 use application::{
     error::ApplicationError,
@@ -10,97 +10,133 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::entities::{Reminder, ReminderSource, ReminderStatus};
 use domain::value_objects::{ReminderId, UserId};
-use rusqlite::{Row, params};
-use tokio::task;
+use sqlx::SqlitePool;
 use tracing::{debug, instrument};
 use uuid::Uuid;
 
-use super::connection::ConnectionPool;
+use super::error::map_sqlx_error;
 
 /// SQLite-based reminder store
 #[derive(Debug, Clone)]
 pub struct SqliteReminderStore {
-    pool: Arc<ConnectionPool>,
+    pool: SqlitePool,
 }
 
 impl SqliteReminderStore {
     /// Create a new SQLite reminder store
     #[must_use]
-    pub const fn new(pool: Arc<ConnectionPool>) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
+
+/// Row type for reminder queries
+#[derive(sqlx::FromRow)]
+struct ReminderRow {
+    id: String,
+    user_id: String,
+    source: String,
+    source_id: Option<String>,
+    title: String,
+    description: Option<String>,
+    event_time: Option<String>,
+    remind_at: String,
+    location: Option<String>,
+    status: String,
+    snooze_count: i32,
+    max_snooze: i32,
+    created_at: String,
+    updated_at: String,
+}
+
+impl ReminderRow {
+    #[allow(clippy::wrong_self_convention)]
+    fn to_reminder(self) -> Reminder {
+        let id = ReminderId::parse(&self.id).unwrap_or_else(|_| ReminderId::from(Uuid::new_v4()));
+        let user_id = UserId::parse(&self.user_id).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
+        let source = str_to_source(&self.source);
+        let status = str_to_status(&self.status);
+
+        let event_time = self.event_time.and_then(|s| {
+            DateTime::parse_from_rfc3339(&s)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc))
+        });
+        let remind_at = DateTime::parse_from_rfc3339(&self.remind_at)
+            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+        let created_at = DateTime::parse_from_rfc3339(&self.created_at)
+            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+        let updated_at = DateTime::parse_from_rfc3339(&self.updated_at)
+            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Reminder {
+            id,
+            user_id,
+            source,
+            source_id: self.source_id,
+            title: self.title,
+            description: self.description,
+            event_time,
+            remind_at,
+            location: self.location,
+            status,
+            snooze_count: self.snooze_count as u8,
+            max_snooze: self.max_snooze as u8,
+            created_at,
+            updated_at,
+        }
+    }
+}
+
+const SELECT_REMINDER: &str = "SELECT id, user_id, source, source_id, title, description, \
+                                event_time, remind_at, location, status, \
+                                snooze_count, max_snooze, created_at, updated_at
+                                FROM reminders";
 
 #[async_trait]
 impl ReminderPort for SqliteReminderStore {
     #[instrument(skip(self, reminder), fields(reminder_id = %reminder.id))]
     async fn save(&self, reminder: &Reminder) -> Result<(), ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let reminder = reminder.clone();
-
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            conn.execute(
-                "INSERT INTO reminders (
-                    id, user_id, source, source_id, title, description,
-                    event_time, remind_at, location, status,
-                    snooze_count, max_snooze, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-                params![
-                    reminder.id.to_string(),
-                    reminder.user_id.to_string(),
-                    source_to_str(reminder.source),
-                    reminder.source_id,
-                    reminder.title,
-                    reminder.description,
-                    reminder.event_time.map(|t| t.to_rfc3339()),
-                    reminder.remind_at.to_rfc3339(),
-                    reminder.location,
-                    status_to_str(reminder.status),
-                    reminder.snooze_count,
-                    reminder.max_snooze,
-                    reminder.created_at.to_rfc3339(),
-                    reminder.updated_at.to_rfc3339(),
-                ],
-            )
-            .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            debug!("Saved reminder");
-            Ok(())
-        })
+        sqlx::query(
+            "INSERT INTO reminders (
+                id, user_id, source, source_id, title, description,
+                event_time, remind_at, location, status,
+                snooze_count, max_snooze, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+        )
+        .bind(reminder.id.to_string())
+        .bind(reminder.user_id.to_string())
+        .bind(source_to_str(reminder.source))
+        .bind(&reminder.source_id)
+        .bind(&reminder.title)
+        .bind(&reminder.description)
+        .bind(reminder.event_time.map(|t| t.to_rfc3339()))
+        .bind(reminder.remind_at.to_rfc3339())
+        .bind(&reminder.location)
+        .bind(status_to_str(reminder.status))
+        .bind(i32::from(reminder.snooze_count))
+        .bind(i32::from(reminder.max_snooze))
+        .bind(reminder.created_at.to_rfc3339())
+        .bind(reminder.updated_at.to_rfc3339())
+        .execute(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        .map_err(map_sqlx_error)?;
+
+        debug!("Saved reminder");
+        Ok(())
     }
 
     #[instrument(skip(self), fields(reminder_id = %id))]
     async fn get(&self, id: &ReminderId) -> Result<Option<Reminder>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let id_str = id.to_string();
+        let sql = format!("{SELECT_REMINDER} WHERE id = $1");
+        let row: Option<ReminderRow> = sqlx::query_as(&sql)
+            .bind(id.to_string())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
 
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let result = conn
-                .query_row(
-                    "SELECT id, user_id, source, source_id, title, description,
-                        event_time, remind_at, location, status,
-                        snooze_count, max_snooze, created_at, updated_at
-                     FROM reminders WHERE id = ?1",
-                    [&id_str],
-                    row_to_reminder,
-                )
-                .optional()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            Ok(result)
-        })
-        .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        Ok(row.map(ReminderRow::to_reminder))
     }
 
     #[instrument(skip(self))]
@@ -109,312 +145,157 @@ impl ReminderPort for SqliteReminderStore {
         source: ReminderSource,
         source_id: &str,
     ) -> Result<Option<Reminder>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let source_str = source_to_str(source).to_string();
-        let source_id = source_id.to_string();
+        let sql = format!("{SELECT_REMINDER} WHERE source = $1 AND source_id = $2");
+        let row: Option<ReminderRow> = sqlx::query_as(&sql)
+            .bind(source_to_str(source))
+            .bind(source_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
 
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let result = conn
-                .query_row(
-                    "SELECT id, user_id, source, source_id, title, description,
-                        event_time, remind_at, location, status,
-                        snooze_count, max_snooze, created_at, updated_at
-                     FROM reminders WHERE source = ?1 AND source_id = ?2",
-                    params![source_str, source_id],
-                    row_to_reminder,
-                )
-                .optional()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            Ok(result)
-        })
-        .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        Ok(row.map(ReminderRow::to_reminder))
     }
 
     #[instrument(skip(self, reminder), fields(reminder_id = %reminder.id))]
     async fn update(&self, reminder: &Reminder) -> Result<(), ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let reminder = reminder.clone();
-
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let affected = conn
-                .execute(
-                    "UPDATE reminders SET
-                        title = ?1, description = ?2, event_time = ?3,
-                        remind_at = ?4, location = ?5, status = ?6,
-                        snooze_count = ?7, max_snooze = ?8, updated_at = ?9
-                     WHERE id = ?10",
-                    params![
-                        reminder.title,
-                        reminder.description,
-                        reminder.event_time.map(|t| t.to_rfc3339()),
-                        reminder.remind_at.to_rfc3339(),
-                        reminder.location,
-                        status_to_str(reminder.status),
-                        reminder.snooze_count,
-                        reminder.max_snooze,
-                        reminder.updated_at.to_rfc3339(),
-                        reminder.id.to_string(),
-                    ],
-                )
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            if affected == 0 {
-                return Err(ApplicationError::NotFound(format!(
-                    "Reminder {} not found",
-                    reminder.id
-                )));
-            }
-
-            debug!("Updated reminder");
-            Ok(())
-        })
+        let result = sqlx::query(
+            "UPDATE reminders SET
+                title = $1, description = $2, event_time = $3,
+                remind_at = $4, location = $5, status = $6,
+                snooze_count = $7, max_snooze = $8, updated_at = $9
+             WHERE id = $10",
+        )
+        .bind(&reminder.title)
+        .bind(&reminder.description)
+        .bind(reminder.event_time.map(|t| t.to_rfc3339()))
+        .bind(reminder.remind_at.to_rfc3339())
+        .bind(&reminder.location)
+        .bind(status_to_str(reminder.status))
+        .bind(i32::from(reminder.snooze_count))
+        .bind(i32::from(reminder.max_snooze))
+        .bind(reminder.updated_at.to_rfc3339())
+        .bind(reminder.id.to_string())
+        .execute(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        .map_err(map_sqlx_error)?;
+
+        if result.rows_affected() == 0 {
+            return Err(ApplicationError::NotFound(format!(
+                "Reminder {} not found",
+                reminder.id
+            )));
+        }
+
+        debug!("Updated reminder");
+        Ok(())
     }
 
     #[instrument(skip(self), fields(reminder_id = %id))]
     async fn delete(&self, id: &ReminderId) -> Result<(), ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let id_str = id.to_string();
+        sqlx::query("DELETE FROM reminders WHERE id = $1")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
 
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            conn.execute("DELETE FROM reminders WHERE id = ?1", [&id_str])
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            debug!("Deleted reminder");
-            Ok(())
-        })
-        .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        debug!("Deleted reminder");
+        Ok(())
     }
 
     #[instrument(skip(self))]
     async fn query(&self, query: &ReminderQuery) -> Result<Vec<Reminder>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let query = query.clone();
+        let mut sql = format!("{SELECT_REMINDER} WHERE 1=1");
+        let mut binds: Vec<String> = Vec::new();
 
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+        if let Some(ref user_id) = query.user_id {
+            binds.push(user_id.to_string());
+            sql.push_str(&format!(" AND user_id = ${}", binds.len()));
+        }
 
-            let mut sql = String::from(
-                "SELECT id, user_id, source, source_id, title, description,
-                    event_time, remind_at, location, status,
-                    snooze_count, max_snooze, created_at, updated_at
-                 FROM reminders WHERE 1=1",
-            );
-            let mut param_values: Vec<String> = Vec::new();
+        if let Some(status) = query.status {
+            binds.push(status_to_str(status).to_string());
+            sql.push_str(&format!(" AND status = ${}", binds.len()));
+        }
 
-            if let Some(ref user_id) = query.user_id {
-                param_values.push(user_id.to_string());
-                sql.push_str(&format!(" AND user_id = ?{}", param_values.len()));
-            }
+        if let Some(source) = query.source {
+            binds.push(source_to_str(source).to_string());
+            sql.push_str(&format!(" AND source = ${}", binds.len()));
+        }
 
-            if let Some(status) = query.status {
-                param_values.push(status_to_str(status).to_string());
-                sql.push_str(&format!(" AND status = ?{}", param_values.len()));
-            }
+        if let Some(ref due_before) = query.due_before {
+            binds.push(due_before.to_rfc3339());
+            sql.push_str(&format!(" AND remind_at <= ${}", binds.len()));
+        }
 
-            if let Some(source) = query.source {
-                param_values.push(source_to_str(source).to_string());
-                sql.push_str(&format!(" AND source = ?{}", param_values.len()));
-            }
+        if !query.include_terminal {
+            sql.push_str(" AND status IN ('pending', 'sent', 'snoozed')");
+        }
 
-            if let Some(ref due_before) = query.due_before {
-                param_values.push(due_before.to_rfc3339());
-                sql.push_str(&format!(" AND remind_at <= ?{}", param_values.len()));
-            }
+        sql.push_str(" ORDER BY remind_at ASC");
 
-            if !query.include_terminal {
-                sql.push_str(" AND status IN ('pending', 'sent', 'snoozed')");
-            }
+        if let Some(limit) = query.limit {
+            binds.push(limit.to_string());
+            sql.push_str(&format!(" LIMIT ${}", binds.len()));
+        }
 
-            sql.push_str(" ORDER BY remind_at ASC");
+        let mut q = sqlx::query_as::<_, ReminderRow>(&sql);
+        for b in &binds {
+            q = q.bind(b);
+        }
 
-            if let Some(limit) = query.limit {
-                param_values.push(limit.to_string());
-                sql.push_str(&format!(" LIMIT ?{}", param_values.len()));
-            }
-
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values
-                .iter()
-                .map(|s| s as &dyn rusqlite::types::ToSql)
-                .collect();
-
-            let reminders: Vec<Reminder> = stmt
-                .query_map(params_refs.as_slice(), row_to_reminder)
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?
-                .filter_map(Result::ok)
-                .collect();
-
-            Ok(reminders)
-        })
-        .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        let rows: Vec<ReminderRow> = q.fetch_all(&self.pool).await.map_err(map_sqlx_error)?;
+        Ok(rows.into_iter().map(ReminderRow::to_reminder).collect())
     }
 
     #[instrument(skip(self))]
     async fn get_due_reminders(&self) -> Result<Vec<Reminder>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let now = Utc::now().to_rfc3339();
+        let sql = format!(
+            "{SELECT_REMINDER} WHERE status IN ('pending', 'snoozed') \
+             AND remind_at <= $1 ORDER BY remind_at ASC"
+        );
 
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
+        let rows: Vec<ReminderRow> = sqlx::query_as(&sql)
+            .bind(Utc::now().to_rfc3339())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
 
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, user_id, source, source_id, title, description,
-                        event_time, remind_at, location, status,
-                        snooze_count, max_snooze, created_at, updated_at
-                     FROM reminders
-                     WHERE status IN ('pending', 'snoozed')
-                       AND remind_at <= ?1
-                     ORDER BY remind_at ASC",
-                )
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let reminders: Vec<Reminder> = stmt
-                .query_map([&now], row_to_reminder)
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?
-                .filter_map(Result::ok)
-                .collect();
-
-            debug!(count = reminders.len(), "Fetched due reminders");
-            Ok(reminders)
-        })
-        .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        debug!(count = rows.len(), "Fetched due reminders");
+        Ok(rows.into_iter().map(ReminderRow::to_reminder).collect())
     }
 
     #[instrument(skip(self))]
     async fn count_active(&self, user_id: &UserId) -> Result<u64, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let user_id_str = user_id.to_string();
-
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM reminders
-                     WHERE user_id = ?1
-                       AND status IN ('pending', 'sent', 'snoozed')",
-                    [&user_id_str],
-                    |row| row.get(0),
-                )
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            #[allow(clippy::cast_sign_loss)] // COUNT(*) is always non-negative
-            Ok(count as u64)
-        })
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM reminders
+             WHERE user_id = $1
+               AND status IN ('pending', 'sent', 'snoozed')",
+        )
+        .bind(user_id.to_string())
+        .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        .map_err(map_sqlx_error)?;
+
+        #[allow(clippy::cast_sign_loss)]
+        Ok(count as u64)
     }
 
     #[instrument(skip(self))]
     async fn cleanup_old(&self, older_than: DateTime<Utc>) -> Result<u64, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let threshold = older_than.to_rfc3339();
-
-        task::spawn_blocking(move || {
-            let conn = pool
-                .get()
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            let deleted = conn
-                .execute(
-                    "DELETE FROM reminders
-                     WHERE status IN ('acknowledged', 'cancelled', 'expired')
-                       AND updated_at < ?1",
-                    [&threshold],
-                )
-                .map_err(|e| ApplicationError::Internal(e.to_string()))?;
-
-            debug!(deleted, "Cleaned up old reminders");
-            #[allow(clippy::cast_sign_loss)] // DELETE count is always non-negative
-            Ok(deleted as u64)
-        })
+        let result = sqlx::query(
+            "DELETE FROM reminders
+             WHERE status IN ('acknowledged', 'cancelled', 'expired')
+               AND updated_at < $1",
+        )
+        .bind(older_than.to_rfc3339())
+        .execute(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(e.to_string()))?
+        .map_err(map_sqlx_error)?;
+
+        let deleted = result.rows_affected();
+        debug!(deleted, "Cleaned up old reminders");
+        Ok(deleted)
     }
-}
-
-/// Convert a database row to a Reminder domain entity
-fn row_to_reminder(row: &Row<'_>) -> rusqlite::Result<Reminder> {
-    let id_str: String = row.get(0)?;
-    let user_id_str: String = row.get(1)?;
-    let source_str: String = row.get(2)?;
-    let source_id: Option<String> = row.get(3)?;
-    let title: String = row.get(4)?;
-    let description: Option<String> = row.get(5)?;
-    let event_time_str: Option<String> = row.get(6)?;
-    let remind_at_str: String = row.get(7)?;
-    let location: Option<String> = row.get(8)?;
-    let status_str: String = row.get(9)?;
-    let snooze_count: i32 = row.get(10)?;
-    let max_snooze: i32 = row.get(11)?;
-    let created_at_str: String = row.get(12)?;
-    let updated_at_str: String = row.get(13)?;
-
-    let id = ReminderId::parse(&id_str).unwrap_or_else(|_| ReminderId::from(Uuid::new_v4()));
-    let user_id = UserId::parse(&user_id_str).unwrap_or_else(|_| UserId::from(Uuid::new_v4()));
-
-    let source = str_to_source(&source_str);
-    let status = str_to_status(&status_str);
-
-    let event_time = event_time_str.and_then(|s| {
-        DateTime::parse_from_rfc3339(&s)
-            .ok()
-            .map(|dt| dt.with_timezone(&Utc))
-    });
-    let remind_at = DateTime::parse_from_rfc3339(&remind_at_str)
-        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-    let created_at = DateTime::parse_from_rfc3339(&created_at_str)
-        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-    let updated_at = DateTime::parse_from_rfc3339(&updated_at_str)
-        .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-
-    Ok(Reminder {
-        id,
-        user_id,
-        source,
-        source_id,
-        title,
-        description,
-        event_time,
-        remind_at,
-        location,
-        status,
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // DB values are validated
-        snooze_count: snooze_count as u8,
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // DB values are validated
-        max_snooze: max_snooze as u8,
-        created_at,
-        updated_at,
-    })
 }
 
 /// Convert a `ReminderSource` to its database string representation
@@ -448,7 +329,7 @@ const fn status_to_str(status: ReminderStatus) -> &'static str {
 }
 
 /// Convert a database string to a `ReminderStatus`
-#[allow(clippy::match_same_arms)] // Fallback to Pending is intentional
+#[allow(clippy::match_same_arms)]
 fn str_to_status(s: &str) -> ReminderStatus {
     match s {
         "pending" => ReminderStatus::Pending,
@@ -461,36 +342,18 @@ fn str_to_status(s: &str) -> ReminderStatus {
     }
 }
 
-/// Extension trait for optional query results
-trait OptionalExt<T> {
-    fn optional(self) -> rusqlite::Result<Option<T>>;
-}
-
-impl<T> OptionalExt<T> for rusqlite::Result<T> {
-    fn optional(self) -> rusqlite::Result<Option<T>> {
-        match self {
-            Ok(val) => Ok(Some(val)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::Duration;
 
     use super::*;
-    use crate::{config::DatabaseConfig, persistence::connection::create_pool};
+    use crate::persistence::async_connection::AsyncDatabase;
 
-    fn create_test_store() -> SqliteReminderStore {
-        let config = DatabaseConfig {
-            path: ":memory:".to_string(),
-            max_connections: 1,
-            run_migrations: true,
-        };
-        let pool = create_pool(&config).unwrap();
-        SqliteReminderStore::new(Arc::new(pool))
+    async fn setup() -> (AsyncDatabase, SqliteReminderStore) {
+        let db = AsyncDatabase::in_memory().await.unwrap();
+        db.migrate().await.unwrap();
+        let store = SqliteReminderStore::new(db.pool().clone());
+        (db, store)
     }
 
     fn test_user_id() -> UserId {
@@ -499,7 +362,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_and_get_reminder() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let user_id = test_user_id();
         let remind_at = Utc::now() + Duration::hours(1);
         let reminder = Reminder::new(user_id, ReminderSource::Custom, "Buy milk", remind_at)
@@ -522,14 +385,14 @@ mod tests {
 
     #[tokio::test]
     async fn get_nonexistent_returns_none() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let result = store.get(&ReminderId::new()).await.unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn save_with_location_and_event_time() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let event_time = Utc::now() + Duration::hours(2);
         let remind_at = Utc::now() + Duration::hours(1);
         let reminder = Reminder::new(
@@ -552,7 +415,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_by_source_id() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let reminder = Reminder::new(
             test_user_id(),
             ReminderSource::CalendarEvent,
@@ -570,7 +433,6 @@ mod tests {
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, reminder.id);
 
-        // Not found with wrong source
         let not_found = store
             .get_by_source_id(ReminderSource::Custom, "uid-abc-1h")
             .await
@@ -580,7 +442,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_reminder() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let mut reminder = Reminder::new(
             test_user_id(),
             ReminderSource::Custom,
@@ -598,7 +460,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_reminder() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let reminder = Reminder::new(
             test_user_id(),
             ReminderSource::Custom,
@@ -608,18 +470,16 @@ mod tests {
         store.save(&reminder).await.unwrap();
 
         store.delete(&reminder.id).await.unwrap();
-
         let result = store.get(&reminder.id).await.unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn query_active_for_user() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let user = test_user_id();
         let other_user = test_user_id();
 
-        // Create reminders for our user
         let r1 = Reminder::new(
             user,
             ReminderSource::Custom,
@@ -632,7 +492,6 @@ mod tests {
             "Active 2",
             Utc::now() + Duration::hours(2),
         );
-        // Create for other user
         let r3 = Reminder::new(
             other_user,
             ReminderSource::Custom,
@@ -651,17 +510,15 @@ mod tests {
 
     #[tokio::test]
     async fn get_due_reminders() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let user = test_user_id();
 
-        // Due reminder (past time)
         let r1 = Reminder::new(
             user,
             ReminderSource::Custom,
             "Due now",
             Utc::now() - Duration::minutes(5),
         );
-        // Future reminder (not due)
         let r2 = Reminder::new(
             user,
             ReminderSource::Custom,
@@ -679,7 +536,7 @@ mod tests {
 
     #[tokio::test]
     async fn count_active_reminders() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let user = test_user_id();
 
         let r1 = Reminder::new(
@@ -704,10 +561,9 @@ mod tests {
 
     #[tokio::test]
     async fn cleanup_old_reminders() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let user = test_user_id();
 
-        // Create and acknowledge a reminder
         let mut r1 = Reminder::new(
             user,
             ReminderSource::Custom,
@@ -715,13 +571,10 @@ mod tests {
             Utc::now() - Duration::days(35),
         );
         r1.acknowledge();
-        // Tan the updated_at to be old
         r1.updated_at = Utc::now() - Duration::days(35);
         store.save(&r1).await.unwrap();
-        // Update to set the old updated_at
         store.update(&r1).await.unwrap();
 
-        // Create a recent pending reminder
         let r2 = Reminder::new(
             user,
             ReminderSource::Custom,
@@ -734,14 +587,13 @@ mod tests {
         let deleted = store.cleanup_old(threshold).await.unwrap();
         assert_eq!(deleted, 1);
 
-        // Active reminder should still exist
         let active = store.get(&r2.id).await.unwrap();
         assert!(active.is_some());
     }
 
     #[tokio::test]
     async fn snooze_lifecycle() {
-        let store = create_test_store();
+        let (_db, store) = setup().await;
         let mut reminder = Reminder::new(
             test_user_id(),
             ReminderSource::Custom,
@@ -784,5 +636,11 @@ mod tests {
             let s = status_to_str(status);
             assert_eq!(str_to_status(s), status);
         }
+    }
+
+    #[test]
+    fn sqlite_reminder_store_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<SqliteReminderStore>();
     }
 }

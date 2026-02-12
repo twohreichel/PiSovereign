@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use domain::{
     entities::{ChatMessage, Conversation, ConversationSource},
-    value_objects::UserId,
+    value_objects::{PhoneNumber, UserId},
 };
 use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
@@ -274,8 +274,11 @@ where
             return Ok((conversation, false));
         }
 
+        // Parse phone number for domain type
+        let phone = PhoneNumber::new(phone_number)?;
+
         // Create new conversation
-        let conversation = Conversation::for_messenger(source, phone_number);
+        let conversation = Conversation::for_messenger(source, phone);
         debug!(
             conversation_id = %conversation.id,
             "Created new conversation"

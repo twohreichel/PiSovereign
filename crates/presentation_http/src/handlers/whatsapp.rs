@@ -10,8 +10,8 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use domain::PhoneNumber;
 use domain::entities::{AudioFormat, Conversation, ConversationSource};
-use domain::value_objects::ConversationId;
 use integration_whatsapp::{
     IncomingMessage, WebhookPayload, WhatsAppClient, WhatsAppClientConfig, extract_all_messages,
     verify_signature,
@@ -19,11 +19,12 @@ use integration_whatsapp::{
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
 /// Query parameters for webhook verification
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct WebhookVerifyQuery {
     /// The mode (should be "subscribe")
     #[serde(rename = "hub.mode")]
@@ -37,7 +38,7 @@ pub struct WebhookVerifyQuery {
 }
 
 /// Response for incoming messages
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MessageResponse {
     /// Message ID
     pub message_id: String,
@@ -57,6 +58,22 @@ pub struct MessageResponse {
 ///
 /// Meta sends a GET request to verify webhook ownership during setup.
 /// We must verify the token and return the challenge.
+#[utoipa::path(
+    get,
+    path = "/webhook/whatsapp",
+    tag = "whatsapp",
+    params(
+        ("hub.mode" = Option<String>, Query, description = "Must be 'subscribe'"),
+        ("hub.verify_token" = Option<String>, Query, description = "Token to verify"),
+        ("hub.challenge" = Option<String>, Query, description = "Challenge to return")
+    ),
+    responses(
+        (status = 200, description = "Webhook verified, challenge returned", body = String),
+        (status = 400, description = "Missing or invalid parameters"),
+        (status = 403, description = "Token mismatch"),
+        (status = 503, description = "WhatsApp not configured")
+    )
+)]
 #[instrument(skip(state, query))]
 pub async fn verify_webhook(
     State(state): State<AppState>,
@@ -110,6 +127,18 @@ pub async fn verify_webhook(
 ///
 /// Receives incoming messages from WhatsApp Business API.
 /// Must verify signature and process messages.
+#[utoipa::path(
+    post,
+    path = "/webhook/whatsapp",
+    tag = "whatsapp",
+    request_body(content = Vec<u8>, description = "Raw webhook payload from Meta", content_type = "application/json"),
+    responses(
+        (status = 200, description = "Messages processed successfully"),
+        (status = 400, description = "Invalid payload"),
+        (status = 401, description = "Invalid signature"),
+        (status = 503, description = "WhatsApp not configured")
+    )
+)]
 #[instrument(skip(state, headers, body))]
 pub async fn handle_webhook(
     State(state): State<AppState>,
@@ -240,6 +269,21 @@ async fn handle_text_message(
         "Processing WhatsApp text message"
     );
 
+    // Parse phone number for domain type
+    let phone = match PhoneNumber::new(from) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(error = %e, from = %from, "Invalid phone number from WhatsApp");
+            return MessageResponse {
+                message_id: message_id.to_string(),
+                from: from.to_string(),
+                status: "error".to_string(),
+                response: Some("Invalid sender phone number".to_string()),
+                response_type: None,
+            };
+        },
+    };
+
     // Get or create conversation for this phone number
     let mut conversation = if let Some(store) = &state.conversation_store {
         match store
@@ -256,16 +300,16 @@ async fn handle_text_message(
             },
             Ok(None) => {
                 debug!("Creating new conversation for phone number");
-                Conversation::for_messenger(ConversationSource::WhatsApp, from)
+                Conversation::for_messenger(ConversationSource::WhatsApp, phone.clone())
             },
             Err(e) => {
                 warn!(error = %e, "Failed to load conversation, creating new one");
-                Conversation::for_messenger(ConversationSource::WhatsApp, from)
+                Conversation::for_messenger(ConversationSource::WhatsApp, phone.clone())
             },
         }
     } else {
         // No persistence configured, create transient conversation
-        Conversation::for_messenger(ConversationSource::WhatsApp, from)
+        Conversation::for_messenger(ConversationSource::WhatsApp, phone)
     };
 
     // Add user message to conversation
@@ -430,11 +474,11 @@ async fn handle_audio_message(
     );
 
     // Parse audio format from MIME type (prefer downloaded MIME type)
-    let format = parse_audio_format(&downloaded.mime_type);
+    let format = super::common::parse_audio_format(&downloaded.mime_type);
 
     // Create a deterministic conversation ID from phone number
     // This allows continuing conversations
-    let conversation_id = conversation_id_from_phone(from);
+    let conversation_id = super::common::conversation_id_from_phone("whatsapp", from);
 
     // Process through voice message service
     let result = voice_service
@@ -526,30 +570,6 @@ async fn handle_audio_message(
     }
 }
 
-/// Create a deterministic conversation ID from a phone number
-fn conversation_id_from_phone(phone: &str) -> ConversationId {
-    use std::hash::{DefaultHasher, Hash, Hasher};
-
-    // Create a deterministic UUID from phone number hash
-    let mut hasher = DefaultHasher::new();
-    "whatsapp".hash(&mut hasher);
-    phone.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    // Create UUID bytes from hash
-    let bytes: [u8; 16] = {
-        let mut b = [0u8; 16];
-        b[0..8].copy_from_slice(&hash.to_be_bytes());
-        b[8..16].copy_from_slice(&hash.wrapping_mul(31).to_be_bytes());
-        // Set version 4 (random) and variant bits
-        b[6] = (b[6] & 0x0f) | 0x40;
-        b[8] = (b[8] & 0x3f) | 0x80;
-        b
-    };
-
-    ConversationId::from_uuid(uuid::Uuid::from_bytes(bytes))
-}
-
 /// Upload audio to WhatsApp and send it as an audio message
 async fn upload_and_send_audio(
     client: &WhatsAppClient,
@@ -558,7 +578,7 @@ async fn upload_and_send_audio(
     format: &AudioFormat,
 ) -> Result<(), String> {
     let mime_type = format_to_mime(*format);
-    let filename = format!("response.{}", format_extension(*format));
+    let filename = format!("response.{}", super::common::format_extension(*format));
 
     // Upload the audio
     let upload_result = client
@@ -573,34 +593,6 @@ async fn upload_and_send_audio(
         .map_err(|e| format!("Failed to send audio message: {e}"))?;
 
     Ok(())
-}
-
-/// Get file extension for audio format
-const fn format_extension(format: AudioFormat) -> &'static str {
-    match format {
-        AudioFormat::Opus => "opus",
-        AudioFormat::Ogg => "ogg",
-        AudioFormat::Mp3 => "mp3",
-        AudioFormat::Wav => "wav",
-    }
-}
-
-/// Parse audio format from MIME type
-fn parse_audio_format(mime_type: &str) -> AudioFormat {
-    let mime_lower = mime_type.to_lowercase();
-
-    if mime_lower.contains("opus") {
-        AudioFormat::Opus
-    } else if mime_lower.contains("ogg") {
-        AudioFormat::Ogg
-    } else if mime_lower.contains("mp3") || mime_lower.contains("mpeg") {
-        AudioFormat::Mp3
-    } else if mime_lower.contains("wav") {
-        AudioFormat::Wav
-    } else {
-        // Default to Ogg for WhatsApp voice messages
-        AudioFormat::Ogg
-    }
 }
 
 /// Convert audio format to MIME type
@@ -760,43 +752,6 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("audio"));
         assert!(json.contains("Transcribed text"));
-    }
-
-    #[test]
-    fn parse_audio_format_opus() {
-        assert!(matches!(
-            parse_audio_format("audio/ogg; codecs=opus"),
-            AudioFormat::Opus
-        ));
-        assert!(matches!(
-            parse_audio_format("audio/opus"),
-            AudioFormat::Opus
-        ));
-    }
-
-    #[test]
-    fn parse_audio_format_ogg() {
-        assert!(matches!(parse_audio_format("audio/ogg"), AudioFormat::Ogg));
-    }
-
-    #[test]
-    fn parse_audio_format_mp3() {
-        assert!(matches!(parse_audio_format("audio/mp3"), AudioFormat::Mp3));
-        assert!(matches!(parse_audio_format("audio/mpeg"), AudioFormat::Mp3));
-    }
-
-    #[test]
-    fn parse_audio_format_wav() {
-        assert!(matches!(parse_audio_format("audio/wav"), AudioFormat::Wav));
-    }
-
-    #[test]
-    fn parse_audio_format_unknown_defaults_to_ogg() {
-        assert!(matches!(
-            parse_audio_format("audio/unknown"),
-            AudioFormat::Ogg
-        ));
-        assert!(matches!(parse_audio_format("video/mp4"), AudioFormat::Ogg));
     }
 
     #[test]

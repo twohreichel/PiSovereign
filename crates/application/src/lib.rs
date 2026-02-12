@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Application layer - Use cases and orchestration
 //!
 //! Contains application-level logic, command handlers, and port definitions.

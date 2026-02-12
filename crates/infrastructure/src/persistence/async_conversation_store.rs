@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
     ChatMessage, Conversation, ConversationId, ConversationSource, MessageMetadata, MessageRole,
+    PhoneNumber,
 };
 use sqlx::SqlitePool;
 use tracing::{debug, instrument};
@@ -64,6 +65,89 @@ impl AsyncConversationStore {
         s.parse::<ConversationSource>()
             .map_err(|e| ApplicationError::Internal(format!("Invalid conversation source: {e}")))
     }
+
+    /// Build conversations from joined rows, grouping by conversation ID
+    ///
+    /// Expects rows ordered by conversation (e.g. `updated_at DESC`) then by
+    /// message `created_at ASC`. Adjacent rows with the same `id` are grouped
+    /// into a single `Conversation`.
+    fn build_conversations_from_joined_rows(
+        rows: Vec<ConversationWithMessageRow>,
+    ) -> Result<Vec<Conversation>, ApplicationError> {
+        use std::collections::BTreeMap;
+
+        // Preserve insertion order via (index, conversation_data)
+        let mut conv_map: BTreeMap<String, (usize, ConversationRow, Vec<ChatMessage>)> =
+            BTreeMap::new();
+        let mut order = 0usize;
+
+        for row in rows {
+            let entry = conv_map.entry(row.id.clone()).or_insert_with(|| {
+                let idx = order;
+                order += 1;
+                (
+                    idx,
+                    ConversationRow {
+                        id: row.id.clone(),
+                        title: row.title.clone(),
+                        system_prompt: row.system_prompt.clone(),
+                        created_at: row.created_at.clone(),
+                        updated_at: row.updated_at.clone(),
+                        source: row.source.clone(),
+                        phone_number: row.phone_number.clone(),
+                    },
+                    Vec::new(),
+                )
+            });
+
+            // Only add a message if msg_id is present (LEFT JOIN may yield NULLs)
+            if let (Some(msg_id), Some(msg_role), Some(msg_content), Some(msg_created_at)) = (
+                row.msg_id,
+                row.msg_role,
+                row.msg_content,
+                row.msg_created_at,
+            ) {
+                let metadata: Option<MessageMetadata> = row
+                    .msg_metadata
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str(s).ok());
+
+                // Note: Conversations never realistically exceed u32::MAX messages
+                #[allow(clippy::cast_possible_truncation)]
+                let seq = (entry.2.len() as u32) + 1;
+                entry.2.push(ChatMessage {
+                    id: Self::parse_uuid(&msg_id)?,
+                    role: Self::parse_role(&msg_role)?,
+                    content: msg_content,
+                    created_at: parse_datetime(&msg_created_at)?,
+                    sequence_number: seq,
+                    metadata,
+                });
+            }
+        }
+
+        // Sort by insertion order and build final Vec
+        let mut entries: Vec<_> = conv_map.into_values().collect();
+        entries.sort_by_key(|(idx, _, _)| *idx);
+
+        entries
+            .into_iter()
+            .map(|(_, conv_row, messages)| {
+                let message_count = messages.len();
+                Ok(Conversation {
+                    id: Self::parse_conversation_id(&conv_row.id)?,
+                    title: conv_row.title,
+                    system_prompt: conv_row.system_prompt,
+                    messages,
+                    created_at: parse_datetime(&conv_row.created_at)?,
+                    updated_at: parse_datetime(&conv_row.updated_at)?,
+                    persisted_message_count: message_count,
+                    source: Self::parse_source(&conv_row.source)?,
+                    phone_number: conv_row.phone_number.and_then(|p| PhoneNumber::new(p).ok()),
+                })
+            })
+            .collect()
+    }
 }
 
 #[async_trait]
@@ -91,7 +175,7 @@ impl ConversationStore for AsyncConversationStore {
         .bind(conversation.created_at.to_rfc3339())
         .bind(conversation.updated_at.to_rfc3339())
         .bind(conversation.source.as_str())
-        .bind(&conversation.phone_number)
+        .bind(conversation.phone_number.as_ref().map(PhoneNumber::as_str))
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
@@ -196,7 +280,7 @@ impl ConversationStore for AsyncConversationStore {
             // All loaded messages are already persisted
             persisted_message_count: message_count,
             source: Self::parse_source(&row.source)?,
-            phone_number: row.phone_number,
+            phone_number: row.phone_number.and_then(|p| PhoneNumber::new(p).ok()),
         };
 
         debug!("Conversation loaded");
@@ -272,7 +356,7 @@ impl ConversationStore for AsyncConversationStore {
             updated_at: parse_datetime(&row.updated_at)?,
             persisted_message_count: message_count,
             source: Self::parse_source(&row.source)?,
-            phone_number: row.phone_number,
+            phone_number: row.phone_number.and_then(|p| PhoneNumber::new(p).ok()),
         };
 
         debug!("Conversation loaded by phone number");
@@ -388,12 +472,19 @@ impl ConversationStore for AsyncConversationStore {
 
     #[instrument(skip(self))]
     async fn list_recent(&self, limit: usize) -> Result<Vec<Conversation>, ApplicationError> {
-        let conv_rows: Vec<ConversationRow> = sqlx::query_as(
+        // Single JOIN query instead of N+1 (one query per conversation)
+        let rows: Vec<ConversationWithMessageRow> = sqlx::query_as(
             r"
-            SELECT id, title, system_prompt, created_at, updated_at, source, phone_number
-            FROM conversations
-            ORDER BY updated_at DESC
-            LIMIT $1
+            SELECT c.id, c.title, c.system_prompt, c.created_at, c.updated_at,
+                   c.source, c.phone_number,
+                   m.id AS msg_id, m.role AS msg_role, m.content AS msg_content,
+                   m.created_at AS msg_created_at, m.metadata AS msg_metadata
+            FROM conversations c
+            LEFT JOIN messages m ON m.conversation_id = c.id
+            WHERE c.id IN (
+                SELECT id FROM conversations ORDER BY updated_at DESC LIMIT $1
+            )
+            ORDER BY c.updated_at DESC, m.created_at ASC
             ",
         )
         .bind(i64::try_from(limit).unwrap_or(i64::MAX))
@@ -401,57 +492,7 @@ impl ConversationStore for AsyncConversationStore {
         .await
         .map_err(map_sqlx_error)?;
 
-        let mut conversations = Vec::with_capacity(conv_rows.len());
-        for row in conv_rows {
-            let conv_id = Self::parse_conversation_id(&row.id)?;
-
-            // Fetch messages for each conversation
-            let message_rows: Vec<MessageRow> = sqlx::query_as(
-                r"
-                SELECT id, role, content, created_at, metadata
-                FROM messages WHERE conversation_id = $1
-                ORDER BY created_at ASC
-                ",
-            )
-            .bind(conv_id.to_string())
-            .fetch_all(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
-
-            let mut messages = Vec::with_capacity(message_rows.len());
-            for (idx, msg_row) in message_rows.into_iter().enumerate() {
-                let metadata: Option<MessageMetadata> = msg_row
-                    .metadata
-                    .as_deref()
-                    .and_then(|s| serde_json::from_str(s).ok());
-
-                // Note: Conversations never realistically exceed u32::MAX messages
-                #[allow(clippy::cast_possible_truncation)]
-                let seq = (idx as u32) + 1;
-                messages.push(ChatMessage {
-                    id: Self::parse_uuid(&msg_row.id)?,
-                    role: Self::parse_role(&msg_row.role)?,
-                    content: msg_row.content,
-                    created_at: parse_datetime(&msg_row.created_at)?,
-                    sequence_number: seq,
-                    metadata,
-                });
-            }
-
-            let message_count = messages.len();
-            conversations.push(Conversation {
-                id: conv_id,
-                title: row.title,
-                system_prompt: row.system_prompt,
-                messages,
-                created_at: parse_datetime(&row.created_at)?,
-                updated_at: parse_datetime(&row.updated_at)?,
-                persisted_message_count: message_count,
-                source: Self::parse_source(&row.source)?,
-                phone_number: row.phone_number,
-            });
-        }
-
+        let conversations = Self::build_conversations_from_joined_rows(rows)?;
         debug!(count = conversations.len(), "Listed recent conversations");
         Ok(conversations)
     }
@@ -464,14 +505,24 @@ impl ConversationStore for AsyncConversationStore {
     ) -> Result<Vec<Conversation>, ApplicationError> {
         let search_pattern = format!("%{query}%");
 
-        let conv_rows: Vec<ConversationRow> = sqlx::query_as(
+        // Single JOIN query: find matching conversations and load their messages in one pass
+        let rows: Vec<ConversationWithMessageRow> = sqlx::query_as(
             r"
-            SELECT DISTINCT c.id, c.title, c.system_prompt, c.created_at, c.updated_at, c.source, c.phone_number
+            SELECT c.id, c.title, c.system_prompt, c.created_at, c.updated_at,
+                   c.source, c.phone_number,
+                   m.id AS msg_id, m.role AS msg_role, m.content AS msg_content,
+                   m.created_at AS msg_created_at, m.metadata AS msg_metadata
             FROM conversations c
-            LEFT JOIN messages m ON c.id = m.conversation_id
-            WHERE c.title LIKE $1 OR m.content LIKE $1
-            ORDER BY c.updated_at DESC
-            LIMIT $2
+            LEFT JOIN messages m ON m.conversation_id = c.id
+            WHERE c.id IN (
+                SELECT DISTINCT c2.id
+                FROM conversations c2
+                LEFT JOIN messages m2 ON c2.id = m2.conversation_id
+                WHERE c2.title LIKE $1 OR m2.content LIKE $1
+                ORDER BY c2.updated_at DESC
+                LIMIT $2
+            )
+            ORDER BY c.updated_at DESC, m.created_at ASC
             ",
         )
         .bind(&search_pattern)
@@ -480,56 +531,7 @@ impl ConversationStore for AsyncConversationStore {
         .await
         .map_err(map_sqlx_error)?;
 
-        let mut conversations = Vec::with_capacity(conv_rows.len());
-        for row in conv_rows {
-            let conv_id = Self::parse_conversation_id(&row.id)?;
-
-            // Fetch messages
-            let message_rows: Vec<MessageRow> = sqlx::query_as(
-                r"
-                SELECT id, role, content, created_at, metadata
-                FROM messages WHERE conversation_id = $1
-                ORDER BY created_at ASC
-                ",
-            )
-            .bind(conv_id.to_string())
-            .fetch_all(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
-
-            let mut messages = Vec::with_capacity(message_rows.len());
-            for (idx, msg_row) in message_rows.into_iter().enumerate() {
-                let metadata: Option<MessageMetadata> = msg_row
-                    .metadata
-                    .as_deref()
-                    .and_then(|s| serde_json::from_str(s).ok());
-
-                // Note: Conversations never realistically exceed u32::MAX messages
-                #[allow(clippy::cast_possible_truncation)]
-                let seq = (idx as u32) + 1;
-                messages.push(ChatMessage {
-                    id: Self::parse_uuid(&msg_row.id)?,
-                    role: Self::parse_role(&msg_row.role)?,
-                    content: msg_row.content,
-                    created_at: parse_datetime(&msg_row.created_at)?,
-                    sequence_number: seq,
-                    metadata,
-                });
-            }
-
-            let message_count = messages.len();
-            conversations.push(Conversation {
-                id: conv_id,
-                title: row.title,
-                system_prompt: row.system_prompt,
-                messages,
-                created_at: parse_datetime(&row.created_at)?,
-                updated_at: parse_datetime(&row.updated_at)?,
-                persisted_message_count: message_count,
-                source: Self::parse_source(&row.source)?,
-                phone_number: row.phone_number,
-            });
-        }
+        let conversations = Self::build_conversations_from_joined_rows(rows)?;
 
         debug!(
             query = %query,
@@ -578,6 +580,25 @@ struct MessageRow {
     metadata: Option<String>,
 }
 
+/// Combined row for JOIN queries (conversations + messages in one pass)
+#[derive(sqlx::FromRow)]
+struct ConversationWithMessageRow {
+    // Conversation fields
+    id: String,
+    title: Option<String>,
+    system_prompt: Option<String>,
+    created_at: String,
+    updated_at: String,
+    source: String,
+    phone_number: Option<String>,
+    // Message fields (nullable for conversations without messages)
+    msg_id: Option<String>,
+    msg_role: Option<String>,
+    msg_content: Option<String>,
+    msg_created_at: Option<String>,
+    msg_metadata: Option<String>,
+}
+
 /// Parse an RFC3339 datetime string
 fn parse_datetime(s: &str) -> Result<DateTime<Utc>, ApplicationError> {
     DateTime::parse_from_rfc3339(s)
@@ -585,18 +606,8 @@ fn parse_datetime(s: &str) -> Result<DateTime<Utc>, ApplicationError> {
         .map_err(|e| ApplicationError::Internal(format!("Invalid datetime: {e}")))
 }
 
-/// Map sqlx error to application error
-fn map_sqlx_error(e: sqlx::Error) -> ApplicationError {
-    match e {
-        sqlx::Error::RowNotFound => {
-            ApplicationError::NotFound("Database record not found".to_string())
-        },
-        sqlx::Error::Database(db_err) => {
-            ApplicationError::Internal(format!("Database error: {db_err}"))
-        },
-        other => ApplicationError::Internal(format!("Database error: {other}")),
-    }
-}
+/// Map sqlx error to application error — re-exported from shared module
+use super::error::map_sqlx_error;
 
 #[cfg(test)]
 mod tests {

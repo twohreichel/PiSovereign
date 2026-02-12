@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Web search integration for PiSovereign
 //!
 //! Provides web search capabilities via Brave Search API with DuckDuckGo as fallback.
@@ -29,6 +30,7 @@ mod duckduckgo;
 mod error;
 mod models;
 mod provider;
+mod urlencoding;
 
 pub use brave::BraveSearchClient;
 pub use config::WebSearchConfig;

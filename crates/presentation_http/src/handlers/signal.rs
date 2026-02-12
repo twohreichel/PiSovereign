@@ -5,16 +5,17 @@
 
 use application::ports::SynthesisResult;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use domain::entities::{AudioFormat, Conversation, ConversationSource};
-use domain::value_objects::ConversationId;
+use domain::PhoneNumber;
+use domain::entities::{Conversation, ConversationSource};
 use integration_signal::Attachment;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
 /// Query parameters for message polling
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct PollQuery {
     /// Timeout in seconds (0 for non-blocking, default: 1)
     #[serde(default = "default_timeout")]
@@ -26,7 +27,7 @@ const fn default_timeout() -> u64 {
 }
 
 /// Response for polling messages
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PollResponse {
     /// Number of messages processed
     pub processed: usize,
@@ -37,7 +38,7 @@ pub struct PollResponse {
 }
 
 /// Response for a single processed message
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MessageResponse {
     /// Message timestamp (Signal's unique ID)
     pub timestamp: i64,
@@ -54,7 +55,7 @@ pub struct MessageResponse {
 }
 
 /// Health check for Signal integration
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SignalHealthResponse {
     /// Whether Signal is available
     pub available: bool,
@@ -68,6 +69,15 @@ pub struct SignalHealthResponse {
 /// Check Signal service availability
 ///
 /// Returns the status of the signal-cli daemon connection.
+#[utoipa::path(
+    get,
+    path = "/health/signal",
+    tag = "signal",
+    responses(
+        (status = 200, description = "Signal daemon is available", body = SignalHealthResponse),
+        (status = 503, description = "Signal daemon is unavailable", body = SignalHealthResponse)
+    )
+)]
 #[instrument(skip(state))]
 pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.config.load();
@@ -151,6 +161,21 @@ pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
 ///
 /// This endpoint polls the signal-cli daemon for new messages and processes them.
 /// Use this endpoint for periodic polling (e.g., every few seconds).
+#[utoipa::path(
+    post,
+    path = "/v1/signal/poll",
+    tag = "signal",
+    params(
+        ("timeout" = u64, Query, description = "Timeout in seconds (0 for non-blocking, default: 1)")
+    ),
+    responses(
+        (status = 200, description = "Messages polled and processed", body = PollResponse),
+        (status = 503, description = "Signal not available", body = PollResponse)
+    ),
+    security(
+        ("api_key" = [])
+    )
+)]
 #[instrument(skip(state))]
 pub async fn poll_messages(
     State(state): State<AppState>,
@@ -332,6 +357,21 @@ async fn handle_text_message(
         "Processing Signal text message"
     );
 
+    // Parse phone number for domain type
+    let phone = match PhoneNumber::new(from) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(error = %e, from = %from, "Invalid phone number from Signal");
+            return MessageResponse {
+                timestamp,
+                from: from.to_string(),
+                status: "error".to_string(),
+                response: Some("Invalid sender phone number".to_string()),
+                response_type: None,
+            };
+        },
+    };
+
     // Get or create conversation for this phone number
     let mut conversation = if let Some(store) = &state.conversation_store {
         match store
@@ -348,16 +388,16 @@ async fn handle_text_message(
             },
             Ok(None) => {
                 debug!("Creating new Signal conversation for phone number");
-                Conversation::for_messenger(ConversationSource::Signal, from)
+                Conversation::for_messenger(ConversationSource::Signal, phone.clone())
             },
             Err(e) => {
                 warn!(error = %e, "Failed to load Signal conversation, creating new one");
-                Conversation::for_messenger(ConversationSource::Signal, from)
+                Conversation::for_messenger(ConversationSource::Signal, phone.clone())
             },
         }
     } else {
         // No persistence configured, create transient conversation
-        Conversation::for_messenger(ConversationSource::Signal, from)
+        Conversation::for_messenger(ConversationSource::Signal, phone)
     };
 
     // Add user message to conversation
@@ -522,10 +562,10 @@ async fn handle_audio_message(
     );
 
     // Parse audio format
-    let format = parse_audio_format(&attachment.content_type);
+    let format = super::common::parse_audio_format(&attachment.content_type);
 
     // Create a deterministic conversation ID from phone number
-    let conversation_id = conversation_id_from_phone(from);
+    let conversation_id = super::common::conversation_id_from_phone("signal", from);
 
     // Process through voice message service
     let result = voice_service
@@ -620,7 +660,7 @@ async fn send_audio_response(
         .await
         .map_err(|e| format!("Failed to create temp dir: {e}"))?;
 
-    let ext = format_extension(audio_response.format);
+    let ext = super::common::format_extension(audio_response.format);
     let filename = format!("{}.{}", uuid::Uuid::new_v4(), ext);
     let temp_path = temp_dir.join(&filename);
 
@@ -640,142 +680,9 @@ async fn send_audio_response(
     result.map(|_| ())
 }
 
-/// Create a deterministic conversation ID from a phone number
-fn conversation_id_from_phone(phone: &str) -> ConversationId {
-    use std::hash::{DefaultHasher, Hash, Hasher};
-
-    // Create a deterministic UUID from phone number hash
-    let mut hasher = DefaultHasher::new();
-    "signal".hash(&mut hasher);
-    phone.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    // Create UUID bytes from hash
-    let bytes: [u8; 16] = {
-        let mut b = [0u8; 16];
-        b[0..8].copy_from_slice(&hash.to_be_bytes());
-        b[8..16].copy_from_slice(&hash.wrapping_mul(31).to_be_bytes());
-        // Set version 4 (random) and variant bits
-        b[6] = (b[6] & 0x0f) | 0x40;
-        b[8] = (b[8] & 0x3f) | 0x80;
-        b
-    };
-
-    ConversationId::from_uuid(uuid::Uuid::from_bytes(bytes))
-}
-
-/// Parse audio format from MIME type
-fn parse_audio_format(mime_type: &str) -> AudioFormat {
-    let mime_lower = mime_type.to_lowercase();
-
-    if mime_lower.contains("opus") {
-        AudioFormat::Opus
-    } else if mime_lower.contains("ogg") {
-        AudioFormat::Ogg
-    } else if mime_lower.contains("mp3") || mime_lower.contains("mpeg") {
-        AudioFormat::Mp3
-    } else if mime_lower.contains("wav") {
-        AudioFormat::Wav
-    } else {
-        // Default to Ogg for Signal voice messages
-        AudioFormat::Ogg
-    }
-}
-
-/// Get file extension for audio format
-const fn format_extension(format: AudioFormat) -> &'static str {
-    match format {
-        AudioFormat::Opus => "opus",
-        AudioFormat::Ogg => "ogg",
-        AudioFormat::Mp3 => "mp3",
-        AudioFormat::Wav => "wav",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::hash::{DefaultHasher, Hash, Hasher};
-
-    #[test]
-    fn conversation_id_deterministic() {
-        let id1 = conversation_id_from_phone("+491234567890");
-        let id2 = conversation_id_from_phone("+491234567890");
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn conversation_id_differs_for_different_phones() {
-        let id1 = conversation_id_from_phone("+491234567890");
-        let id2 = conversation_id_from_phone("+491234567891");
-        assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn conversation_id_differs_from_whatsapp() {
-        // Signal uses "signal" hash prefix, WhatsApp uses "whatsapp"
-        // So same phone number should produce different IDs
-        let signal_id = conversation_id_from_phone("+491234567890");
-
-        // Simulate WhatsApp's conversation ID generation
-        let mut hasher = DefaultHasher::new();
-        "whatsapp".hash(&mut hasher);
-        "+491234567890".hash(&mut hasher);
-        let hash = hasher.finish();
-        let bytes: [u8; 16] = {
-            let mut b = [0u8; 16];
-            b[0..8].copy_from_slice(&hash.to_be_bytes());
-            b[8..16].copy_from_slice(&hash.wrapping_mul(31).to_be_bytes());
-            b[6] = (b[6] & 0x0f) | 0x40;
-            b[8] = (b[8] & 0x3f) | 0x80;
-            b
-        };
-        let whatsapp_id = ConversationId::from_uuid(uuid::Uuid::from_bytes(bytes));
-
-        assert_ne!(signal_id, whatsapp_id);
-    }
-
-    #[test]
-    fn parse_audio_format_opus() {
-        assert_eq!(
-            parse_audio_format("audio/ogg; codecs=opus"),
-            AudioFormat::Opus
-        );
-        assert_eq!(parse_audio_format("audio/opus"), AudioFormat::Opus);
-    }
-
-    #[test]
-    fn parse_audio_format_ogg() {
-        assert_eq!(parse_audio_format("audio/ogg"), AudioFormat::Ogg);
-    }
-
-    #[test]
-    fn parse_audio_format_mp3() {
-        assert_eq!(parse_audio_format("audio/mp3"), AudioFormat::Mp3);
-        assert_eq!(parse_audio_format("audio/mpeg"), AudioFormat::Mp3);
-    }
-
-    #[test]
-    fn parse_audio_format_wav() {
-        assert_eq!(parse_audio_format("audio/wav"), AudioFormat::Wav);
-    }
-
-    #[test]
-    fn parse_audio_format_unknown_defaults_to_ogg() {
-        assert_eq!(parse_audio_format("audio/unknown"), AudioFormat::Ogg);
-        assert_eq!(
-            parse_audio_format("application/octet-stream"),
-            AudioFormat::Ogg
-        );
-    }
-
-    #[test]
-    fn format_extension_returns_correct_extensions() {
-        assert_eq!(format_extension(AudioFormat::Opus), "opus");
-        assert_eq!(format_extension(AudioFormat::Ogg), "ogg");
-        assert_eq!(format_extension(AudioFormat::Mp3), "mp3");
-        assert_eq!(format_extension(AudioFormat::Wav), "wav");
-    }
 
     #[test]
     fn poll_query_default_timeout() {

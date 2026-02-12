@@ -4,8 +4,6 @@
 
 #![allow(clippy::expect_used, clippy::cast_possible_truncation, unused_imports)]
 
-use std::sync::Arc;
-
 use application::ports::{
     ApprovalQueuePort, AuditLogPort, AuditQuery, ConversationStore, DraftStorePort,
     UserProfileStore,
@@ -13,25 +11,23 @@ use application::ports::{
 use chrono::{Duration, Utc};
 use domain::{
     AgentCommand, ApprovalRequest, ApprovalStatus, AuditEntry, AuditEventType, ChatMessage,
-    Conversation, ConversationId, DraftId, PersistedEmailDraft, UserId, UserProfile,
+    Conversation, ConversationId, DraftId, EmailAddress, PersistedEmailDraft, UserId, UserProfile,
 };
-use infrastructure::config::DatabaseConfig;
 use infrastructure::persistence::{
-    ConnectionPool, SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, SqliteDraftStore,
-    SqliteUserProfileStore, create_pool,
+    AsyncConversationStore, AsyncDatabase, SqliteApprovalQueue, SqliteAuditLog, SqliteDraftStore,
+    SqliteUserProfileStore,
 };
 
 // ============================================================================
 // Test Helpers
 // ============================================================================
 
-fn create_test_db() -> Arc<ConnectionPool> {
-    let config = DatabaseConfig {
-        path: ":memory:".to_string(),
-        max_connections: 1,
-        run_migrations: true,
-    };
-    Arc::new(create_pool(&config).expect("Failed to create connection pool"))
+async fn create_test_db() -> AsyncDatabase {
+    let db = AsyncDatabase::in_memory()
+        .await
+        .expect("Failed to create in-memory database");
+    db.migrate().await.expect("Failed to run migrations");
+    db
 }
 
 fn create_test_conversation() -> Conversation {
@@ -52,8 +48,8 @@ mod conversation_store_tests {
 
     #[tokio::test]
     async fn test_save_and_get_conversation() {
-        let pool = create_test_db();
-        let store = SqliteConversationStore::new(pool);
+        let db = create_test_db().await;
+        let store = AsyncConversationStore::new(db.pool().clone());
         let conversation = create_test_conversation();
         let id = conversation.id;
 
@@ -70,8 +66,8 @@ mod conversation_store_tests {
 
     #[tokio::test]
     async fn test_get_nonexistent_conversation() {
-        let pool = create_test_db();
-        let store = SqliteConversationStore::new(pool);
+        let db = create_test_db().await;
+        let store = AsyncConversationStore::new(db.pool().clone());
 
         let result = store
             .get(&ConversationId::new())
@@ -82,14 +78,13 @@ mod conversation_store_tests {
 
     #[tokio::test]
     async fn test_update_conversation() {
-        let pool = create_test_db();
-        let store = SqliteConversationStore::new(pool);
+        let db = create_test_db().await;
+        let store = AsyncConversationStore::new(db.pool().clone());
         let mut conversation = create_test_conversation();
         let id = conversation.id;
 
         store.save(&conversation).await.expect("Failed to save");
 
-        // Update title
         conversation.title = Some("Updated Title".to_string());
         store.update(&conversation).await.expect("Failed to update");
 
@@ -99,8 +94,8 @@ mod conversation_store_tests {
 
     #[tokio::test]
     async fn test_delete_conversation() {
-        let pool = create_test_db();
-        let store = SqliteConversationStore::new(pool);
+        let db = create_test_db().await;
+        let store = AsyncConversationStore::new(db.pool().clone());
         let conversation = create_test_conversation();
         let id = conversation.id;
 
@@ -113,10 +108,9 @@ mod conversation_store_tests {
 
     #[tokio::test]
     async fn test_list_recent_conversations() {
-        let pool = create_test_db();
-        let store = SqliteConversationStore::new(pool);
+        let db = create_test_db().await;
+        let store = AsyncConversationStore::new(db.pool().clone());
 
-        // Create multiple conversations
         for _ in 0..5 {
             let conv = create_test_conversation();
             store.save(&conv).await.expect("Failed to save");
@@ -128,28 +122,25 @@ mod conversation_store_tests {
 
     #[tokio::test]
     async fn test_list_recent_limit() {
-        let pool = create_test_db();
-        let store = SqliteConversationStore::new(pool);
+        let db = create_test_db().await;
+        let store = AsyncConversationStore::new(db.pool().clone());
 
-        // Create 10 conversations
         for _ in 0..10 {
             let conv = create_test_conversation();
             store.save(&conv).await.expect("Failed to save");
         }
 
-        // Only request 3 most recent
         let list = store.list_recent(3).await.expect("Failed to list");
         assert_eq!(list.len(), 3);
     }
 
     #[tokio::test]
     async fn test_message_ordering() {
-        let pool = create_test_db();
-        let store = SqliteConversationStore::new(pool);
+        let db = create_test_db().await;
+        let store = AsyncConversationStore::new(db.pool().clone());
 
         let mut conversation = Conversation::new();
 
-        // Add messages in order
         for i in 0..5 {
             if i % 2 == 0 {
                 conversation.add_message(ChatMessage::user(format!("Message {i}")));
@@ -166,7 +157,6 @@ mod conversation_store_tests {
             .expect("Failed to get")
             .unwrap();
 
-        // Verify ordering
         for (i, msg) in retrieved.messages.iter().enumerate() {
             assert!(msg.content.contains(&i.to_string()));
         }
@@ -174,16 +164,15 @@ mod conversation_store_tests {
 
     #[tokio::test]
     async fn test_add_messages() {
-        let pool = create_test_db();
-        let store = SqliteConversationStore::new(pool);
+        let db = create_test_db().await;
+        let store = AsyncConversationStore::new(db.pool().clone());
 
         let conversation = create_test_conversation();
         let id = conversation.id;
-        let current_count = conversation.messages.len(); // 2 messages
+        let current_count = conversation.messages.len();
 
         store.save(&conversation).await.expect("Failed to save");
 
-        // Add new messages with sequence numbers greater than existing
         let new_messages = vec![
             ChatMessage::user("New message 1").with_sequence_number((current_count + 1) as u32),
             ChatMessage::assistant("New response 1")
@@ -227,15 +216,13 @@ mod audit_log_tests {
 
     #[tokio::test]
     async fn test_audit_log_insert_and_query() {
-        let pool = create_test_db();
-        let log = SqliteAuditLog::new(pool);
+        let db = create_test_db().await;
+        let log = SqliteAuditLog::new(db.pool().clone());
 
         let entry = create_test_audit_entry(AuditEventType::DataAccess, "read");
-
         log.log(&entry).await.expect("Failed to log event");
 
         let query = AuditQuery::new().with_event_type(AuditEventType::DataAccess);
-
         let events = log.query(&query).await.expect("Failed to get events");
         assert!(!events.is_empty());
 
@@ -246,10 +233,9 @@ mod audit_log_tests {
 
     #[tokio::test]
     async fn test_audit_log_filter_by_type() {
-        let pool = create_test_db();
-        let log = SqliteAuditLog::new(pool);
+        let db = create_test_db().await;
+        let log = SqliteAuditLog::new(db.pool().clone());
 
-        // Log different event types
         log.log(&create_test_audit_entry(
             AuditEventType::Authentication,
             "login",
@@ -270,22 +256,19 @@ mod audit_log_tests {
             .unwrap();
 
         let query = AuditQuery::new().with_event_type(AuditEventType::Authentication);
-
         let login_events = log.query(&query).await.expect("Failed to query");
         assert_eq!(login_events.len(), 2);
 
         let query = AuditQuery::new().with_event_type(AuditEventType::DataAccess);
-
         let data_events = log.query(&query).await.expect("Failed to query");
         assert_eq!(data_events.len(), 1);
     }
 
     #[tokio::test]
     async fn test_audit_log_filter_by_actor() {
-        let pool = create_test_db();
-        let log = SqliteAuditLog::new(pool);
+        let db = create_test_db().await;
+        let log = SqliteAuditLog::new(db.pool().clone());
 
-        // Create entries for different users
         let mut entry_alice = create_test_audit_entry(AuditEventType::DataAccess, "read");
         entry_alice.actor = Some("alice".to_string());
 
@@ -297,15 +280,14 @@ mod audit_log_tests {
         log.log(&entry_bob).await.unwrap();
 
         let query = AuditQuery::new().with_actor("alice");
-
         let alice_events = log.query(&query).await.expect("Failed to query");
         assert_eq!(alice_events.len(), 2);
     }
 
     #[tokio::test]
     async fn test_audit_log_time_range() {
-        let pool = create_test_db();
-        let log = SqliteAuditLog::new(pool);
+        let db = create_test_db().await;
+        let log = SqliteAuditLog::new(db.pool().clone());
 
         let entry = create_test_audit_entry(AuditEventType::DataAccess, "read");
         log.log(&entry).await.unwrap();
@@ -321,8 +303,8 @@ mod audit_log_tests {
 
     #[tokio::test]
     async fn test_audit_log_get_recent() {
-        let pool = create_test_db();
-        let log = SqliteAuditLog::new(pool);
+        let db = create_test_db().await;
+        let log = SqliteAuditLog::new(db.pool().clone());
 
         for i in 0..10 {
             let entry = create_test_audit_entry(AuditEventType::DataAccess, &format!("action_{i}"));
@@ -335,8 +317,8 @@ mod audit_log_tests {
 
     #[tokio::test]
     async fn test_audit_log_get_for_actor() {
-        let pool = create_test_db();
-        let log = SqliteAuditLog::new(pool);
+        let db = create_test_db().await;
+        let log = SqliteAuditLog::new(db.pool().clone());
 
         let mut entry = create_test_audit_entry(AuditEventType::DataAccess, "read");
         entry.actor = Some("specific-user".to_string());
@@ -372,8 +354,8 @@ mod approval_queue_tests {
 
     #[tokio::test]
     async fn test_approval_enqueue_and_get() {
-        let pool = create_test_db();
-        let queue = SqliteApprovalQueue::new(pool);
+        let db = create_test_db().await;
+        let queue = SqliteApprovalQueue::new(db.pool().clone());
 
         let request = create_test_approval();
         let id = request.id;
@@ -388,8 +370,8 @@ mod approval_queue_tests {
 
     #[tokio::test]
     async fn test_get_pending_for_user() {
-        let pool = create_test_db();
-        let queue = SqliteApprovalQueue::new(pool);
+        let db = create_test_db().await;
+        let queue = SqliteApprovalQueue::new(db.pool().clone());
 
         let user_id = UserId::new();
 
@@ -404,7 +386,6 @@ mod approval_queue_tests {
             queue.enqueue(&request).await.unwrap();
         }
 
-        // Create one for another user
         queue.enqueue(&create_test_approval()).await.unwrap();
 
         let user_requests = queue
@@ -416,8 +397,8 @@ mod approval_queue_tests {
 
     #[tokio::test]
     async fn test_count_pending_for_user() {
-        let pool = create_test_db();
-        let queue = SqliteApprovalQueue::new(pool);
+        let db = create_test_db().await;
+        let queue = SqliteApprovalQueue::new(db.pool().clone());
 
         let user_id = UserId::new();
 
@@ -441,8 +422,8 @@ mod approval_queue_tests {
 
     #[tokio::test]
     async fn test_approval_delete() {
-        let pool = create_test_db();
-        let queue = SqliteApprovalQueue::new(pool);
+        let db = create_test_db().await;
+        let queue = SqliteApprovalQueue::new(db.pool().clone());
 
         let request = create_test_approval();
         let id = request.id;
@@ -456,8 +437,8 @@ mod approval_queue_tests {
 
     #[tokio::test]
     async fn test_approval_update() {
-        let pool = create_test_db();
-        let queue = SqliteApprovalQueue::new(pool);
+        let db = create_test_db().await;
+        let queue = SqliteApprovalQueue::new(db.pool().clone());
 
         let mut request = create_test_approval();
         let id = request.id;
@@ -482,17 +463,17 @@ mod draft_store_tests {
     fn create_test_draft() -> PersistedEmailDraft {
         PersistedEmailDraft::new(
             UserId::new(),
-            "recipient@example.com",
+            EmailAddress::new("recipient@example.com").expect("valid email"),
             "Test Subject",
             "Test body content",
         )
-        .with_cc("cc@example.com")
+        .with_cc(EmailAddress::new("cc@example.com").expect("valid email"))
     }
 
     #[tokio::test]
     async fn test_draft_save_and_get() {
-        let pool = create_test_db();
-        let store = SqliteDraftStore::new(pool);
+        let db = create_test_db().await;
+        let store = SqliteDraftStore::new(db.pool().clone());
 
         let draft = create_test_draft();
         let id = draft.id;
@@ -500,7 +481,10 @@ mod draft_store_tests {
         store.save(&draft).await.expect("Failed to save");
 
         let result = store.get(&id).await.expect("Failed to get").unwrap();
-        assert_eq!(result.to, "recipient@example.com");
+        assert_eq!(
+            result.to,
+            EmailAddress::new("recipient@example.com").unwrap()
+        );
         assert_eq!(result.subject, "Test Subject");
         assert_eq!(result.body, "Test body content");
         assert_eq!(result.cc.len(), 1);
@@ -508,8 +492,8 @@ mod draft_store_tests {
 
     #[tokio::test]
     async fn test_draft_deletion() {
-        let pool = create_test_db();
-        let store = SqliteDraftStore::new(pool);
+        let db = create_test_db().await;
+        let store = SqliteDraftStore::new(db.pool().clone());
 
         let draft = create_test_draft();
         let id = draft.id;
@@ -524,14 +508,18 @@ mod draft_store_tests {
 
     #[tokio::test]
     async fn test_list_for_user() {
-        let pool = create_test_db();
-        let store = SqliteDraftStore::new(pool);
+        let db = create_test_db().await;
+        let store = SqliteDraftStore::new(db.pool().clone());
 
         let user_id = UserId::new();
 
         for _ in 0..3 {
-            let draft =
-                PersistedEmailDraft::new(user_id, "test@example.com", "Test Subject", "Test body");
+            let draft = PersistedEmailDraft::new(
+                user_id,
+                EmailAddress::new("test@example.com").unwrap(),
+                "Test Subject",
+                "Test body",
+            );
             store.save(&draft).await.unwrap();
         }
 
@@ -544,42 +532,43 @@ mod draft_store_tests {
 
     #[tokio::test]
     async fn test_expired_draft_not_returned() {
-        let pool = create_test_db();
-        let store = SqliteDraftStore::new(pool);
+        let db = create_test_db().await;
+        let store = SqliteDraftStore::new(db.pool().clone());
 
         let mut draft = create_test_draft();
-        draft.expires_at = Utc::now() - Duration::hours(1); // Already expired
+        draft.expires_at = Utc::now() - Duration::hours(1);
         let id = draft.id;
 
         store.save(&draft).await.expect("Failed to save");
 
-        // Expired drafts should not be returned
         let result = store.get(&id).await.expect("Failed to query");
         assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn test_get_for_user() {
-        let pool = create_test_db();
-        let store = SqliteDraftStore::new(pool);
+        let db = create_test_db().await;
+        let store = SqliteDraftStore::new(db.pool().clone());
 
         let user_id = UserId::new();
         let other_user_id = UserId::new();
 
-        let draft =
-            PersistedEmailDraft::new(user_id, "test@example.com", "Test Subject", "Test body");
+        let draft = PersistedEmailDraft::new(
+            user_id,
+            EmailAddress::new("test@example.com").unwrap(),
+            "Test Subject",
+            "Test body",
+        );
         let id = draft.id;
 
         store.save(&draft).await.expect("Failed to save");
 
-        // Can get as the owner
         let result = store
             .get_for_user(&id, &user_id)
             .await
             .expect("Failed to get");
         assert!(result.is_some());
 
-        // Cannot get as different user
         let result = store
             .get_for_user(&id, &other_user_id)
             .await
@@ -601,8 +590,8 @@ mod user_profile_tests {
 
     #[tokio::test]
     async fn test_user_profile_save_and_get() {
-        let pool = create_test_db();
-        let store = SqliteUserProfileStore::new(pool);
+        let db = create_test_db().await;
+        let store = SqliteUserProfileStore::new(db.pool().clone());
 
         let profile = create_test_profile();
         let id = profile.id();
@@ -615,8 +604,8 @@ mod user_profile_tests {
 
     #[tokio::test]
     async fn test_user_profile_delete() {
-        let pool = create_test_db();
-        let store = SqliteUserProfileStore::new(pool);
+        let db = create_test_db().await;
+        let store = SqliteUserProfileStore::new(db.pool().clone());
 
         let profile = create_test_profile();
         let id = profile.id();
@@ -630,8 +619,8 @@ mod user_profile_tests {
 
     #[tokio::test]
     async fn test_user_profile_with_location() {
-        let pool = create_test_db();
-        let store = SqliteUserProfileStore::new(pool);
+        let db = create_test_db().await;
+        let store = SqliteUserProfileStore::new(db.pool().clone());
 
         let user_id = UserId::new();
         let location = domain::GeoLocation::new(52.52, 13.405).unwrap();
@@ -648,33 +637,21 @@ mod user_profile_tests {
     }
 }
 
-// Note: RetryQueue tests are not included here as the retry_queue table is created
-// by migration V006, which is not yet implemented in the migrations.rs code.
-// The RetryQueueStore has comprehensive unit tests in its own module that create
-// the required tables directly.
-
 // ============================================================================
 // Concurrent Access Tests
 // ============================================================================
 
 mod concurrent_access_tests {
-    use super::*;
     use std::sync::Arc;
+
     use tokio::sync::Barrier;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_concurrent_writes() {
-        // Using file-based database for concurrent access
-        let temp_dir = std::env::temp_dir();
-        let db_path = temp_dir.join(format!("test_concurrent_{}.db", uuid::Uuid::new_v4()));
-
-        let config = DatabaseConfig {
-            path: db_path.to_string_lossy().to_string(),
-            max_connections: 5,
-            run_migrations: true,
-        };
-        let pool = Arc::new(create_pool(&config).expect("Failed to create pool"));
-        let store = Arc::new(SqliteConversationStore::new(pool));
+        let db = create_test_db().await;
+        let store = Arc::new(AsyncConversationStore::new(db.pool().clone()));
 
         let barrier = Arc::new(Barrier::new(5));
         let mut handles = vec![];
@@ -699,13 +676,9 @@ mod concurrent_access_tests {
             ids.push(handle.await.expect("Task panicked"));
         }
 
-        // Verify all conversations were saved
         for id in ids {
             let conv = store.get(&id).await.expect("Failed to get");
             assert!(conv.is_some());
         }
-
-        // Cleanup
-        let _ = std::fs::remove_file(db_path);
     }
 }

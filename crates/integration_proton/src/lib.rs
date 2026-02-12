@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Proton Mail integration
 //!
 //! Sidecar interface for Proton Mail Bridge.
@@ -35,6 +36,7 @@ mod client;
 mod imap_client;
 mod reconnect;
 mod smtp_client;
+mod tls;
 
 pub use client::{
     EmailComposition, EmailSummary, ProtonBridgeClient, ProtonClient, ProtonConfig, ProtonError,

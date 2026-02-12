@@ -50,6 +50,20 @@ impl std::fmt::Display for ThreatLevel {
     }
 }
 
+impl std::str::FromStr for ThreatLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            "critical" => Ok(Self::Critical),
+            other => Err(format!("unknown threat level: {other}")),
+        }
+    }
+}
+
 /// Category of detected security threat
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

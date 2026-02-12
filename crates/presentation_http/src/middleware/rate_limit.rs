@@ -15,7 +15,7 @@ use std::{
 };
 
 use axum::{
-    extract::Request,
+    extract::{ConnectInfo, Request},
     response::{IntoResponse, Response},
 };
 use tokio::sync::RwLock;
@@ -332,12 +332,12 @@ where
 /// spoof this header to bypass rate limiting or IP-based access controls.
 #[allow(clippy::implicit_hasher)] // Using standard RandomState is fine for IP lookups
 pub fn extract_client_ip(req: &Request, trusted_proxies: &HashSet<IpAddr>) -> IpAddr {
-    // Get the connecting IP (direct connection)
-    // In a real deployment with axum::extract::ConnectInfo, this would be
-    // the actual socket address. For now, we default to localhost.
-    let connecting_ip: IpAddr = "127.0.0.1"
-        .parse()
-        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+    // Get the connecting IP from the actual TCP socket via ConnectInfo.
+    // ConnectInfo is injected by axum when using `into_make_service_with_connect_info()`.
+    let connecting_ip: IpAddr = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), |ci| ci.0.ip());
 
     // Only trust X-Forwarded-For if the connecting IP is a trusted proxy
     if !trusted_proxies.is_empty() && trusted_proxies.contains(&connecting_ip) {
@@ -388,6 +388,13 @@ mod tests {
 
     async fn test_handler() -> &'static str {
         "ok"
+    }
+
+    /// Build a request with `ConnectInfo` injected for testing.
+    fn request_with_connect_info(uri: &str, addr: std::net::SocketAddr) -> Request<Body> {
+        let mut req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+        req.extensions_mut().insert(ConnectInfo(addr));
+        req
     }
 
     fn create_test_router(enabled: bool, rpm: u32) -> Router {
@@ -580,46 +587,62 @@ mod tests {
     }
 
     #[test]
-    fn extract_ip_ignores_xff_without_trusted_proxies() {
+    fn extract_ip_uses_connect_info() {
         let trusted_proxies = HashSet::new();
+        let addr: std::net::SocketAddr = "192.168.1.42:12345".parse().unwrap();
+        let req = request_with_connect_info("/test", addr);
 
-        let req = Request::builder()
-            .uri("/test")
-            .header("x-forwarded-for", "10.0.0.1, 192.168.1.1")
-            .body(Body::empty())
-            .unwrap();
+        let ip = extract_client_ip(&req, &trusted_proxies);
+        assert_eq!(ip, "192.168.1.42".parse::<IpAddr>().unwrap());
+    }
 
-        // Without trusted proxies configured, X-Forwarded-For should be ignored
+    #[test]
+    fn extract_ip_falls_back_to_localhost_without_connect_info() {
+        let trusted_proxies = HashSet::new();
+        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
+
         let ip = extract_client_ip(&req, &trusted_proxies);
         assert_eq!(ip, "127.0.0.1".parse::<IpAddr>().unwrap());
     }
 
     #[test]
+    fn extract_ip_ignores_xff_without_trusted_proxies() {
+        let trusted_proxies = HashSet::new();
+        let addr: std::net::SocketAddr = "10.0.0.5:9999".parse().unwrap();
+
+        let mut req = request_with_connect_info("/test", addr);
+        req.headers_mut()
+            .insert("x-forwarded-for", "10.0.0.1, 192.168.1.1".parse().unwrap());
+
+        // Without trusted proxies, X-Forwarded-For should be ignored
+        let ip = extract_client_ip(&req, &trusted_proxies);
+        assert_eq!(ip, "10.0.0.5".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
     fn extract_ip_uses_xff_from_trusted_proxy() {
         let mut trusted_proxies = HashSet::new();
-        trusted_proxies.insert("127.0.0.1".parse().unwrap());
+        trusted_proxies.insert("10.0.0.1".parse().unwrap());
 
-        let req = Request::builder()
-            .uri("/test")
-            .header("x-forwarded-for", "10.0.0.1, 192.168.1.1")
-            .body(Body::empty())
-            .unwrap();
+        let addr: std::net::SocketAddr = "10.0.0.1:443".parse().unwrap();
+        let mut req = request_with_connect_info("/test", addr);
+        req.headers_mut()
+            .insert("x-forwarded-for", "203.0.113.50, 10.0.0.1".parse().unwrap());
 
-        // With localhost as trusted proxy, should use X-Forwarded-For
+        // Connecting from trusted proxy, should use X-Forwarded-For
         let ip = extract_client_ip(&req, &trusted_proxies);
-        assert_eq!(ip, "10.0.0.1".parse::<IpAddr>().unwrap());
+        assert_eq!(ip, "203.0.113.50".parse::<IpAddr>().unwrap());
     }
 
     #[test]
     fn extract_ip_handles_single_xff_ip() {
         let mut trusted_proxies = HashSet::new();
-        trusted_proxies.insert("127.0.0.1".parse().unwrap());
+        trusted_proxies.insert("10.0.0.1".parse().unwrap());
 
-        let req = Request::builder()
-            .uri("/test")
-            .header("x-forwarded-for", "192.168.100.50")
-            .body(Body::empty())
-            .unwrap();
+        let addr: std::net::SocketAddr = "10.0.0.1:443".parse().unwrap();
+        let mut req = request_with_connect_info("/test", addr);
+        req.headers_mut()
+            .insert("x-forwarded-for", "192.168.100.50".parse().unwrap());
 
         let ip = extract_client_ip(&req, &trusted_proxies);
         assert_eq!(ip, "192.168.100.50".parse::<IpAddr>().unwrap());
@@ -628,13 +651,12 @@ mod tests {
     #[test]
     fn extract_ip_handles_xff_with_ipv6() {
         let mut trusted_proxies = HashSet::new();
-        trusted_proxies.insert("127.0.0.1".parse().unwrap());
+        trusted_proxies.insert("::1".parse().unwrap());
 
-        let req = Request::builder()
-            .uri("/test")
-            .header("x-forwarded-for", "2001:db8::1, ::1")
-            .body(Body::empty())
-            .unwrap();
+        let addr: std::net::SocketAddr = "[::1]:8080".parse().unwrap();
+        let mut req = request_with_connect_info("/test", addr);
+        req.headers_mut()
+            .insert("x-forwarded-for", "2001:db8::1, ::1".parse().unwrap());
 
         let ip = extract_client_ip(&req, &trusted_proxies);
         assert_eq!(ip, "2001:db8::1".parse::<IpAddr>().unwrap());
@@ -643,17 +665,34 @@ mod tests {
     #[test]
     fn extract_ip_handles_invalid_xff() {
         let mut trusted_proxies = HashSet::new();
-        trusted_proxies.insert("127.0.0.1".parse().unwrap());
+        trusted_proxies.insert("10.0.0.1".parse().unwrap());
 
-        let req = Request::builder()
-            .uri("/test")
-            .header("x-forwarded-for", "not-an-ip, also-invalid")
-            .body(Body::empty())
-            .unwrap();
+        let addr: std::net::SocketAddr = "10.0.0.1:443".parse().unwrap();
+        let mut req = request_with_connect_info("/test", addr);
+        req.headers_mut().insert(
+            "x-forwarded-for",
+            "not-an-ip, also-invalid".parse().unwrap(),
+        );
 
         // Should fall back to connecting IP when X-Forwarded-For is invalid
         let ip = extract_client_ip(&req, &trusted_proxies);
-        assert_eq!(ip, "127.0.0.1".parse::<IpAddr>().unwrap());
+        assert_eq!(ip, "10.0.0.1".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn extract_ip_ignores_xff_from_untrusted_source() {
+        let mut trusted_proxies = HashSet::new();
+        trusted_proxies.insert("10.0.0.1".parse().unwrap());
+
+        // Connecting from an untrusted IP that sends X-Forwarded-For
+        let addr: std::net::SocketAddr = "192.168.1.100:12345".parse().unwrap();
+        let mut req = request_with_connect_info("/test", addr);
+        req.headers_mut()
+            .insert("x-forwarded-for", "1.2.3.4".parse().unwrap());
+
+        // Should ignore X-Forwarded-For since connecting IP is not trusted
+        let ip = extract_client_ip(&req, &trusted_proxies);
+        assert_eq!(ip, "192.168.1.100".parse::<IpAddr>().unwrap());
     }
 
     #[test]

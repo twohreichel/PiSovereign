@@ -9,7 +9,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use domain::{AgentCommand, ApprovalId, ApprovalStatus};
+use domain::{ApprovalId, ApprovalStatus};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
 use utoipa::{IntoParams, ToSchema};
@@ -111,7 +111,7 @@ pub async fn list_approvals(
             id: req.id.to_string(),
             status: req.status,
             description: req.description,
-            command_type: command_type_name(&req.command),
+            command_type: super::common::command_type_name(&req.command),
             created_at: req.created_at.to_rfc3339(),
             expires_at: req.expires_at.to_rfc3339(),
             reason: req.reason,
@@ -163,7 +163,7 @@ pub async fn get_approval(
         id: request.id.to_string(),
         status: request.status,
         description: request.description,
-        command_type: command_type_name(&request.command),
+        command_type: super::common::command_type_name(&request.command),
         created_at: request.created_at.to_rfc3339(),
         expires_at: request.expires_at.to_rfc3339(),
         reason: request.reason,
@@ -216,7 +216,7 @@ pub async fn approve_request(
             id: request.id.to_string(),
             status: request.status,
             description: request.description,
-            command_type: command_type_name(&request.command),
+            command_type: super::common::command_type_name(&request.command),
             created_at: request.created_at.to_rfc3339(),
             expires_at: request.expires_at.to_rfc3339(),
             reason: request.reason,
@@ -274,7 +274,7 @@ pub async fn deny_request(
             id: request.id.to_string(),
             status: request.status,
             description: request.description,
-            command_type: command_type_name(&request.command),
+            command_type: super::common::command_type_name(&request.command),
             created_at: request.created_at.to_rfc3339(),
             expires_at: request.expires_at.to_rfc3339(),
             reason: request.reason,
@@ -328,7 +328,7 @@ pub async fn cancel_request(
             id: request.id.to_string(),
             status: request.status,
             description: request.description,
-            command_type: command_type_name(&request.command),
+            command_type: super::common::command_type_name(&request.command),
             created_at: request.created_at.to_rfc3339(),
             expires_at: request.expires_at.to_rfc3339(),
             reason: request.reason,
@@ -336,46 +336,10 @@ pub async fn cancel_request(
     ))
 }
 
-/// Get the command type name for display
-fn command_type_name(command: &AgentCommand) -> String {
-    match command {
-        AgentCommand::MorningBriefing { .. } => "morning_briefing",
-        AgentCommand::SummarizeInbox { .. } => "summarize_inbox",
-        AgentCommand::Ask { .. } => "ask",
-        AgentCommand::DraftEmail { .. } => "draft_email",
-        AgentCommand::SendEmail { .. } => "send_email",
-        AgentCommand::CreateCalendarEvent { .. } => "create_calendar_event",
-        AgentCommand::UpdateCalendarEvent { .. } => "update_calendar_event",
-        AgentCommand::ListTasks { .. } => "list_tasks",
-        AgentCommand::CreateTask { .. } => "create_task",
-        AgentCommand::CompleteTask { .. } => "complete_task",
-        AgentCommand::UpdateTask { .. } => "update_task",
-        AgentCommand::DeleteTask { .. } => "delete_task",
-        AgentCommand::ListTaskLists => "list_task_lists",
-        AgentCommand::CreateTaskList { .. } => "create_task_list",
-        AgentCommand::Echo { .. } => "echo",
-        AgentCommand::Help { .. } => "help",
-        AgentCommand::System(sys) => match sys {
-            domain::SystemCommand::Status => "status",
-            domain::SystemCommand::Version => "version",
-            domain::SystemCommand::ListModels => "list_models",
-            domain::SystemCommand::ReloadConfig => "reload_config",
-            domain::SystemCommand::SwitchModel { .. } => "switch_model",
-        },
-        AgentCommand::Unknown { .. } => "unknown",
-        AgentCommand::WebSearch { .. } => "web_search",
-        AgentCommand::CreateReminder { .. } => "create_reminder",
-        AgentCommand::ListReminders { .. } => "list_reminders",
-        AgentCommand::SnoozeReminder { .. } => "snooze_reminder",
-        AgentCommand::AcknowledgeReminder { .. } => "acknowledge_reminder",
-        AgentCommand::DeleteReminder { .. } => "delete_reminder",
-        AgentCommand::SearchTransit { .. } => "search_transit",
-    }
-    .to_string()
-}
-
 #[cfg(test)]
 mod tests {
+    use domain::AgentCommand;
+
     use super::*;
 
     #[test]
@@ -417,17 +381,17 @@ mod tests {
     #[test]
     fn command_type_name_works() {
         assert_eq!(
-            command_type_name(&AgentCommand::SendEmail {
+            super::super::common::command_type_name(&AgentCommand::SendEmail {
                 draft_id: "123".to_string()
             }),
             "send_email"
         );
         assert_eq!(
-            command_type_name(&AgentCommand::Help { command: None }),
+            super::super::common::command_type_name(&AgentCommand::Help { command: None }),
             "help"
         );
         assert_eq!(
-            command_type_name(&AgentCommand::MorningBriefing { date: None }),
+            super::super::common::command_type_name(&AgentCommand::MorningBriefing { date: None }),
             "morning_briefing"
         );
     }

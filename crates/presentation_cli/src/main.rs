@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! PiSovereign CLI
 //!
 //! Command-line interface for administration and testing.

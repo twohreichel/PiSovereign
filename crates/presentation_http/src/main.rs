@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! PiSovereign HTTP Server
 //!
 //! Main entry point for the HTTP API server.
@@ -5,10 +6,10 @@
 use std::{sync::Arc, time::Duration};
 
 use application::{
-    AgentService, ApprovalService, ChatService, HealthService,
+    AgentService, ApprovalService, ChatService, HealthService, VoiceMessageService,
     ports::{
         CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
-        MessengerPort, ReminderPort, SuspiciousActivityPort, TransitPort, WeatherPort,
+        MessengerPort, ReminderPort, SpeechPort, SuspiciousActivityPort, TransitPort, WeatherPort,
     },
     services::PromptSanitizer,
 };
@@ -17,11 +18,11 @@ use infrastructure::{
     adapters::{
         CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig,
         InMemorySuspiciousActivityTracker, ProtonEmailAdapter, SignalMessengerAdapter,
-        TransitAdapter, WeatherAdapter, WhatsAppMessengerAdapter,
+        SpeechAdapter, TransitAdapter, WeatherAdapter, WhatsAppMessengerAdapter,
     },
     persistence::{
-        SqliteApprovalQueue, SqliteAuditLog, SqliteConversationStore, SqliteDatabaseHealth,
-        SqliteReminderStore, create_pool,
+        AsyncConversationStore, AsyncDatabase, AsyncDatabaseConfig, SqliteApprovalQueue,
+        SqliteAuditLog, SqliteDatabaseHealth, SqliteReminderStore,
     },
     telemetry::{TelemetryConfig, init_telemetry},
 };
@@ -33,6 +34,7 @@ use presentation_http::{
     spawn_config_reload_handler, spawn_conversation_cleanup_task, state::AppState,
 };
 use secrecy::ExposeSecret;
+use std::net::SocketAddr;
 use tokio::{net::TcpListener, signal};
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -286,27 +288,39 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|t| t.home_location.as_ref())
         .and_then(infrastructure::config::GeoLocationConfig::to_geo_location);
 
-    // Initialize database connection pool
-    let (approval_service, conversation_store, database_health_port, reminder_port) =
-        match create_pool(&initial_config.database) {
-            Ok(pool) => {
-                let pool = Arc::new(pool);
-                let approval_queue = Arc::new(SqliteApprovalQueue::new(Arc::clone(&pool)));
-                let audit_log = Arc::new(SqliteAuditLog::new(Arc::clone(&pool)));
-                let approval_service = ApprovalService::new(approval_queue, audit_log);
-                let conversation_store: Arc<dyn ConversationStore> =
-                    Arc::new(SqliteConversationStore::new(Arc::clone(&pool)));
-                let database_health: Arc<dyn DatabaseHealthPort> =
-                    Arc::new(SqliteDatabaseHealth::new(Arc::clone(&pool)));
-                let reminder_store: Arc<dyn ReminderPort> =
-                    Arc::new(SqliteReminderStore::new(Arc::clone(&pool)));
-                info!("✅ Database initialized with conversation, approval, and reminder stores");
-                (
-                    Some(Arc::new(approval_service)),
-                    Some(conversation_store),
-                    Some(database_health),
-                    Some(reminder_store),
-                )
+    // Initialize async database
+    let (approval_service, conversation_store, database_health_port, reminder_port) = {
+        let db_config = AsyncDatabaseConfig::file(&initial_config.database.path);
+        match AsyncDatabase::new(&db_config).await {
+            Ok(db) => match db.migrate().await {
+                Ok(()) => {
+                    let pool = db.pool().clone();
+                    let approval_queue = Arc::new(SqliteApprovalQueue::new(pool.clone()));
+                    let audit_log = Arc::new(SqliteAuditLog::new(pool.clone()));
+                    let approval_service = ApprovalService::new(approval_queue, audit_log);
+                    let conversation_store: Arc<dyn ConversationStore> =
+                        Arc::new(AsyncConversationStore::new(pool.clone()));
+                    let database_health: Arc<dyn DatabaseHealthPort> =
+                        Arc::new(SqliteDatabaseHealth::new(pool.clone()));
+                    let reminder_store: Arc<dyn ReminderPort> =
+                        Arc::new(SqliteReminderStore::new(pool));
+                    info!(
+                        "✅ Database initialized with conversation, approval, and reminder stores"
+                    );
+                    (
+                        Some(Arc::new(approval_service)),
+                        Some(conversation_store),
+                        Some(database_health),
+                        Some(reminder_store),
+                    )
+                },
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        "⚠️ Failed to run database migrations, persistence features disabled"
+                    );
+                    (None, None, None, None)
+                },
             },
             Err(e) => {
                 warn!(
@@ -315,16 +329,34 @@ async fn main() -> anyhow::Result<()> {
                 );
                 (None, None, None, None)
             },
-        };
+        }
+    };
 
     // Initialize services
-    let chat_service = conversation_store.as_ref().map_or_else(
+    let chat_service = Arc::new(conversation_store.as_ref().map_or_else(
         || {
             warn!("⚠️ ChatService running without conversation persistence");
             ChatService::with_system_prompt(Arc::clone(&inference), SYSTEM_PROMPT)
         },
         |store| ChatService::with_all(Arc::clone(&inference), Arc::clone(store), SYSTEM_PROMPT),
-    );
+    ));
+
+    // Initialize voice message service if speech config is provided
+    let voice_message_service: Option<Arc<VoiceMessageService>> =
+        initial_config.speech.as_ref().and_then(|speech_config| {
+            match SpeechAdapter::new(speech_config.clone()) {
+                Ok(adapter) => {
+                    let speech_port: Arc<dyn SpeechPort> = Arc::new(adapter);
+                    let service = VoiceMessageService::new(speech_port, Arc::clone(&chat_service));
+                    info!("🎙️ VoiceMessageService initialized with speech support");
+                    Some(Arc::new(service))
+                },
+                Err(e) => {
+                    warn!(error = %e, "⚠️ Failed to initialize speech adapter");
+                    None
+                },
+            }
+        });
 
     // Build agent service with optional reminder and transit support
     let mut agent_service = AgentService::new(Arc::clone(&inference));
@@ -502,11 +534,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Create app state with reloadable config
     let state = AppState {
-        chat_service: Arc::new(chat_service),
+        chat_service: Arc::clone(&chat_service),
         agent_service: Arc::new(agent_service),
         approval_service,
         health_service: Some(Arc::new(health_service)),
-        voice_message_service: None, // VoiceMessageService not yet configured in main
+        voice_message_service,
         config: reloadable_config,
         metrics,
         messenger_adapter,
@@ -603,9 +635,12 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_timeout =
         Duration::from_secs(initial_config.server.shutdown_timeout_secs.unwrap_or(30));
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(shutdown_timeout))
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(shutdown_timeout))
+    .await?;
 
     info!("👋 Server shutdown complete");
 

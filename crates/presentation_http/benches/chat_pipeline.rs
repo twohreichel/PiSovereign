@@ -147,7 +147,11 @@ impl ConversationStore for MockConversationStore {
         let store = self.conversations.read().await;
         Ok(store
             .values()
-            .find(|c| c.source == source && c.phone_number.as_deref() == Some(phone_number))
+            .find(|c| {
+                c.source == source
+                    && c.phone_number.as_ref().map(domain::PhoneNumber::as_str)
+                        == Some(phone_number)
+            })
             .cloned())
     }
 

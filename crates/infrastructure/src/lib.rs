@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Infrastructure layer - Adapters for external systems
 //!
 //! Implements ports defined in the application layer.
@@ -29,7 +30,8 @@ pub use config::{
 };
 pub use http::{CorrelatedClientConfig, CorrelatedHttpClient, RequestIdProvider, X_REQUEST_ID};
 pub use persistence::{
-    ConnectionPool, SqliteConversationStore, SqliteDatabaseHealth, SqliteDraftStore, create_pool,
+    AsyncConversationStore, AsyncDatabase, AsyncDatabaseConfig, SqliteDatabaseHealth,
+    SqliteDraftStore,
 };
 pub use retry::{RetryConfig, RetryResult, Retryable, retry, with_retry};
 pub use scheduler::{

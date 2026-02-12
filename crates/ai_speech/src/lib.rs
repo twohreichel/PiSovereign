@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! AI Speech - Speech-to-Text and Text-to-Speech abstractions
 //!
 //! Provides traits and implementations for speech processing:

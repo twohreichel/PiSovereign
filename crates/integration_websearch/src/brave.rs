@@ -233,24 +233,7 @@ impl SearchProvider for BraveSearchClient {
     }
 }
 
-// URL encoding helper
-mod urlencoding {
-    pub fn encode(input: &str) -> String {
-        let mut result = String::with_capacity(input.len() * 3);
-        for c in input.chars() {
-            match c {
-                'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => result.push(c),
-                ' ' => result.push('+'),
-                _ => {
-                    for b in c.to_string().as_bytes() {
-                        result.push_str(&format!("%{b:02X}"));
-                    }
-                },
-            }
-        }
-        result
-    }
-}
+use crate::urlencoding;
 
 #[cfg(test)]
 mod tests {

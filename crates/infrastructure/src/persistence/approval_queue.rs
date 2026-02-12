@@ -1,26 +1,24 @@
 //! SQLite adapter for the ApprovalQueue port
 //!
-//! Persists approval requests to SQLite for durability across restarts.
-
-use std::sync::Arc;
+//! Persists approval requests to SQLite for durability across restarts using sqlx.
 
 use application::{error::ApplicationError, ports::ApprovalQueuePort};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{AgentCommand, ApprovalId, ApprovalRequest, ApprovalStatus, UserId};
-use r2d2::Pool;
-use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::params;
+use sqlx::SqlitePool;
+
+use super::error::map_sqlx_error;
 
 /// SQLite implementation of the approval queue
 #[derive(Debug, Clone)]
 pub struct SqliteApprovalQueue {
-    pool: Arc<Pool<SqliteConnectionManager>>,
+    pool: SqlitePool,
 }
 
 impl SqliteApprovalQueue {
     /// Create a new SQLite approval queue
-    pub const fn new(pool: Arc<Pool<SqliteConnectionManager>>) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
@@ -28,207 +26,116 @@ impl SqliteApprovalQueue {
 #[async_trait]
 impl ApprovalQueuePort for SqliteApprovalQueue {
     async fn enqueue(&self, request: &ApprovalRequest) -> Result<(), ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let request = request.clone();
+        let command_json = serde_json::to_string(&request.command)
+            .map_err(|e| ApplicationError::Internal(format!("Failed to serialize command: {e}")))?;
 
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| {
-                ApplicationError::Internal(format!("Failed to get database connection: {e}"))
-            })?;
+        let reason_json = request
+            .reason
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| ApplicationError::Internal(format!("Failed to serialize reason: {e}")))?;
 
-            let command_json = serde_json::to_string(&request.command)
-                .map_err(|e| ApplicationError::Internal(format!("Failed to serialize command: {e}")))?;
-
-            let reason_json = request
-                .reason
-                .as_ref()
-                .map(serde_json::to_string)
-                .transpose()
-                .map_err(|e| ApplicationError::Internal(format!("Failed to serialize reason: {e}")))?;
-
-            conn.execute(
-                "INSERT INTO approval_requests 
-                 (id, user_id, command, description, status, created_at, expires_at, updated_at, reason)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    request.id.to_string(),
-                    request.user_id.to_string(),
-                    command_json,
-                    request.description,
-                    status_to_str(request.status),
-                    request.created_at.to_rfc3339(),
-                    request.expires_at.to_rfc3339(),
-                    request.updated_at.to_rfc3339(),
-                    reason_json,
-                ],
-            )
-            .map_err(|e| ApplicationError::Internal(format!("Failed to insert approval request: {e}")))?;
-
-            Ok(())
-        })
+        sqlx::query(
+            "INSERT INTO approval_requests
+             (id, user_id, command, description, status, created_at, expires_at, updated_at, reason)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(request.id.to_string())
+        .bind(request.user_id.to_string())
+        .bind(&command_json)
+        .bind(&request.description)
+        .bind(status_to_str(request.status))
+        .bind(request.created_at.to_rfc3339())
+        .bind(request.expires_at.to_rfc3339())
+        .bind(request.updated_at.to_rfc3339())
+        .bind(&reason_json)
+        .execute(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(format!("Task join error: {e}")))?
+        .map_err(map_sqlx_error)?;
+
+        Ok(())
     }
 
     async fn get(&self, id: &ApprovalId) -> Result<Option<ApprovalRequest>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let id = *id;
-
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| {
-                ApplicationError::Internal(format!("Failed to get database connection: {e}"))
-            })?;
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, user_id, command, description, status, created_at, expires_at, updated_at, reason
-                     FROM approval_requests WHERE id = ?1",
-                )
-                .map_err(|e| ApplicationError::Internal(format!("Failed to prepare statement: {e}")))?;
-
-            let result = stmt
-                .query_row([id.to_string()], row_to_approval_request)
-                .map_or_else(
-                    |e| {
-                        if e == rusqlite::Error::QueryReturnedNoRows {
-                            Ok(None)
-                        } else {
-                            Err(ApplicationError::Internal(format!(
-                                "Failed to get approval request: {e}"
-                            )))
-                        }
-                    },
-                    |req| Ok(Some(req)),
-                )?;
-
-            Ok(result)
-        })
+        let row: Option<ApprovalRow> = sqlx::query_as(
+            "SELECT id, user_id, command, description, status, created_at, expires_at, updated_at, reason
+             FROM approval_requests WHERE id = $1",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(format!("Task join error: {e}")))?
+        .map_err(map_sqlx_error)?;
+
+        row.map(ApprovalRow::to_request).transpose()
     }
 
     async fn update(&self, request: &ApprovalRequest) -> Result<(), ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let request = request.clone();
+        let reason_json = request
+            .reason
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| ApplicationError::Internal(format!("Failed to serialize reason: {e}")))?;
 
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| {
-                ApplicationError::Internal(format!("Failed to get database connection: {e}"))
-            })?;
-
-            let reason_json = request
-                .reason
-                .as_ref()
-                .map(serde_json::to_string)
-                .transpose()
-                .map_err(|e| {
-                    ApplicationError::Internal(format!("Failed to serialize reason: {e}"))
-                })?;
-
-            conn.execute(
-                "UPDATE approval_requests 
-                 SET status = ?1, updated_at = ?2, reason = ?3
-                 WHERE id = ?4",
-                params![
-                    status_to_str(request.status),
-                    request.updated_at.to_rfc3339(),
-                    reason_json,
-                    request.id.to_string(),
-                ],
-            )
-            .map_err(|e| {
-                ApplicationError::Internal(format!("Failed to update approval request: {e}"))
-            })?;
-
-            Ok(())
-        })
+        sqlx::query(
+            "UPDATE approval_requests
+             SET status = $1, updated_at = $2, reason = $3
+             WHERE id = $4",
+        )
+        .bind(status_to_str(request.status))
+        .bind(request.updated_at.to_rfc3339())
+        .bind(&reason_json)
+        .bind(request.id.to_string())
+        .execute(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(format!("Task join error: {e}")))?
+        .map_err(map_sqlx_error)?;
+
+        Ok(())
     }
 
     async fn get_pending_for_user(
         &self,
         user_id: &UserId,
     ) -> Result<Vec<ApprovalRequest>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let user_id = *user_id;
-
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| {
-                ApplicationError::Internal(format!("Failed to get database connection: {e}"))
-            })?;
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, user_id, command, description, status, created_at, expires_at, updated_at, reason
-                     FROM approval_requests 
-                     WHERE user_id = ?1 AND status = 'pending'
-                     ORDER BY created_at DESC",
-                )
-                .map_err(|e| ApplicationError::Internal(format!("Failed to prepare statement: {e}")))?;
-
-            let requests = stmt
-                .query_map([user_id.to_string()], row_to_approval_request)
-                .map_err(|e| ApplicationError::Internal(format!("Failed to query: {e}")))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| ApplicationError::Internal(format!("Failed to collect results: {e}")))?;
-
-            Ok(requests)
-        })
+        let rows: Vec<ApprovalRow> = sqlx::query_as(
+            "SELECT id, user_id, command, description, status, created_at, expires_at, updated_at, reason
+             FROM approval_requests
+             WHERE user_id = $1 AND status = 'pending'
+             ORDER BY created_at DESC",
+        )
+        .bind(user_id.to_string())
+        .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(format!("Task join error: {e}")))?
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(ApprovalRow::to_request).collect()
     }
 
     async fn get_expired(&self) -> Result<Vec<ApprovalRequest>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let now = Utc::now();
+        let now = Utc::now().to_rfc3339();
 
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| {
-                ApplicationError::Internal(format!("Failed to get database connection: {e}"))
-            })?;
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, user_id, command, description, status, created_at, expires_at, updated_at, reason
-                     FROM approval_requests 
-                     WHERE status = 'pending' AND expires_at < ?1",
-                )
-                .map_err(|e| ApplicationError::Internal(format!("Failed to prepare statement: {e}")))?;
-
-            let requests = stmt
-                .query_map([now.to_rfc3339()], row_to_approval_request)
-                .map_err(|e| ApplicationError::Internal(format!("Failed to query: {e}")))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| ApplicationError::Internal(format!("Failed to collect results: {e}")))?;
-
-            Ok(requests)
-        })
+        let rows: Vec<ApprovalRow> = sqlx::query_as(
+            "SELECT id, user_id, command, description, status, created_at, expires_at, updated_at, reason
+             FROM approval_requests
+             WHERE status = 'pending' AND expires_at < $1",
+        )
+        .bind(&now)
+        .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(format!("Task join error: {e}")))?
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(ApprovalRow::to_request).collect()
     }
 
     async fn delete(&self, id: &ApprovalId) -> Result<(), ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let id = *id;
+        sqlx::query("DELETE FROM approval_requests WHERE id = $1")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
 
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| {
-                ApplicationError::Internal(format!("Failed to get database connection: {e}"))
-            })?;
-
-            conn.execute(
-                "DELETE FROM approval_requests WHERE id = ?1",
-                [id.to_string()],
-            )
-            .map_err(|e| {
-                ApplicationError::Internal(format!("Failed to delete approval request: {e}"))
-            })?;
-
-            Ok(())
-        })
-        .await
-        .map_err(|e| ApplicationError::Internal(format!("Task join error: {e}")))?
+        Ok(())
     }
 
     async fn get_by_status(
@@ -236,56 +143,32 @@ impl ApprovalQueuePort for SqliteApprovalQueue {
         status: ApprovalStatus,
         limit: u32,
     ) -> Result<Vec<ApprovalRequest>, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| {
-                ApplicationError::Internal(format!("Failed to get database connection: {e}"))
-            })?;
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, user_id, command, description, status, created_at, expires_at, updated_at, reason
-                     FROM approval_requests 
-                     WHERE status = ?1
-                     ORDER BY created_at DESC
-                     LIMIT ?2",
-                )
-                .map_err(|e| ApplicationError::Internal(format!("Failed to prepare statement: {e}")))?;
-
-            let requests = stmt
-                .query_map(params![status_to_str(status), limit], row_to_approval_request)
-                .map_err(|e| ApplicationError::Internal(format!("Failed to query: {e}")))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| ApplicationError::Internal(format!("Failed to collect results: {e}")))?;
-
-            Ok(requests)
-        })
+        let rows: Vec<ApprovalRow> = sqlx::query_as(
+            "SELECT id, user_id, command, description, status, created_at, expires_at, updated_at, reason
+             FROM approval_requests
+             WHERE status = $1
+             ORDER BY created_at DESC
+             LIMIT $2",
+        )
+        .bind(status_to_str(status))
+        .bind(limit)
+        .fetch_all(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(format!("Task join error: {e}")))?
+        .map_err(map_sqlx_error)?;
+
+        rows.into_iter().map(ApprovalRow::to_request).collect()
     }
 
     async fn count_pending_for_user(&self, user_id: &UserId) -> Result<u32, ApplicationError> {
-        let pool = Arc::clone(&self.pool);
-        let user_id = *user_id;
-
-        tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| {
-                ApplicationError::Internal(format!("Failed to get database connection: {e}"))
-            })?;
-
-            let count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM approval_requests WHERE user_id = ?1 AND status = 'pending'",
-                    [user_id.to_string()],
-                    |row| row.get(0),
-                )
-                .map_err(|e| ApplicationError::Internal(format!("Failed to count: {e}")))?;
-
-            Ok(u32::try_from(count).unwrap_or(u32::MAX))
-        })
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM approval_requests WHERE user_id = $1 AND status = 'pending'",
+        )
+        .bind(user_id.to_string())
+        .fetch_one(&self.pool)
         .await
-        .map_err(|e| ApplicationError::Internal(format!("Task join error: {e}")))?
+        .map_err(map_sqlx_error)?;
+
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
 }
 
@@ -312,73 +195,59 @@ fn str_to_status(s: &str) -> Result<ApprovalStatus, ApplicationError> {
     }
 }
 
-fn row_to_approval_request(row: &rusqlite::Row) -> Result<ApprovalRequest, rusqlite::Error> {
-    let id_str: String = row.get(0)?;
-    let user_id_str: String = row.get(1)?;
-    let command_json: String = row.get(2)?;
-    let description: String = row.get(3)?;
-    let status_str: String = row.get(4)?;
-    let created_at_str: String = row.get(5)?;
-    let expires_at_str: String = row.get(6)?;
-    let updated_at_str: String = row.get(7)?;
-    let reason_json: Option<String> = row.get(8)?;
+/// Row type for approval query
+#[derive(sqlx::FromRow)]
+struct ApprovalRow {
+    id: String,
+    user_id: String,
+    command: String,
+    description: String,
+    status: String,
+    created_at: String,
+    expires_at: String,
+    updated_at: String,
+    reason: Option<String>,
+}
 
-    let id = ApprovalId::parse(&id_str).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
-    })?;
+impl ApprovalRow {
+    #[allow(clippy::wrong_self_convention)]
+    fn to_request(self) -> Result<ApprovalRequest, ApplicationError> {
+        let id = ApprovalId::parse(&self.id)
+            .map_err(|e| ApplicationError::Internal(format!("Invalid approval_id: {e}")))?;
+        let user_id = UserId::parse(&self.user_id)
+            .map_err(|e| ApplicationError::Internal(format!("Invalid user_id: {e}")))?;
+        let command: AgentCommand = serde_json::from_str(&self.command)
+            .map_err(|e| ApplicationError::Internal(format!("Invalid command JSON: {e}")))?;
+        let status = str_to_status(&self.status)?;
 
-    let user_id = UserId::parse(&user_id_str).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
-    })?;
+        let created_at = DateTime::parse_from_rfc3339(&self.created_at)
+            .map_err(|e| ApplicationError::Internal(format!("Invalid created_at: {e}")))?
+            .with_timezone(&Utc);
+        let expires_at = DateTime::parse_from_rfc3339(&self.expires_at)
+            .map_err(|e| ApplicationError::Internal(format!("Invalid expires_at: {e}")))?
+            .with_timezone(&Utc);
+        let updated_at = DateTime::parse_from_rfc3339(&self.updated_at)
+            .map_err(|e| ApplicationError::Internal(format!("Invalid updated_at: {e}")))?
+            .with_timezone(&Utc);
 
-    let command: AgentCommand = serde_json::from_str(&command_json).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
-    })?;
+        let reason = self
+            .reason
+            .map(|r| serde_json::from_str(&r))
+            .transpose()
+            .map_err(|e| ApplicationError::Internal(format!("Invalid reason JSON: {e}")))?;
 
-    let status = str_to_status(&status_str).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(
-            4,
-            rusqlite::types::Type::Text,
-            Box::new(std::io::Error::other(e.to_string())),
-        )
-    })?;
-
-    let created_at = DateTime::parse_from_rfc3339(&created_at_str)
-        .map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(e))
-        })?
-        .with_timezone(&Utc);
-
-    let expires_at = DateTime::parse_from_rfc3339(&expires_at_str)
-        .map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(e))
-        })?
-        .with_timezone(&Utc);
-
-    let updated_at = DateTime::parse_from_rfc3339(&updated_at_str)
-        .map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e))
-        })?
-        .with_timezone(&Utc);
-
-    let reason = reason_json
-        .map(|r| serde_json::from_str(&r))
-        .transpose()
-        .map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e))
-        })?;
-
-    Ok(ApprovalRequest {
-        id,
-        user_id,
-        command,
-        description,
-        status,
-        created_at,
-        expires_at,
-        updated_at,
-        reason,
-    })
+        Ok(ApprovalRequest {
+            id,
+            user_id,
+            command,
+            description: self.description,
+            status,
+            created_at,
+            expires_at,
+            updated_at,
+            reason,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -386,21 +255,13 @@ mod tests {
     use domain::AgentCommand;
 
     use super::*;
-    use crate::{
-        config::DatabaseConfig,
-        persistence::{connection::create_pool, migrations::run_migrations},
-    };
+    use crate::persistence::async_connection::AsyncDatabase;
 
-    fn create_test_store() -> SqliteApprovalQueue {
-        let config = DatabaseConfig {
-            path: ":memory:".to_string(),
-            max_connections: 1,
-            run_migrations: true,
-        };
-        let pool = create_pool(&config).unwrap();
-        let conn = pool.get().unwrap();
-        run_migrations(&conn).unwrap();
-        SqliteApprovalQueue::new(Arc::new(pool))
+    async fn setup() -> (AsyncDatabase, SqliteApprovalQueue) {
+        let db = AsyncDatabase::in_memory().await.unwrap();
+        db.migrate().await.unwrap();
+        let queue = SqliteApprovalQueue::new(db.pool().clone());
+        (db, queue)
     }
 
     fn sample_command() -> AgentCommand {
@@ -411,7 +272,7 @@ mod tests {
 
     #[tokio::test]
     async fn enqueue_and_get() {
-        let queue = create_test_store();
+        let (_db, queue) = setup().await;
         let user_id = UserId::new();
         let request = ApprovalRequest::new(user_id, sample_command(), "Test approval");
         let id = request.id;
@@ -427,16 +288,14 @@ mod tests {
 
     #[tokio::test]
     async fn get_nonexistent() {
-        let queue = create_test_store();
-        let id = ApprovalId::new();
-
-        let result = queue.get(&id).await.unwrap();
+        let (_db, queue) = setup().await;
+        let result = queue.get(&ApprovalId::new()).await.unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn update_status() {
-        let queue = create_test_store();
+        let (_db, queue) = setup().await;
         let user_id = UserId::new();
         let mut request = ApprovalRequest::new(user_id, sample_command(), "Test");
         let id = request.id;
@@ -451,7 +310,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_pending_for_user() {
-        let queue = create_test_store();
+        let (_db, queue) = setup().await;
         let user_id = UserId::new();
 
         for i in 0..3 {
@@ -465,19 +324,18 @@ mod tests {
 
     #[tokio::test]
     async fn delete_request() {
-        let queue = create_test_store();
+        let (_db, queue) = setup().await;
         let request = ApprovalRequest::new(UserId::new(), sample_command(), "Test");
         let id = request.id;
 
         queue.enqueue(&request).await.unwrap();
         queue.delete(&id).await.unwrap();
-
         assert!(queue.get(&id).await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn count_pending() {
-        let queue = create_test_store();
+        let (_db, queue) = setup().await;
         let user_id = UserId::new();
 
         for _ in 0..5 {
@@ -491,15 +349,13 @@ mod tests {
 
     #[tokio::test]
     async fn get_by_status() {
-        let queue = create_test_store();
+        let (_db, queue) = setup().await;
         let user_id = UserId::new();
 
-        // Create and approve one request
         let mut req1 = ApprovalRequest::new(user_id, sample_command(), "Test 1");
         req1.approve().unwrap();
         queue.enqueue(&req1).await.unwrap();
 
-        // Create a pending request
         let req2 = ApprovalRequest::new(user_id, sample_command(), "Test 2");
         queue.enqueue(&req2).await.unwrap();
 
@@ -518,7 +374,7 @@ mod tests {
 
     #[tokio::test]
     async fn stores_and_retrieves_reason() {
-        let queue = create_test_store();
+        let (_db, queue) = setup().await;
         let mut request = ApprovalRequest::new(UserId::new(), sample_command(), "Test");
         let id = request.id;
 

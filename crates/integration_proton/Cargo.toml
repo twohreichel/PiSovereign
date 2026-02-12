@@ -21,6 +21,9 @@ chrono.workspace = true
 uuid.workspace = true
 
 # IMAP client for reading emails (sync, wrapped in spawn_blocking)
+# WARNING: Alpha dependency — monitor for stable release or evaluate alternatives.
+# The imap crate v3.x is a major rewrite; no stable release exists yet.
+# Track: https://github.com/jonhoo/rust-imap/issues
 imap = "3.0.0-alpha.15"
 native-tls = "0.2"
 
