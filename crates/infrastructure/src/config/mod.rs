@@ -1115,10 +1115,8 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            config
-                .app_secret_str()
-                .map(secrecy::ExposeSecret::expose_secret),
-            Some("test_secret")
+            config.app_secret_str(),
+            Some(SecretString::from("test_secret"))
         );
 
         let config_no_secret = WhatsAppConfig::default();
