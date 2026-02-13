@@ -77,6 +77,8 @@ messenger = "signal"
 [signal]
 socket_path = "/var/run/signal-cli/socket"
 timeout_ms = 30000
+auto_poll = true
+poll_interval_secs = 2
 
 [signal.persistence]
 enabled = true

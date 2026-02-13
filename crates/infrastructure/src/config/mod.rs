@@ -1207,6 +1207,8 @@ mod tests {
             data_path: Some("/data".to_string()),
             timeout_ms: 60000,
             whitelist: vec!["+11111111111".to_string()],
+            auto_poll: true,
+            poll_interval_secs: 2,
             persistence: MessengerPersistenceConfig::default(),
         };
         let json = serde_json::to_string(&config).unwrap();
@@ -1216,6 +1218,8 @@ mod tests {
         assert_eq!(parsed.data_path, Some("/data".to_string()));
         assert_eq!(parsed.timeout_ms, 60000);
         assert_eq!(parsed.whitelist.len(), 1);
+        assert!(parsed.auto_poll);
+        assert_eq!(parsed.poll_interval_secs, 2);
         assert!(parsed.persistence.enabled);
     }
 

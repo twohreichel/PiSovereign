@@ -22,3 +22,4 @@ pub use openapi::{ApiDoc, create_openapi_routes};
 pub use routes::create_router;
 pub use state::AppState;
 pub use tasks::spawn_conversation_cleanup_task;
+pub use tasks::spawn_signal_polling_task;

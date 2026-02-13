@@ -185,6 +185,10 @@ socket_path = "/var/run/signal-cli/socket"
 timeout_ms = 30000
 # Phone numbers allowed to send messages (empty = allow all)
 # whitelist = ["+1234567890", "+0987654321"]
+# Enable automatic background polling for incoming messages (default: true)
+auto_poll = true
+# Polling interval in seconds (default: 2)
+poll_interval_secs = 2
 
 # Conversation Persistence Settings
 # Store and persist conversations from Signal in the database

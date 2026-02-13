@@ -33,7 +33,8 @@ use integration_whatsapp::WhatsAppClientConfig;
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig, RequestIdLayer,
     SecurityHeadersLayer, handlers::metrics::MetricsCollector, routes, spawn_cleanup_task,
-    spawn_config_reload_handler, spawn_conversation_cleanup_task, state::AppState,
+    spawn_config_reload_handler, spawn_conversation_cleanup_task, spawn_signal_polling_task,
+    state::AppState,
 };
 use secrecy::ExposeSecret;
 use std::net::SocketAddr;
@@ -558,10 +559,36 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // Wrap agent_service in Arc before state creation so we can share it
+    let agent_service = Arc::new(agent_service);
+
+    // Spawn Signal auto-polling task if enabled
+    let _signal_polling_handle = if initial_config.signal.auto_poll {
+        if let Some(ref sc) = signal_client {
+            info!(
+                interval_secs = initial_config.signal.poll_interval_secs,
+                "📡 Signal auto-polling enabled"
+            );
+            Some(spawn_signal_polling_task(
+                Arc::clone(sc),
+                Arc::clone(&agent_service),
+                conversation_store.clone(),
+                voice_message_service.clone(),
+                Duration::from_secs(initial_config.signal.poll_interval_secs),
+            ))
+        } else {
+            debug!("Signal auto-polling enabled but no Signal client — skipping");
+            None
+        }
+    } else {
+        debug!("Signal auto-polling disabled");
+        None
+    };
+
     // Create app state with reloadable config
     let state = AppState {
         chat_service: Arc::clone(&chat_service),
-        agent_service: Arc::new(agent_service),
+        agent_service,
         approval_service,
         health_service: Some(Arc::new(health_service)),
         voice_message_service,

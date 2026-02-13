@@ -129,6 +129,14 @@ pub struct SignalConfig {
     #[serde(default)]
     pub whitelist: Vec<String>,
 
+    /// Enable automatic background polling for incoming messages (default: true)
+    #[serde(default = "default_true")]
+    pub auto_poll: bool,
+
+    /// Polling interval in seconds (default: 2)
+    #[serde(default = "default_poll_interval_secs")]
+    pub poll_interval_secs: u64,
+
     /// Conversation persistence configuration
     #[serde(default)]
     pub persistence: MessengerPersistenceConfig,
@@ -142,6 +150,10 @@ const fn default_signal_timeout() -> u64 {
     30_000
 }
 
+const fn default_poll_interval_secs() -> u64 {
+    2
+}
+
 impl std::fmt::Debug for SignalConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SignalConfig")
@@ -150,6 +162,8 @@ impl std::fmt::Debug for SignalConfig {
             .field("data_path", &self.data_path)
             .field("timeout_ms", &self.timeout_ms)
             .field("whitelist", &format!("[{} entries]", self.whitelist.len()))
+            .field("auto_poll", &self.auto_poll)
+            .field("poll_interval_secs", &self.poll_interval_secs)
             .field("persistence", &self.persistence)
             .finish()
     }
@@ -163,6 +177,8 @@ impl Default for SignalConfig {
             data_path: None,
             timeout_ms: default_signal_timeout(),
             whitelist: Vec::new(),
+            auto_poll: true,
+            poll_interval_secs: default_poll_interval_secs(),
             persistence: MessengerPersistenceConfig::default(),
         }
     }
