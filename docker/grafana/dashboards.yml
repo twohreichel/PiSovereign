@@ -1,0 +1,14 @@
+# Grafana dashboard provisioning for PiSovereign Docker setup
+
+apiVersion: 1
+
+providers:
+  - name: "PiSovereign"
+    orgId: 1
+    folder: "PiSovereign"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
