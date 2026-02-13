@@ -386,7 +386,7 @@ impl AppConfig {
                 Ok(json) => {
                     if let Some(val) = json.get("phone_number").and_then(|v| v.as_str()) {
                         if !val.is_empty() {
-                            self.signal.phone_number = val.to_owned();
+                            val.clone_into(&mut self.signal.phone_number);
                             debug!("Loaded signal.phone_number from secret store");
                         }
                     }
