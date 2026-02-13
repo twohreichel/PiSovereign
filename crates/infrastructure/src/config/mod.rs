@@ -18,12 +18,16 @@ mod messenger;
 mod resilience;
 mod security;
 mod server;
+mod vault;
 
 use ai_core::InferenceConfig;
 use ai_speech::SpeechConfig;
+use application::ports::SecretStorePort;
 use domain::MessengerSource;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use tracing::{debug, info, warn};
 
 pub use cache::CacheConfig;
 pub use database::DatabaseConfig;
@@ -36,6 +40,7 @@ pub use messenger::{MessengerPersistenceConfig, SignalConfig, WhatsAppConfig};
 pub use resilience::{DegradedModeAppConfig, HealthAppConfig, RetryAppConfig, TelemetryAppConfig};
 pub use security::{ApiKeyEntry, PromptSecurityConfig, SecurityConfig};
 pub use server::ServerConfig;
+pub use vault::VaultAppConfig;
 
 /// Shared default for boolean `true` fields across config structs
 pub(crate) const fn default_true() -> bool {
@@ -214,6 +219,10 @@ pub struct AppConfig {
     /// Reminder configuration (optional, for reminder system settings)
     #[serde(default)]
     pub reminder: Option<ReminderAppConfig>,
+
+    /// Vault secret store configuration (optional)
+    #[serde(default)]
+    pub vault: VaultAppConfig,
 }
 
 impl AppConfig {
@@ -236,6 +245,156 @@ impl AppConfig {
 
         let config = builder.build()?;
         config.try_deserialize()
+    }
+
+    /// Resolve secrets from a secret store (e.g., Vault) into the config
+    ///
+    /// Only populates fields that are currently empty/None. Existing config
+    /// values are never overridden, allowing config.toml or env vars to
+    /// take precedence over Vault.
+    ///
+    /// # Secret paths
+    ///
+    /// Secrets are read as JSON objects from Vault KV v2 paths:
+    /// - `{prefix}/whatsapp`: `access_token`, `app_secret`
+    /// - `{prefix}/websearch`: `api_key`
+    /// - `{prefix}/caldav`: `password`
+    /// - `{prefix}/proton`: `password`
+    /// - `{prefix}/speech`: `openai_api_key`
+    ///
+    /// # Errors
+    ///
+    /// Logs warnings for individual secret resolution failures but does not
+    /// fail the entire operation. Returns error only for critical failures.
+    pub async fn resolve_secrets(
+        &mut self,
+        store: &dyn SecretStorePort,
+    ) -> Result<(), application::error::ApplicationError> {
+        let prefix = self.vault.secret_prefix.clone();
+        info!(prefix = %prefix, "Resolving secrets from secret store");
+
+        // WhatsApp secrets
+        self.resolve_whatsapp_secrets(store, &prefix).await;
+
+        // Web search secrets
+        self.resolve_websearch_secrets(store, &prefix).await;
+
+        // CalDAV secrets
+        self.resolve_caldav_secrets(store, &prefix).await;
+
+        // Proton Mail secrets
+        self.resolve_proton_secrets(store, &prefix).await;
+
+        // Speech secrets
+        self.resolve_speech_secrets(store, &prefix).await;
+
+        info!("Secret resolution completed");
+        Ok(())
+    }
+
+    async fn resolve_whatsapp_secrets(&mut self, store: &dyn SecretStorePort, prefix: &str) {
+        let path = format!("{prefix}/whatsapp");
+        match store.get_json(&path).await {
+            Ok(json) => {
+                if self.whatsapp.access_token.is_none() {
+                    if let Some(val) = json.get("access_token").and_then(|v| v.as_str()) {
+                        if !val.is_empty() {
+                            self.whatsapp.access_token = Some(SecretString::from(val.to_owned()));
+                            debug!("Loaded whatsapp.access_token from secret store");
+                        }
+                    }
+                }
+                if self.whatsapp.app_secret.is_none() {
+                    if let Some(val) = json.get("app_secret").and_then(|v| v.as_str()) {
+                        if !val.is_empty() {
+                            self.whatsapp.app_secret = Some(SecretString::from(val.to_owned()));
+                            debug!("Loaded whatsapp.app_secret from secret store");
+                        }
+                    }
+                }
+            },
+            Err(e) => warn!(path = %path, error = %e, "Failed to resolve WhatsApp secrets"),
+        }
+    }
+
+    async fn resolve_websearch_secrets(&mut self, store: &dyn SecretStorePort, prefix: &str) {
+        if let Some(ref mut ws) = self.websearch {
+            if ws.api_key.is_none() {
+                let path = format!("{prefix}/websearch");
+                match store.get_json(&path).await {
+                    Ok(json) => {
+                        if let Some(val) = json.get("api_key").and_then(|v| v.as_str()) {
+                            if !val.is_empty() {
+                                ws.api_key = Some(val.to_owned());
+                                debug!("Loaded websearch.api_key from secret store");
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        warn!(path = %path, error = %e, "Failed to resolve web search secrets");
+                    },
+                }
+            }
+        }
+    }
+
+    async fn resolve_caldav_secrets(&mut self, store: &dyn SecretStorePort, prefix: &str) {
+        if let Some(ref mut caldav) = self.caldav {
+            let path = format!("{prefix}/caldav");
+            match store.get_json(&path).await {
+                Ok(json) => {
+                    if caldav.password.expose_secret().is_empty() {
+                        if let Some(val) = json.get("password").and_then(|v| v.as_str()) {
+                            if !val.is_empty() {
+                                caldav.password = SecretString::from(val.to_owned());
+                                debug!("Loaded caldav.password from secret store");
+                            }
+                        }
+                    }
+                },
+                Err(e) => warn!(path = %path, error = %e, "Failed to resolve CalDAV secrets"),
+            }
+        }
+    }
+
+    async fn resolve_proton_secrets(&mut self, store: &dyn SecretStorePort, prefix: &str) {
+        if let Some(ref mut proton) = self.proton {
+            let path = format!("{prefix}/proton");
+            match store.get_json(&path).await {
+                Ok(json) => {
+                    if proton.password.expose_secret().is_empty() {
+                        if let Some(val) = json.get("password").and_then(|v| v.as_str()) {
+                            if !val.is_empty() {
+                                proton.password = SecretString::from(val.to_owned());
+                                debug!("Loaded proton.password from secret store");
+                            }
+                        }
+                    }
+                },
+                Err(e) => warn!(path = %path, error = %e, "Failed to resolve Proton secrets"),
+            }
+        }
+    }
+
+    async fn resolve_speech_secrets(&mut self, store: &dyn SecretStorePort, prefix: &str) {
+        if let Some(ref mut speech) = self.speech {
+            if speech.openai_api_key.is_none() {
+                let path = format!("{prefix}/speech");
+                match store.get_json(&path).await {
+                    Ok(json) => {
+                        if let Some(val) = json.get("openai_api_key").and_then(|v| v.as_str()) {
+                            if !val.is_empty() {
+                                speech.openai_api_key = Some(val.to_owned());
+                                debug!("Loaded speech.openai_api_key from secret store");
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        warn!(path = %path, error = %e, "Failed to resolve speech secrets");
+                    },
+                }
+            }
+        }
     }
 }
 
@@ -1108,15 +1267,15 @@ mod tests {
 
     #[test]
     fn whatsapp_config_app_secret_str() {
-        use secrecy::SecretString;
+        use secrecy::{ExposeSecret, SecretString};
 
         let config = WhatsAppConfig {
             app_secret: Some(SecretString::from("test_secret")),
             ..Default::default()
         };
         assert_eq!(
-            config.app_secret_str(),
-            Some(SecretString::from("test_secret"))
+            config.app_secret_str().map(ExposeSecret::expose_secret),
+            Some("test_secret")
         );
 
         let config_no_secret = WhatsAppConfig::default();

@@ -81,3 +81,4 @@ sha2 = "0.10"
 hex = "0.4"
 proptest.workspace = true
 tempfile.workspace = true
+toml = "0.8"
