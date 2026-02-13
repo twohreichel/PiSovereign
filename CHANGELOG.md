@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2](https://github.com/twohreichel/PiSovereign/compare/v0.4.1...v0.4.2) (2026-02-13)
+
+
+### Features
+
+* **config:** add Vault section and Docker management commands ([42c566d](https://github.com/twohreichel/PiSovereign/commit/42c566d799e4cd936febf3dcdb66c9a22a321afe))
+* **docker:** add complete Docker Compose production setup\n\nAdd docker/ directory with modular, production-ready Docker Compose setup:\n\n- compose.yml: Core services (Traefik, Vault, Ollama, PiSovereign,\n  signal-cli, whisper, piper) + monitoring/caldav profiles\n- vault/: HashiCorp Vault server config + auto-init bootstrap script\n- signal-cli/: Custom Dockerfile with JRE + JSON-RPC daemon mode\n- whisper/: Multi-stage build of whisper.cpp with HTTP server\n- piper/: Piper TTS with Python HTTP wrapper\n- ollama-init/: Auto-download of qwen2.5:1.5b + nomic-embed-text\n- traefik/: Security headers, rate limiting, HTTPS middleware\n- prometheus/grafana/loki/promtail/otel/: Monitoring stack configs\n- .env.example: All required environment variables\n- config/config.toml: Production config with Docker network hostnames\n\nAll services use security hardening (no-new-privileges, read-only\nrootfs, resource limits, named volumes, internal network)." ([c460d5c](https://github.com/twohreichel/PiSovereign/commit/c460d5ca127f7b715fce9b9c2017b0ff594565bc))
+* **http:** integrate Vault secret store into application startup ([b1dd258](https://github.com/twohreichel/PiSovereign/commit/b1dd2582eb5f9766a1a5efb30fc8756ff146d1e5))
+* **infrastructure:** add VaultAppConfig for centralized secret management ([02f56e3](https://github.com/twohreichel/PiSovereign/commit/02f56e3b4f5dd25575faa86099d442652ce260c5))
+* **signal:** add automatic background polling for incoming messages ([76272f4](https://github.com/twohreichel/PiSovereign/commit/76272f45fbf576ae8e4838c0aff8aafa2ba44f51))
+* **signal:** add dynamic phone number configuration ([0e97a01](https://github.com/twohreichel/PiSovereign/commit/0e97a01ba254f843593ac21a4eaee96f7543e4e0))
+
+
+### Bug Fixes
+
+* **docker:** fix monitoring stack for scratch-based images ([8559be6](https://github.com/twohreichel/PiSovereign/commit/8559be6e931a74c563c2f1cb1c1c1fae149795b3))
+* **docker:** resolve runtime issues for local Docker Compose deployment ([d9834c0](https://github.com/twohreichel/PiSovereign/commit/d9834c08133659ca27f787df6052ab4effa6093d))
+* **signal:** optimize phone number loading from secret store ([2a15d4d](https://github.com/twohreichel/PiSovereign/commit/2a15d4d34b7f65a3a3a0b6899c62cdf0f7f6c176))
+
+
+### Documentation
+
+* add service URL table to docker-setup documentation ([7a501ad](https://github.com/twohreichel/PiSovereign/commit/7a501ad7833cfd2846a07ffe193eacb0892cdd69))
+* restructure documentation for Docker-first deployment ([c5572bd](https://github.com/twohreichel/PiSovereign/commit/c5572bdb616906ae79e5a11f4e93f4cf53ee28f0))
+
 ## [0.4.1](https://github.com/twohreichel/PiSovereign/compare/v0.4.0...v0.4.1) (2026-02-12)
 
 
