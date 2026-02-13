@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3](https://github.com/twohreichel/PiSovereign/compare/v0.4.2...v0.4.3) (2026-02-13)
+
+
+### Bug Fixes
+
+* **coverage:** lower coverage failure threshold to 75% ([34e9524](https://github.com/twohreichel/PiSovereign/commit/34e95245391e23d2e717cfbe8bb692b70660420f))
+* **dependencies:** update package versions to 0.4.2 ([c1bba30](https://github.com/twohreichel/PiSovereign/commit/c1bba30392d3b3bac5bceafe1bde1e78ddb30a5f))
+
 ## [0.4.2](https://github.com/twohreichel/PiSovereign/compare/v0.4.1...v0.4.2) (2026-02-13)
 
 
