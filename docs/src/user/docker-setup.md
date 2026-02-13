@@ -52,15 +52,43 @@ PiSovereign is now running at `https://your-domain.example.com`.
 
 The deployment consists of these core services:
 
-| Service | Purpose | Port |
-|---------|---------|------|
-| **pisovereign** | Main application server | 3000 (internal) |
-| **traefik** | Reverse proxy + TLS | 80, 443 |
-| **vault** | Secret management | 8200 (internal) |
-| **ollama** | LLM inference engine | 11434 (internal) |
-| **signal-cli** | Signal messenger daemon | Unix socket |
-| **whisper** | Speech-to-text (STT) | 8081 (internal) |
-| **piper** | Text-to-speech (TTS) | 8082 (internal) |
+| Service | Purpose | Port | URL |
+|---------|---------|------|-----|
+| **pisovereign** | Main application server | 3000 (internal) | `http://localhost/` via Traefik |
+| **traefik** | Reverse proxy + TLS | 80, 443 | `http://localhost:80` |
+| **vault** | Secret management | 8200 (internal) | Internal only |
+| **ollama** | LLM inference engine | 11434 (internal) | Internal only |
+| **signal-cli** | Signal messenger daemon | Unix socket | Internal only |
+| **whisper** | Speech-to-text (STT) | 8081 (internal) | Internal only |
+| **piper** | Text-to-speech (TTS) | 8082 (internal) | Internal only |
+
+### Monitoring Stack (profile: `monitoring`)
+
+| Service | Purpose | Port | URL |
+|---------|---------|------|-----|
+| **prometheus** | Metrics collection & alerting | 9090 | `http://localhost:9090` |
+| **grafana** | Dashboards & visualization | 3000 (internal) | `http://localhost/grafana` via Traefik |
+| **loki** | Log aggregation | 3100 (internal) | Internal only |
+| **promtail** | Log shipping agent | — | Internal only |
+| **node-exporter** | Host metrics exporter | 9100 (internal) | Internal only |
+| **otel-collector** | OpenTelemetry Collector | 4317/4318 (internal) | Internal only |
+
+### CalDAV Server (profile: `caldav`)
+
+| Service | Purpose | Port | URL |
+|---------|---------|------|-----|
+| **baikal** | CalDAV/CardDAV server | 80 (internal) | `http://localhost/caldav` via Traefik |
+
+### Key Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `http://localhost/health` | Application health check |
+| `http://localhost/metrics/prometheus` | Prometheus metrics scrape target |
+| `http://localhost/grafana` | Grafana dashboards (monitoring profile) |
+| `http://localhost/caldav` | Baïkal CalDAV web UI (caldav profile) |
+| `http://localhost:9090` | Prometheus web UI (monitoring profile) |
+| `http://localhost:9090/targets` | Prometheus scrape target status |
 
 ## Configuration
 
@@ -117,7 +145,7 @@ vault kv put secret/pisovereign/proton \
 
 ## Docker Compose Profiles
 
-Additional services are available via profiles:
+Additional services are available via profiles (see tables above for URLs):
 
 ### Monitoring Stack
 
@@ -125,18 +153,11 @@ Additional services are available via profiles:
 docker compose --profile monitoring up -d
 ```
 
-Includes: Prometheus, Grafana (port 3001), Loki, Promtail,
-Node Exporter, OpenTelemetry Collector.
-
-Access Grafana at `https://your-domain/grafana`.
-
 ### CalDAV Server
 
 ```bash
 docker compose --profile caldav up -d
 ```
-
-Includes: Baïkal CalDAV/CardDAV server (port 8083 internal).
 
 ### All Profiles
 
