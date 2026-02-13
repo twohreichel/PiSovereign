@@ -23,16 +23,22 @@ pub struct AsyncConversationStore {
 
 /// Mask a phone number before persisting or logging.
 /// Keeps at most the last 4 digits and replaces preceding characters with '*'.
+/// This function must always be used when deriving a string representation
+/// of a phone number that might end up in logs or persistent storage.
 fn mask_phone_number(phone: &PhoneNumber) -> String {
     let raw = phone.as_str();
-    let len = raw.chars().count();
-    let visible = 4_usize.min(len);
-    let masked_len = len.saturating_sub(visible);
-    let mut masked = String::new();
-    for _ in 0..masked_len {
+    let total_chars = raw.chars().count();
+
+    // Show at most the last 4 characters; everything before that is replaced with '*'.
+    let visible_tail = 4_usize.min(total_chars);
+    let masked_prefix_len = total_chars.saturating_sub(visible_tail);
+
+    let mut masked = String::with_capacity(total_chars);
+    for _ in 0..masked_prefix_len {
         masked.push('*');
     }
-    masked.extend(raw.chars().skip(masked_len));
+    masked.extend(raw.chars().skip(masked_prefix_len));
+
     masked
 }
 
