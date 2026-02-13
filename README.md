@@ -10,96 +10,119 @@
 [![Documentation](https://img.shields.io/badge/docs-online-blue)](https://twohreichel.github.io/PiSovereign/)
 [![Rust](https://img.shields.io/badge/Rust-1.93+-orange?logo=rust)](https://www.rust-lang.org/)
 [![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-5-C51A4A?logo=raspberrypi)](https://www.raspberrypi.com/)
-[![macOS](https://img.shields.io/badge/macOS-Sonoma+-000000?logo=apple)](https://www.apple.com/macos/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)](https://docs.docker.com/compose/)
 [![AI](https://img.shields.io/badge/AI-Hailo--10H-blueviolet?logo=ai)](https://hailo.ai/)
 
-🤖 **Local, private AI assistant for Raspberry Pi 5 or macOS**
+🤖 **Local, private AI assistant for Raspberry Pi 5**
 
-Run your own AI assistant with 100% local inference—no cloud required. Control via WhatsApp, voice messages, calendar, and email integration.
+Run your own AI assistant with 100% local inference — no cloud required.
+Control via Signal, WhatsApp, or HTTP API with calendar, email, and voice integration.
 
 **📖 [Full Documentation](https://twohreichel.github.io/PiSovereign/)**
 
 ## ✨ Features
 
-- **Local LLM Inference** on Hailo-10H NPU (26 TOPS) or Ollama with Metal
-- **Multi-Platform** – Raspberry Pi (production) or macOS (development)
-- **WhatsApp Control** – Send commands via message
-- **Voice Messages** – Local STT/TTS with cloud fallback
-- **Calendar & Email** – CalDAV + Proton Mail integration
-- **EU/GDPR Compliant** – All processing on your hardware
+- **Local LLM Inference** on Hailo-10H NPU (26 TOPS) via Ollama
+- **Docker Compose** — One-command production deployment
+- **Signal & WhatsApp** — Control via messenger
+- **Voice Messages** — Local STT (whisper.cpp) + TTS (Piper)
+- **Calendar & Email** — CalDAV + Proton Mail integration
+- **Vault Secrets** — HashiCorp Vault for credential management
+- **Monitoring** — Prometheus, Grafana, Loki, OpenTelemetry
+- **EU/GDPR Compliant** — All processing on your hardware
 
 ## 🚀 Quick Start
 
-Get up and running in minutes with our automated setup scripts.
-
-### Raspberry Pi 5
-
 ```bash
-# Native build (recommended for production)
-curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-pi.sh | sudo bash
+# 1. Clone
+git clone https://github.com/twohreichel/PiSovereign.git
+cd PiSovereign/docker
 
-# Or Docker deployment
-curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-pi.sh | sudo bash -s -- --docker
+# 2. Configure
+cp .env.example .env
+nano .env  # Set your domain and email for TLS
+
+# 3. Deploy
+docker compose up -d
+
+# 4. Initialize Vault (first time — save the printed unseal key!)
+docker compose exec vault /vault/init.sh
 ```
 
-**Options:**
-| Flag | Description |
-|------|-------------|
-| `--native` | Build from source (default, optimized for ARM64) |
-| `--docker` | Use Docker Compose deployment |
-| `--branch <name>` | Use specific branch (default: main) |
-| `--skip-security` | Skip security hardening |
-| `--skip-build` | Skip compilation (use existing binaries) |
-| `-h, --help` | Show help message |
+PiSovereign is now running at `https://your-domain.example.com`.
 
-**What it does:**
-- Installs Docker, Hailo SDK, whisper.cpp, and Piper TTS
-- **Native mode:** Installs Rust, builds optimized ARM64 binaries, sets up systemd service
-- **Docker mode:** Deploys via Docker Compose with TLS (Traefik)
-- Configures security hardening (SSH, UFW firewall, Fail2ban)
-- Sets up automatic updates (rebuilds from source or pulls images)
-- Interactively configures your `config.toml`
-
-### macOS (Development)
+### Post-Setup
 
 ```bash
-# Docker deployment (recommended for Mac)
-curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-mac.sh | bash
+# Store integration secrets in Vault
+docker compose exec vault vault kv put secret/pisovereign/whatsapp \
+  access_token="..." app_secret="..."
 
-# Or native build
-curl -fsSL https://raw.githubusercontent.com/twohreichel/PiSovereign/main/scripts/setup-mac.sh | bash -s -- --native
+# Enable monitoring (optional)
+docker compose --profile monitoring up -d
+
+# Verify
+curl https://your-domain.example.com/health
 ```
 
-**Options:**
-| Flag | Description |
-|------|-------------|
-| `--docker` | Use Docker Compose (default on macOS) |
-| `--native` | Build from source for local development |
-| `--branch <name>` | Use specific branch (default: main) |
-| `--skip-build` | Skip compilation (use existing binaries) |
-| `-h, --help` | Show help message |
+## 🏗️ Architecture
 
-**What it does:**
-- Installs Homebrew dependencies (Ollama, whisper-cpp, FFmpeg)
-- Downloads Piper TTS and German voice model
-- Pulls the `qwen2.5:1.5b` LLM
-- **Native mode:** Installs Rust, builds native binaries, sets up launchd service
-- **Docker mode:** Deploys via Docker Compose
-- Sets up automatic weekly updates via launchd
+```
+┌──────────────────────────────────────────────────────┐
+│                     Traefik (TLS)                    │
+├──────────┬──────────┬──────────┬──────────┬──────────┤
+│PiSovereign│  Ollama  │Signal-CLI│ Whisper  │  Piper   │
+│  (Rust)  │  (LLM)   │ (Msgs)  │  (STT)   │  (TTS)   │
+├──────────┴──────────┴──────────┴──────────┴──────────┤
+│                  Vault (Secrets)                      │
+├──────────────────────────────────────────────────────┤
+│              Docker Compose Network                   │
+└──────────────────────────────────────────────────────┘
+```
 
-> [!TIP]
-> For manual installation or customization, see the [Getting Started](https://twohreichel.github.io/PiSovereign/user/getting-started.html) guide.
+### Docker Compose Profiles
+
+| Profile | Services |
+|---------|----------|
+| **(core)** | PiSovereign, Traefik, Vault, Ollama, Signal-CLI, Whisper, Piper |
+| `monitoring` | Prometheus, Grafana, Loki, Promtail, Node Exporter, OTel Collector |
+| `caldav` | Baïkal CalDAV/CardDAV server |
+
+```bash
+# All profiles
+docker compose --profile monitoring --profile caldav up -d
+```
 
 ## 📚 Documentation
 
 | Guide | Description |
 |-------|-------------|
-| [**Getting Started**](https://twohreichel.github.io/PiSovereign/user/getting-started.html) | 30-minute setup guide |
-| [**Raspberry Pi Setup**](https://twohreichel.github.io/PiSovereign/user/raspberry-pi-setup.html) | Complete hardware setup with Hailo |
-| [**macOS Setup**](https://twohreichel.github.io/PiSovereign/user/mac-setup.html) | Installation guide for Mac |
+| [**Getting Started**](https://twohreichel.github.io/PiSovereign/user/getting-started.html) | 5-minute Docker deployment |
+| [**Hardware Setup**](https://twohreichel.github.io/PiSovereign/user/hardware-setup.html) | Raspberry Pi 5 + Hailo assembly |
+| [**Docker Setup**](https://twohreichel.github.io/PiSovereign/user/docker-setup.html) | Detailed deployment guide |
+| [**Vault Setup**](https://twohreichel.github.io/PiSovereign/user/vault-setup.html) | Secret management |
 | [**Configuration**](https://twohreichel.github.io/PiSovereign/user/configuration.html) | All config.toml options |
-| [**API Reference**](https://twohreichel.github.io/PiSovereign/api/) | Rustdoc API documentation |
 | [**Architecture**](https://twohreichel.github.io/PiSovereign/developer/architecture.html) | Clean Architecture overview |
+| [**Monitoring**](https://twohreichel.github.io/PiSovereign/operations/monitoring.html) | Grafana dashboards & alerts |
+
+## 🛠️ Development
+
+```bash
+# Install just task runner
+cargo install just
+
+# Run all lints
+just lint
+
+# Run tests
+just test
+
+# Build release
+just build-release
+
+# Full quality check
+just quality
+```
 
 ## 💖 Support
 
