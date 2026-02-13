@@ -384,6 +384,56 @@ pub async fn weather_health_check(
     (status_code, Json(status))
 }
 
+/// Check Vault secret store health
+#[utoipa::path(
+    get,
+    path = "/health/vault",
+    tag = "health",
+    responses(
+        (status = 200, description = "Vault secret store healthy", body = ExtendedServiceStatus),
+        (status = 503, description = "Vault secret store unhealthy", body = ExtendedServiceStatus)
+    )
+)]
+pub async fn vault_health_check(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<ExtendedServiceStatus>) {
+    let status = if let Some(ref store) = state.secret_store {
+        let start = std::time::Instant::now();
+        let healthy = store.is_healthy().await;
+        let elapsed = start.elapsed();
+
+        ExtendedServiceStatus {
+            healthy,
+            info: Some(if healthy {
+                "Vault connected".to_string()
+            } else {
+                "Vault unreachable".to_string()
+            }),
+            response_time_ms: Some(u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)),
+            error: if healthy {
+                None
+            } else {
+                Some("Vault health check failed".to_string())
+            },
+        }
+    } else {
+        ExtendedServiceStatus {
+            healthy: false,
+            info: Some("Vault integration not enabled".to_string()),
+            response_time_ms: None,
+            error: None,
+        }
+    };
+
+    let status_code = if status.healthy {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (status_code, Json(status))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

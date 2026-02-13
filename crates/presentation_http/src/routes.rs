@@ -19,6 +19,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health/email", get(handlers::health::email_health_check))
         .route("/health/calendar", get(handlers::health::calendar_health_check))
         .route("/health/weather", get(handlers::health::weather_health_check))
+        .route("/health/vault", get(handlers::health::vault_health_check))
         // Messenger health endpoints
         .route("/health/signal", get(handlers::signal::health_check))
         // Metrics endpoints
