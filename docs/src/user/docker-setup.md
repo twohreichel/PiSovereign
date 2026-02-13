@@ -165,6 +165,61 @@ docker compose --profile caldav up -d
 docker compose --profile monitoring --profile caldav up -d
 ```
 
+## Signal Registration (Docker)
+
+Signal requires a one-time registration before messages can be sent/received.
+
+### 1. Set your phone number
+
+Edit `docker/.env` and set your phone number in E.164 format:
+
+```bash
+SIGNAL_CLI_NUMBER=+491701234567
+```
+
+This automatically configures both the PiSovereign application and can be
+stored in Vault for secure persistence.
+
+### 2. Register with Signal
+
+```bash
+# Register via SMS
+docker compose exec signal-cli signal-cli -a +491701234567 register
+
+# Or register via voice call
+docker compose exec signal-cli signal-cli -a +491701234567 register --voice
+```
+
+### 3. Verify the code
+
+```bash
+# Enter the verification code received via SMS/voice
+docker compose exec signal-cli signal-cli -a +491701234567 verify 123-456
+```
+
+### 4. Store in Vault (optional)
+
+For production, store the phone number in Vault so it's managed centrally:
+
+```bash
+docker compose exec vault vault kv put secret/pisovereign/signal \
+  phone_number="+491701234567"
+```
+
+The application loads the phone number in this priority order:
+1. **config.toml** — `[signal] phone_number = "..."`
+2. **Environment variable** — `PISOVEREIGN_SIGNAL__PHONE_NUMBER` (set via `.env`)
+3. **Vault** — `secret/pisovereign/signal` → `phone_number`
+
+### 5. Restart and verify
+
+```bash
+docker compose restart pisovereign
+docker compose logs pisovereign | grep -i signal
+```
+
+For the full Signal setup guide, see [Signal Setup](./signal-setup.md).
+
 ## Operations
 
 ### Updating

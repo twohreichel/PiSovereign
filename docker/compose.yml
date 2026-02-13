@@ -227,6 +227,7 @@ services:
       - PISOVEREIGN_ALLOW_INSECURE_CONFIG=true
       - RUST_LOG=info
       - PISOVEREIGN_VAULT_TOKEN=${VAULT_TOKEN:-}
+      - PISOVEREIGN_SIGNAL__PHONE_NUMBER=${SIGNAL_CLI_NUMBER:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

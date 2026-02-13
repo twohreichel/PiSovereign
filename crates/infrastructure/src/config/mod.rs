@@ -288,6 +288,9 @@ impl AppConfig {
         // Speech secrets
         self.resolve_speech_secrets(store, &prefix).await;
 
+        // Signal secrets
+        self.resolve_signal_secrets(store, &prefix).await;
+
         info!("Secret resolution completed");
         Ok(())
     }
@@ -372,6 +375,23 @@ impl AppConfig {
                     }
                 },
                 Err(e) => warn!(path = %path, error = %e, "Failed to resolve Proton secrets"),
+            }
+        }
+    }
+
+    async fn resolve_signal_secrets(&mut self, store: &dyn SecretStorePort, prefix: &str) {
+        if self.signal.phone_number.is_empty() {
+            let path = format!("{prefix}/signal");
+            match store.get_json(&path).await {
+                Ok(json) => {
+                    if let Some(val) = json.get("phone_number").and_then(|v| v.as_str()) {
+                        if !val.is_empty() {
+                            self.signal.phone_number = val.to_owned();
+                            debug!("Loaded signal.phone_number from secret store");
+                        }
+                    }
+                },
+                Err(e) => warn!(path = %path, error = %e, "Failed to resolve Signal secrets"),
             }
         }
     }
