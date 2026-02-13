@@ -322,7 +322,7 @@ services:
     networks:
       - pisovereign-network
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:3100/ready"]
+      test: ["CMD", "/usr/bin/loki", "--version"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -348,11 +348,7 @@ services:
     restart: unless-stopped
     profiles: ["monitoring"]
     command:
-      - "--path.rootfs=/host"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
-    pid: host
-    volumes:
-      - /:/host:ro,rslave
     networks:
       - pisovereign-network
 
@@ -367,7 +363,7 @@ services:
     networks:
       - pisovereign-network
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:13133/"]
+      test: ["CMD", "/otelcol-contrib", "components"]
       interval: 30s
       timeout: 5s
       retries: 3
