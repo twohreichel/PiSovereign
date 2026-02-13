@@ -1,0 +1,44 @@
+# Traefik dynamic configuration for PiSovereign
+# Security headers and rate limiting middleware
+
+http:
+  middlewares:
+    pisovereign-security:
+      headers:
+        # HSTS - enforce HTTPS for 1 year
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        # Prevent MIME type sniffing
+        contentTypeNosniff: true
+        # Prevent clickjacking
+        frameDeny: true
+        # XSS protection
+        browserXssFilter: true
+        # Referrer policy
+        referrerPolicy: "strict-origin-when-cross-origin"
+        # Permissions policy
+        permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=()"
+        # Content Security Policy
+        contentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+        # Additional security headers
+        customResponseHeaders:
+          X-Robots-Tag: "noindex, nofollow"
+          X-Download-Options: "noopen"
+          X-Permitted-Cross-Domain-Policies: "none"
+
+    pisovereign-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: "1m"
+
+    grafana-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/grafana"
+
+    caldav-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/caldav"

@@ -225,6 +225,7 @@ fn create_benchmark_state() -> AppState {
         prompt_sanitizer: None,
         suspicious_activity_tracker: None,
         conversation_store: None,
+        secret_store: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }

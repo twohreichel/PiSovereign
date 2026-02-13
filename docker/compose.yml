@@ -1,0 +1,421 @@
+# PiSovereign Production Docker Compose Setup
+#
+# Core services (always active):
+#   traefik, vault, vault-init, ollama, ollama-init,
+#   pisovereign, signal-cli, whisper, piper
+#
+# Optional profiles:
+#   --profile monitoring  → prometheus, grafana, loki, promtail, node-exporter, otel-collector
+#   --profile caldav      → baikal (CalDAV server)
+#
+# Usage:
+#   cp .env.example .env && edit .env
+#   docker compose up -d
+#   docker compose --profile monitoring up -d
+#   docker compose --profile monitoring --profile caldav up -d
+
+services:
+  # ============================================================
+  # Reverse Proxy — Traefik v3
+  # ============================================================
+  traefik:
+    image: traefik:v3.2
+    container_name: pisovereign-traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=false"
+      - "--api.insecure=false"
+      - "--ping=true"
+      - "--entrypoints.web.address=:80"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=pisovereign-network"
+      - "--providers.file.filename=/etc/traefik/dynamic.yml"
+      - "--providers.file.watch=true"
+      - "--log.level=DEBUG"
+      - "--accesslog=true"
+      - "--accesslog.format=json"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-logs:/var/log/traefik
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks:
+      - pisovereign-network
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ============================================================
+  # Secret Store — HashiCorp Vault
+  # ============================================================
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: pisovereign-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    command: server
+    environment:
+      - VAULT_ADDR=http://127.0.0.1:8200
+      - VAULT_LOCAL_CONFIG={"storage":{"file":{"path":"/vault/file"}},"listener":{"tcp":{"address":"0.0.0.0:8200","tls_disable":true}},"disable_mlock":true,"api_addr":"http://vault:8200","ui":false}
+    volumes:
+      - vault-data:/vault/file
+      - vault-init:/vault/init-output
+    networks:
+      - pisovereign-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "vault status 2>&1 | grep -q 'Sealed.*false' || vault status 2>&1 | grep -q 'Initialized.*false'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  vault-init:
+    image: hashicorp/vault:1.15
+    container_name: pisovereign-vault-init
+    restart: "no"
+    depends_on:
+      vault:
+        condition: service_started
+    entrypoint: /bin/sh
+    command: ["/init.sh"]
+    volumes:
+      - vault-init:/vault/init-output
+      - ./vault/init.sh:/init.sh:ro
+    environment:
+      - VAULT_ADDR=http://vault:8200
+    networks:
+      - pisovereign-network
+
+  # ============================================================
+  # LLM Inference — Ollama
+  # ============================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pisovereign-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - pisovereign-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: pisovereign-ollama-init
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    command: ["/init.sh"]
+    volumes:
+      - ollama-models:/root/.ollama
+      - ./ollama-init/init.sh:/init.sh:ro
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    networks:
+      - pisovereign-network
+
+  # ============================================================
+  # Signal Messenger — signal-cli (JSON-RPC daemon)
+  # ============================================================
+  signal-cli:
+    build:
+      context: ./signal-cli
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: pisovereign-signal-cli
+    restart: unless-stopped
+    volumes:
+      - signal-cli-socket:/var/run/signal-cli
+      - signal-cli-data:/var/lib/signal-cli
+    networks:
+      - pisovereign-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+
+  # ============================================================
+  # Speech-to-Text — whisper.cpp
+  # ============================================================
+  whisper:
+    build:
+      context: ./whisper
+      dockerfile: Dockerfile
+    container_name: pisovereign-whisper
+    restart: unless-stopped
+    volumes:
+      - whisper-models:/models
+    networks:
+      - pisovereign-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ============================================================
+  # Text-to-Speech — Piper
+  # ============================================================
+  piper:
+    build:
+      context: ./piper
+      dockerfile: Dockerfile
+    container_name: pisovereign-piper
+    restart: unless-stopped
+    volumes:
+      - piper-models:/models
+    networks:
+      - pisovereign-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ============================================================
+  # PiSovereign Application
+  # ============================================================
+  pisovereign:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: pisovereign:local
+    container_name: pisovereign
+    restart: unless-stopped
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_healthy
+      signal-cli:
+        condition: service_started
+      whisper:
+        condition: service_started
+      piper:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./config/config.toml:/app/config.toml:ro
+      - pisovereign-data:/app/data
+      - pisovereign-logs:/app/logs
+      - signal-cli-socket:/var/run/signal-cli:ro
+    environment:
+      - PISOVEREIGN_CONFIG=/app/config/config.toml
+      - PISOVEREIGN_DATA_DIR=/app/data
+      - PISOVEREIGN_ENVIRONMENT=development
+      - PISOVEREIGN_ALLOW_INSECURE_CONFIG=true
+      - RUST_LOG=info
+      - PISOVEREIGN_VAULT_TOKEN=${VAULT_TOKEN:-}
+      - PISOVEREIGN_SIGNAL__PHONE_NUMBER=${SIGNAL_CLI_NUMBER:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - pisovereign-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.80"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/app/pisovereign-cli", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pisovereign.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.pisovereign.entrypoints=web"
+      - "traefik.http.services.pisovereign.loadbalancer.server.port=3000"
+      - "traefik.http.routers.pisovereign.middlewares=pisovereign-security@file,pisovereign-ratelimit@file"
+
+  # ============================================================
+  # Monitoring Stack (profile: monitoring)
+  # ============================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pisovereign-prometheus
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--storage.tsdb.retention.size=1GB"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../grafana/alerting_rules.yml:/etc/prometheus/alerting_rules.yml:ro
+    networks:
+      - pisovereign-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pisovereign-grafana
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
+      - GF_SERVER_ROOT_URL=https://${PISOVEREIGN_DOMAIN}/grafana
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - pisovereign-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=PathPrefix(`/grafana`)"
+      - "traefik.http.routers.grafana.entrypoints=web"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+      - "traefik.http.routers.grafana.middlewares=grafana-stripprefix@file,pisovereign-security@file"
+
+  loki:
+    image: grafana/loki:latest
+    container_name: pisovereign-loki
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - loki-data:/loki
+      - ./loki/loki.yml:/etc/loki/loki.yml:ro
+    networks:
+      - pisovereign-network
+    healthcheck:
+      test: ["CMD", "/usr/bin/loki", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: pisovereign-promtail
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    depends_on:
+      - loki
+    command: -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-logs:/var/log/traefik:ro
+      - ./promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+    networks:
+      - pisovereign-network
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: pisovereign-node-exporter
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    command:
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    networks:
+      - pisovereign-network
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: pisovereign-otel-collector
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    command: ["--config=/etc/otel/otel-collector.yml"]
+    volumes:
+      - ./otel/otel-collector.yml:/etc/otel/otel-collector.yml:ro
+    networks:
+      - pisovereign-network
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "components"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ============================================================
+  # CalDAV Server (profile: caldav)
+  # ============================================================
+  baikal:
+    image: ckulka/baikal:nginx
+    container_name: pisovereign-baikal
+    restart: unless-stopped
+    profiles: ["caldav"]
+    volumes:
+      - baikal-config:/var/www/baikal/config
+      - baikal-data:/var/www/baikal/Specific
+    networks:
+      - pisovereign-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.baikal.rule=PathPrefix(`/caldav`)"
+      - "traefik.http.routers.baikal.entrypoints=web"
+      - "traefik.http.services.baikal.loadbalancer.server.port=80"
+      - "traefik.http.routers.baikal.middlewares=caldav-stripprefix@file,pisovereign-security@file"
+
+# ============================================================
+# Networks
+# ============================================================
+networks:
+  pisovereign-network:
+    driver: bridge
+    name: pisovereign-network
+
+# ============================================================
+# Volumes
+# ============================================================
+volumes:
+  # Core
+  traefik-logs:
+  vault-data:
+  vault-init:
+  ollama-models:
+  pisovereign-data:
+  pisovereign-logs:
+  signal-cli-socket:
+  signal-cli-data:
+  whisper-models:
+  piper-models:
+  # Monitoring (created only when profile active)
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  # CalDAV (created only when profile active)
+  baikal-config:
+  baikal-data:

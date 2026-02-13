@@ -9,16 +9,18 @@ use application::{
     AgentService, ApprovalService, ChatService, HealthService, VoiceMessageService,
     ports::{
         CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
-        MessengerPort, ReminderPort, SpeechPort, SuspiciousActivityPort, TransitPort, WeatherPort,
+        MessengerPort, ReminderPort, SecretStorePort, SpeechPort, SuspiciousActivityPort,
+        TransitPort, WeatherPort,
     },
     services::PromptSanitizer,
 };
 use infrastructure::{
     AppConfig, MessengerSelection, OllamaInferenceAdapter, SecurityValidator,
     adapters::{
-        CalDavCalendarAdapter, DegradedInferenceAdapter, DegradedModeConfig,
-        InMemorySuspiciousActivityTracker, ProtonEmailAdapter, SignalMessengerAdapter,
-        SpeechAdapter, TransitAdapter, WeatherAdapter, WhatsAppMessengerAdapter,
+        CalDavCalendarAdapter, ChainedSecretStore, DegradedInferenceAdapter, DegradedModeConfig,
+        EnvSecretStore, InMemorySuspiciousActivityTracker, ProtonEmailAdapter,
+        SignalMessengerAdapter, SpeechAdapter, TransitAdapter, VaultSecretStore, WeatherAdapter,
+        WhatsAppMessengerAdapter,
     },
     persistence::{
         AsyncConversationStore, AsyncDatabase, AsyncDatabaseConfig, SqliteApprovalQueue,
@@ -31,7 +33,8 @@ use integration_whatsapp::WhatsAppClientConfig;
 use presentation_http::{
     ApiKeyAuthLayer, RateLimiterConfig, RateLimiterLayer, ReloadableConfig, RequestIdLayer,
     SecurityHeadersLayer, handlers::metrics::MetricsCollector, routes, spawn_cleanup_task,
-    spawn_config_reload_handler, spawn_conversation_cleanup_task, state::AppState,
+    spawn_config_reload_handler, spawn_conversation_cleanup_task, spawn_signal_polling_task,
+    state::AppState,
 };
 use secrecy::ExposeSecret;
 use std::net::SocketAddr;
@@ -100,7 +103,7 @@ fn init_tracing(log_format: &str, environment: Option<infrastructure::config::En
 #[allow(clippy::too_many_lines)]
 async fn main() -> anyhow::Result<()> {
     // Load configuration first to determine log format
-    let initial_config = AppConfig::load().unwrap_or_else(|e| {
+    let mut initial_config = AppConfig::load().unwrap_or_else(|e| {
         // Can't log yet, print to stderr (allowed before tracing init)
         #[allow(clippy::print_stderr)]
         {
@@ -116,6 +119,30 @@ async fn main() -> anyhow::Result<()> {
     );
 
     info!("🤖 PiSovereign v{} starting...", env!("CARGO_PKG_VERSION"));
+
+    // Initialize Vault secret store and resolve secrets into config
+    let secret_store: Option<Arc<dyn SecretStorePort>> = if initial_config.vault.enabled {
+        info!(
+            address = %initial_config.vault.address,
+            "Initializing Vault secret store"
+        );
+
+        match initialize_secret_store(&initial_config).await {
+            Ok(store) => {
+                if let Err(e) = initial_config.resolve_secrets(store.as_ref()).await {
+                    warn!(error = %e, "Secret resolution completed with errors");
+                }
+                Some(store)
+            },
+            Err(e) => {
+                warn!(error = %e, "Failed to initialize Vault — continuing without secrets");
+                None
+            },
+        }
+    } else {
+        debug!("Vault integration disabled");
+        None
+    };
 
     // Validate security configuration
     let security_warnings = SecurityValidator::validate(&initial_config);
@@ -532,10 +559,36 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // Wrap agent_service in Arc before state creation so we can share it
+    let agent_service = Arc::new(agent_service);
+
+    // Spawn Signal auto-polling task if enabled
+    let _signal_polling_handle = if initial_config.signal.auto_poll {
+        if let Some(ref sc) = signal_client {
+            info!(
+                interval_secs = initial_config.signal.poll_interval_secs,
+                "📡 Signal auto-polling enabled"
+            );
+            Some(spawn_signal_polling_task(
+                Arc::clone(sc),
+                Arc::clone(&agent_service),
+                conversation_store.clone(),
+                voice_message_service.clone(),
+                Duration::from_secs(initial_config.signal.poll_interval_secs),
+            ))
+        } else {
+            debug!("Signal auto-polling enabled but no Signal client — skipping");
+            None
+        }
+    } else {
+        debug!("Signal auto-polling disabled");
+        None
+    };
+
     // Create app state with reloadable config
     let state = AppState {
         chat_service: Arc::clone(&chat_service),
-        agent_service: Arc::new(agent_service),
+        agent_service,
         approval_service,
         health_service: Some(Arc::new(health_service)),
         voice_message_service,
@@ -546,6 +599,7 @@ async fn main() -> anyhow::Result<()> {
         prompt_sanitizer,
         suspicious_activity_tracker,
         conversation_store,
+        secret_store,
     };
 
     // Build router
@@ -685,4 +739,27 @@ async fn shutdown_signal(timeout: Duration) {
 
     info!("⏳ Waiting up to {:?} for connections to close...", timeout);
     // Note: The actual connection draining is handled by axum's graceful_shutdown
+}
+
+/// Initialize the secret store based on Vault configuration
+///
+/// Creates a `ChainedSecretStore` that tries Vault first, then falls back
+/// to environment variables (if `env_fallback` is enabled).
+async fn initialize_secret_store(
+    config: &AppConfig,
+) -> Result<Arc<dyn SecretStorePort>, anyhow::Error> {
+    let vault_config = config.vault.to_vault_config();
+    let vault_store = VaultSecretStore::new(vault_config).await?;
+
+    if config.vault.env_fallback {
+        let env_prefix = config.vault.env_prefix.as_deref().unwrap_or("PISOVEREIGN");
+        let env_store = EnvSecretStore::with_prefix(env_prefix);
+
+        info!("Secret store: Vault → environment variable fallback chain");
+        let chained = ChainedSecretStore::new(vec![Arc::new(vault_store), Arc::new(env_store)]);
+        Ok(Arc::new(chained))
+    } else {
+        info!("Secret store: Vault only (no fallback)");
+        Ok(Arc::new(vault_store))
+    }
 }

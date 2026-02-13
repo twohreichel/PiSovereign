@@ -185,6 +185,10 @@ socket_path = "/var/run/signal-cli/socket"
 timeout_ms = 30000
 # Phone numbers allowed to send messages (empty = allow all)
 # whitelist = ["+1234567890", "+0987654321"]
+# Enable automatic background polling for incoming messages (default: true)
+auto_poll = true
+# Polling interval in seconds (default: 2)
+poll_interval_secs = 2
 
 # Conversation Persistence Settings
 # Store and persist conversations from Signal in the database
@@ -372,6 +376,32 @@ global_timeout_secs = 5
 # email_timeout_secs = 5
 # calendar_timeout_secs = 5
 # weather_timeout_secs = 5
+
+# ==============================
+# Vault Secret Store (HashiCorp Vault)
+# ==============================
+# Centralized secret management. When enabled, secrets are loaded from Vault
+# at startup and injected into empty config fields (config.toml/env vars take precedence).
+# [vault]
+# enabled = false
+# address = "http://127.0.0.1:8200"
+# Authentication: token (set via env: PISOVEREIGN_VAULT_TOKEN)
+# token = ""
+# Or AppRole authentication:
+# role_id = ""
+# secret_id = ""
+# KV v2 mount path
+# mount_path = "secret"
+# Secret path prefix (secrets at: {prefix}/whatsapp, {prefix}/caldav, etc.)
+# secret_prefix = "pisovereign"
+# Vault Enterprise namespace (optional)
+# namespace = ""
+# Connection timeout in seconds
+# timeout_secs = 5
+# Fallback to environment variables when Vault secret is missing
+# env_fallback = true
+# Environment variable prefix for fallback
+# env_prefix = "PISOVEREIGN"
 
 # ==============================
 # Weather Integration (Open-Meteo)

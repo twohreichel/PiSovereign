@@ -26,7 +26,8 @@ pub use cache::{MokaCache, MultiLayerCache, RedbCache, generate_cache_key, llm_c
 pub use config::{
     ApiKeyEntry, AppConfig, CalDavAppConfig, DatabaseConfig, DegradedModeAppConfig, Environment,
     MessengerPersistenceConfig, MessengerSelection, ProtonAppConfig, RetryAppConfig,
-    SecurityConfig, ServerConfig, SignalConfig, TelemetryAppConfig, WeatherConfig, WhatsAppConfig,
+    SecurityConfig, ServerConfig, SignalConfig, TelemetryAppConfig, VaultAppConfig, WeatherConfig,
+    WhatsAppConfig,
 };
 pub use http::{CorrelatedClientConfig, CorrelatedHttpClient, RequestIdProvider, X_REQUEST_ID};
 pub use persistence::{

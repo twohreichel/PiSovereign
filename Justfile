@@ -120,6 +120,56 @@ run:
 cli *ARGS:
     cargo run --bin pisovereign-cli -- {{ARGS}}
 
+# === DOCKER ===
+
+# Start all core services (production)
+docker-up:
+    cd docker && docker compose up -d
+
+# Start with monitoring profile
+docker-up-monitoring:
+    cd docker && docker compose --profile monitoring up -d
+
+# Start with CalDAV profile
+docker-up-caldav:
+    cd docker && docker compose --profile caldav up -d
+
+# Start all profiles
+docker-up-all:
+    cd docker && docker compose --profile monitoring --profile caldav up -d
+
+# Stop all services
+docker-down:
+    cd docker && docker compose --profile monitoring --profile caldav down
+
+# Show service status
+docker-status:
+    cd docker && docker compose ps
+
+# Follow logs for all services
+docker-logs *ARGS:
+    cd docker && docker compose logs -f {{ARGS}}
+
+# Rebuild and restart PiSovereign container
+docker-rebuild:
+    cd docker && docker compose up -d --build pisovereign
+
+# Initialize Vault (run once after first start)
+docker-vault-init:
+    cd docker && docker compose exec vault /vault/init.sh
+
+# Unseal Vault manually
+docker-vault-unseal KEY:
+    cd docker && docker compose exec vault vault operator unseal {{KEY}}
+
+# Show Vault status
+docker-vault-status:
+    cd docker && docker compose exec vault vault status
+
+# Pull latest model into Ollama
+docker-model-pull MODEL="qwen2.5:1.5b":
+    cd docker && docker compose exec ollama ollama pull {{MODEL}}
+
 # === COVERAGE ===
 # Uses .tarpaulin.toml for configuration (75% threshold, excludes infrastructure code)
 
