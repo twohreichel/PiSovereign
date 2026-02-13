@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "ai_core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "domain",
@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "ai_speech"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -166,7 +166,7 @@ checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
 name = "application"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -1495,7 +1495,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "chrono",
  "chrono-tz 0.10.4",
@@ -2519,7 +2519,7 @@ dependencies = [
 
 [[package]]
 name = "infrastructure"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "ai_core",
  "ai_speech",
@@ -2587,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "integration_caldav"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "application",
  "async-trait",
@@ -2608,7 +2608,7 @@ dependencies = [
 
 [[package]]
 name = "integration_proton"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "application",
  "async-trait",
@@ -2638,7 +2638,7 @@ dependencies = [
 
 [[package]]
 name = "integration_signal"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "application",
  "async-trait",
@@ -2656,7 +2656,7 @@ dependencies = [
 
 [[package]]
 name = "integration_transit"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2676,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "integration_weather"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2694,7 +2694,7 @@ dependencies = [
 
 [[package]]
 name = "integration_websearch"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2713,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "integration_whatsapp"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "application",
  "async-trait",
@@ -3821,7 +3821,7 @@ dependencies = [
 
 [[package]]
 name = "presentation_cli"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "ai_core",
  "anyhow",
@@ -3847,7 +3847,7 @@ dependencies = [
 
 [[package]]
 name = "presentation_http"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "ai_core",
  "anyhow",
