@@ -2,7 +2,7 @@
 # Runs signal-cli in JSON-RPC daemon mode over Unix socket
 # Compatible with aarch64 (Raspberry Pi 5) and amd64
 
-FROM eclipse-temurin:17-jre-jammy AS runtime
+FROM --platform=linux/amd64 eclipse-temurin:21-jre-jammy AS runtime
 
 ARG SIGNAL_CLI_VERSION=0.13.4
 ARG TARGETARCH

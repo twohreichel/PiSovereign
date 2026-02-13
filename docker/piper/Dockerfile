@@ -25,9 +25,11 @@ RUN PIPER_ARCH="" && \
       amd64) PIPER_ARCH="x86_64" ;; \
       *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
     esac && \
+    mkdir -p /opt/piper && \
     curl -fsSL "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_${PIPER_ARCH}.tar.gz" \
-      | tar xz -C /usr/local/bin --strip-components=1 && \
-    chmod +x /usr/local/bin/piper
+      | tar xz -C /opt && \
+    chmod +x /opt/piper/piper && \
+    ln -s /opt/piper/piper /usr/local/bin/piper
 
 # Download German voice model (Thorsten medium)
 RUN mkdir -p /models && \

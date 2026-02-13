@@ -13,5 +13,6 @@ config.local.toml
 *.iml
 docs/book
 config.toml
+!docker/config/config.toml
 pisovereign.db
 *nohup.out

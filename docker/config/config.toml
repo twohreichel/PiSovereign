@@ -1,0 +1,258 @@
+# PiSovereign Production Configuration (Docker)
+# ==============================================
+# This configuration is pre-configured for the Docker Compose setup.
+# All secrets are loaded from HashiCorp Vault automatically.
+#
+# Required steps:
+#   1. Set your secrets in Vault (see docker/README.md)
+#   2. Adjust domain/network settings below if needed
+#
+# Secrets managed by Vault (do NOT put credentials here):
+#   - WhatsApp tokens        → secret/pisovereign/whatsapp
+#   - Signal phone number    → secret/pisovereign/signal
+#   - Proton credentials     → secret/pisovereign/proton
+#   - CalDAV credentials     → secret/pisovereign/caldav
+#   - Web search API key     → secret/pisovereign/websearch
+#   - Speech API key         → secret/pisovereign/speech
+#   - API key hashes         → secret/pisovereign/security
+
+# ====================
+# Environment
+# ====================
+environment = "development"
+
+# ====================
+# HTTP Server
+# ====================
+[server]
+# Bind to all interfaces (Traefik proxies to this)
+host = "0.0.0.0"
+port = 3000
+cors_enabled = true
+allowed_origins = []
+shutdown_timeout_secs = 30
+log_format = "json"
+
+# ====================
+# AI Inference (Ollama container)
+# ====================
+[inference]
+base_url = "http://ollama:11434"
+default_model = "qwen2.5:1.5b"
+timeout_ms = 60000
+max_tokens = 2048
+temperature = 0.7
+top_p = 0.9
+
+# ====================
+# Security
+# ====================
+[security]
+whitelisted_phones = []
+rate_limit_enabled = true
+rate_limit_rpm = 60
+tls_verify_certs = true
+connection_timeout_secs = 30
+min_tls_version = "1.2"
+trusted_proxies = []
+
+# ====================
+# Prompt Security
+# ====================
+[prompt_security]
+enabled = true
+sensitivity = "medium"
+block_on_detection = true
+max_violations_before_block = 3
+violation_window_secs = 3600
+block_duration_secs = 86400
+auto_block_on_critical = true
+
+# ====================
+# Messenger (Signal via Docker container)
+# ====================
+# Phone number is loaded from Vault: secret/pisovereign/signal
+messenger = "signal"
+
+[signal]
+socket_path = "/var/run/signal-cli/socket"
+timeout_ms = 30000
+
+[signal.persistence]
+enabled = true
+enable_encryption = true
+enable_rag = true
+enable_learning = true
+retention_days = 90
+max_messages_per_conversation = 1000
+context_window = 50
+
+# ====================
+# WhatsApp (alternative — set messenger = "whatsapp" to use)
+# ====================
+# Tokens are loaded from Vault: secret/pisovereign/whatsapp
+[whatsapp]
+signature_required = true
+api_version = "v18.0"
+
+[whatsapp.persistence]
+enabled = true
+enable_encryption = true
+enable_rag = true
+enable_learning = true
+retention_days = 90
+max_messages_per_conversation = 1000
+context_window = 50
+
+# ====================
+# Speech (whisper + piper Docker containers)
+# ====================
+# OpenAI API key (if using cloud) loaded from Vault: secret/pisovereign/speech
+[speech]
+provider = "local"
+timeout_ms = 60000
+max_audio_duration_ms = 1500000
+response_format = "mirror"
+
+# ====================
+# Memory / Knowledge Storage
+# ====================
+[memory]
+enabled = true
+enable_rag = true
+enable_learning = true
+rag_limit = 5
+rag_threshold = 0.5
+merge_threshold = 0.85
+min_importance = 0.1
+decay_factor = 0.95
+enable_encryption = true
+
+[memory.embedding]
+model = "nomic-embed-text"
+dimension = 384
+timeout_ms = 30000
+
+# ====================
+# Database (SQLite in Docker volume)
+# ====================
+[database]
+path = "/app/data/pisovereign.db"
+max_connections = 5
+run_migrations = true
+
+# ====================
+# Cache
+# ====================
+[cache]
+enabled = true
+ttl_short_secs = 300
+ttl_medium_secs = 3600
+ttl_long_secs = 86400
+ttl_llm_dynamic_secs = 3600
+ttl_llm_stable_secs = 86400
+l1_max_entries = 10000
+
+# ====================
+# Telemetry (enable with --profile monitoring)
+# ====================
+[telemetry]
+enabled = false
+otlp_endpoint = "http://otel-collector:4317"
+sample_ratio = 1.0
+graceful_fallback = true
+
+# ====================
+# Resilience
+# ====================
+[degraded_mode]
+enabled = true
+unavailable_message = "I'm currently experiencing technical difficulties. Please try again in a moment."
+retry_cooldown_secs = 30
+failure_threshold = 3
+success_threshold = 2
+
+[retry]
+initial_delay_ms = 100
+max_delay_ms = 10000
+multiplier = 2.0
+max_retries = 3
+
+[health]
+global_timeout_secs = 5
+
+# ====================
+# Vault Secret Store
+# ====================
+[vault]
+enabled = true
+address = "http://vault:8200"
+mount_path = "secret"
+secret_prefix = "pisovereign"
+timeout_secs = 5
+env_fallback = true
+env_prefix = "PISOVEREIGN"
+# Token is injected via PISOVEREIGN_VAULT_TOKEN environment variable
+
+# ====================
+# Weather (Open-Meteo — no API key required)
+# ====================
+# [weather]
+# base_url = "https://api.open-meteo.com/v1"
+# timeout_secs = 30
+# forecast_days = 7
+# cache_ttl_minutes = 30
+# default_location = { latitude = 52.52, longitude = 13.405 }
+
+# ====================
+# Web Search (API key loaded from Vault: secret/pisovereign/websearch)
+# ====================
+# [websearch]
+# max_results = 5
+# timeout_secs = 30
+# fallback_enabled = true
+# safe_search = "moderate"
+# country = "DE"
+# language = "de"
+
+# ====================
+# Public Transit
+# ====================
+# [transit]
+# base_url = "https://v6.db.transport.rest"
+# timeout_secs = 10
+# max_results = 3
+# cache_ttl_minutes = 5
+
+# ====================
+# Reminders
+# ====================
+# [reminder]
+# max_snooze = 5
+# default_snooze_minutes = 15
+# check_interval_secs = 60
+# caldav_sync_interval_minutes = 15
+# morning_briefing_time = "07:00"
+# morning_briefing_enabled = true
+
+# ====================
+# CalDAV (credentials from Vault: secret/pisovereign/caldav)
+# Use --profile caldav for Baikal container
+# ====================
+# [caldav]
+# server_url = "http://baikal:80/dav.php"
+# calendar_path = "/calendars/user/default"
+# verify_certs = false
+# timeout_secs = 30
+
+# ====================
+# Proton Mail (Bridge runs on host, credentials from Vault: secret/pisovereign/proton)
+# ====================
+# [proton]
+# imap_host = "host.docker.internal"
+# imap_port = 1143
+# smtp_host = "host.docker.internal"
+# smtp_port = 1025
+# [proton.tls]
+# verify_certificates = false
+# min_tls_version = "1.2"

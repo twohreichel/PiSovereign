@@ -17,7 +17,7 @@ import tempfile
 import os
 import sys
 
-PIPER_BIN = os.environ.get("PIPER_BIN", "/usr/local/bin/piper")
+PIPER_BIN = os.environ.get("PIPER_BIN", "/opt/piper/piper")
 MODEL_PATH = os.environ.get("PIPER_MODEL", "/models/de_DE-thorsten-medium.onnx")
 PORT = int(os.environ.get("PIPER_PORT", "8082"))
 

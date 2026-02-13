@@ -27,28 +27,19 @@ services:
       - "--api.insecure=false"
       - "--ping=true"
       - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
-      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
-      - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=pisovereign-network"
       - "--providers.file.filename=/etc/traefik/dynamic.yml"
       - "--providers.file.watch=true"
-      - "--log.level=WARN"
+      - "--log.level=DEBUG"
       - "--accesslog=true"
       - "--accesslog.format=json"
       - "--accesslog.filepath=/var/log/traefik/access.log"
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - traefik-letsencrypt:/letsencrypt
       - traefik-logs:/var/log/traefik
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
     networks:
@@ -71,13 +62,13 @@ services:
     restart: unless-stopped
     cap_add:
       - IPC_LOCK
-    command: vault server -config=/vault/config/vault.hcl
-    volumes:
-      - vault-data:/vault/data
-      - vault-init:/vault/init-output
-      - ./vault/vault.hcl:/vault/config/vault.hcl:ro
+    command: server
     environment:
       - VAULT_ADDR=http://127.0.0.1:8200
+      - VAULT_LOCAL_CONFIG={"storage":{"file":{"path":"/vault/file"}},"listener":{"tcp":{"address":"0.0.0.0:8200","tls_disable":true}},"disable_mlock":true,"api_addr":"http://vault:8200","ui":false}
+    volumes:
+      - vault-data:/vault/file
+      - vault-init:/vault/init-output
     networks:
       - pisovereign-network
     healthcheck:
@@ -120,7 +111,7 @@ services:
         limits:
           memory: 2G
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -sf http://localhost:11434/api/tags > /dev/null"]
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -150,6 +141,7 @@ services:
     build:
       context: ./signal-cli
       dockerfile: Dockerfile
+    platform: linux/amd64
     container_name: pisovereign-signal-cli
     restart: unless-stopped
     volumes:
@@ -204,14 +196,17 @@ services:
   # PiSovereign Application
   # ============================================================
   pisovereign:
-    image: ghcr.io/${GHCR_OWNER:-twohreichel}/pisovereign:${PISOVEREIGN_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: pisovereign:local
     container_name: pisovereign
     restart: unless-stopped
     depends_on:
       vault-init:
         condition: service_completed_successfully
-      ollama-init:
-        condition: service_completed_successfully
+      ollama:
+        condition: service_healthy
       signal-cli:
         condition: service_started
       whisper:
@@ -219,16 +214,17 @@ services:
       piper:
         condition: service_started
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:3000:3000"
     volumes:
-      - ./config/config.toml:/app/config/config.toml:ro
+      - ./config/config.toml:/app/config.toml:ro
       - pisovereign-data:/app/data
       - pisovereign-logs:/app/logs
       - signal-cli-socket:/var/run/signal-cli:ro
     environment:
       - PISOVEREIGN_CONFIG=/app/config/config.toml
       - PISOVEREIGN_DATA_DIR=/app/data
-      - PISOVEREIGN_ENVIRONMENT=production
+      - PISOVEREIGN_ENVIRONMENT=development
+      - PISOVEREIGN_ALLOW_INSECURE_CONFIG=true
       - RUST_LOG=info
       - PISOVEREIGN_VAULT_TOKEN=${VAULT_TOKEN:-}
     extra_hosts:
@@ -253,9 +249,8 @@ services:
       start_period: 15s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.pisovereign.rule=Host(`${PISOVEREIGN_DOMAIN}`)"
-      - "traefik.http.routers.pisovereign.entrypoints=websecure"
-      - "traefik.http.routers.pisovereign.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.pisovereign.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.pisovereign.entrypoints=web"
       - "traefik.http.services.pisovereign.loadbalancer.server.port=3000"
       - "traefik.http.routers.pisovereign.middlewares=pisovereign-security@file,pisovereign-ratelimit@file"
 
@@ -310,9 +305,8 @@ services:
       - pisovereign-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.grafana.rule=Host(`${PISOVEREIGN_DOMAIN}`) && PathPrefix(`/grafana`)"
-      - "traefik.http.routers.grafana.entrypoints=websecure"
-      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.grafana.rule=PathPrefix(`/grafana`)"
+      - "traefik.http.routers.grafana.entrypoints=web"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
       - "traefik.http.routers.grafana.middlewares=grafana-stripprefix@file,pisovereign-security@file"
 
@@ -393,9 +387,8 @@ services:
       - pisovereign-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.baikal.rule=Host(`${PISOVEREIGN_DOMAIN}`) && PathPrefix(`/caldav`)"
-      - "traefik.http.routers.baikal.entrypoints=websecure"
-      - "traefik.http.routers.baikal.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.baikal.rule=PathPrefix(`/caldav`)"
+      - "traefik.http.routers.baikal.entrypoints=web"
       - "traefik.http.services.baikal.loadbalancer.server.port=80"
       - "traefik.http.routers.baikal.middlewares=caldav-stripprefix@file,pisovereign-security@file"
 
@@ -412,7 +405,6 @@ networks:
 # ============================================================
 volumes:
   # Core
-  traefik-letsencrypt:
   traefik-logs:
   vault-data:
   vault-init:

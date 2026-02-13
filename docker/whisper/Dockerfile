@@ -23,8 +23,9 @@ WORKDIR /build/whisper.cpp
 
 RUN cmake -B build \
       -DCMAKE_BUILD_TYPE=Release \
-      -DWHISPER_BUILD_SERVER=ON \
-      -DWHISPER_BUILD_EXAMPLES=OFF && \
+      -DWHISPER_BUILD_EXAMPLES=ON \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DGGML_NATIVE=OFF && \
     cmake --build build --config Release -j "$(nproc)" --target whisper-server
 
 # Download base model
@@ -40,7 +41,8 @@ LABEL org.opencontainers.image.description="whisper.cpp speech-to-text server fo
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       curl \
-      ca-certificates && \
+      ca-certificates \
+      libgomp1 && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -60,7 +62,7 @@ USER whisper
 EXPOSE 8081
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -sf http://localhost:8081/health || exit 1
+  CMD curl -sf http://localhost:8081/ > /dev/null || exit 1
 
 ENTRYPOINT ["whisper-server", \
   "--model", "/models/ggml-base.bin", \
