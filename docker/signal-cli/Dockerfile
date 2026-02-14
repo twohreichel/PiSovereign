@@ -4,7 +4,7 @@
 
 FROM eclipse-temurin:21-jre-noble AS runtime
 
-ARG SIGNAL_CLI_VERSION=0.13.4
+ARG SIGNAL_CLI_VERSION=0.13.24
 ARG TARGETARCH
 
 LABEL org.opencontainers.image.title="PiSovereign signal-cli"
