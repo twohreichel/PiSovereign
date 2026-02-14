@@ -2,7 +2,7 @@
 # Runs signal-cli in JSON-RPC daemon mode over Unix socket
 # Compatible with aarch64 (Raspberry Pi 5) and amd64
 
-FROM eclipse-temurin:21-jre-jammy AS runtime
+FROM eclipse-temurin:21-jre-noble AS runtime
 
 ARG SIGNAL_CLI_VERSION=0.13.4
 ARG TARGETARCH
@@ -11,11 +11,12 @@ LABEL org.opencontainers.image.title="PiSovereign signal-cli"
 LABEL org.opencontainers.image.description="signal-cli JSON-RPC daemon for PiSovereign"
 LABEL org.opencontainers.image.version="${SIGNAL_CLI_VERSION}"
 
-# Install minimal dependencies
+# Install minimal dependencies and update CA certificates
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       curl \
       ca-certificates && \
+    update-ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Create signal-cli user
