@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4](https://github.com/twohreichel/PiSovereign/compare/v0.4.3...v0.4.4) (2026-02-14)
+
+
+### Bug Fixes
+
+* **docker:** remove platform specification for signal-cli service in Docker Compose ([3f1cfd6](https://github.com/twohreichel/PiSovereign/commit/3f1cfd697d6f1799dd2d5cad2fe2fc4ccc7b11b7))
+* **docker:** specify platform for signal-cli service in Docker Compose ([b3a9de8](https://github.com/twohreichel/PiSovereign/commit/b3a9de8c6c5a0be3a96e5fd1deff1dfda816e809))
+* **docker:** update base image in Dockerfile and enhance dependency installation comments ([46b0a66](https://github.com/twohreichel/PiSovereign/commit/46b0a660ea8cb0afb934b98ca2ffea721ebfbefe))
+* **docker:** update Dockerfile to use entrypoint script for signal-cli ([0f3fd4b](https://github.com/twohreichel/PiSovereign/commit/0f3fd4baf0e66e3173a2ee44bb5bd6f06fb442c6))
+* **docker:** update SIGNAL_CLI_VERSION to 0.13.24 in Dockerfile ([c6c34e9](https://github.com/twohreichel/PiSovereign/commit/c6c34e9a4e16c2be46072495fcfa0dc6e9576b80))
+* **docs:** update Signal setup documentation for Docker integration ([2dd888a](https://github.com/twohreichel/PiSovereign/commit/2dd888afb33f42dbd8e85def023d4e06f9f7545f))
+* **docs:** update signal-cli linking instructions for improved clarity ([21031e4](https://github.com/twohreichel/PiSovereign/commit/21031e4824159eb73ce1ed0e97eeea7662ea9dea))
+
 ## [0.4.3](https://github.com/twohreichel/PiSovereign/compare/v0.4.2...v0.4.3) (2026-02-13)
 
 
