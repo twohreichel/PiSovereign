@@ -34,10 +34,7 @@ signal-cli is connected as a **linked device** to your existing Signal account (
 Open a terminal and run:
 
 ```bash
-docker exec pisovereign-signal-cli \
-  signal-cli --config /var/lib/signal-cli link -n "PiSovereign" \
-  2>&1 | head -1 > /tmp/signal-uri.txt &
-sleep 8 && cat /tmp/signal-uri.txt
+docker exec -it pisovereign-signal-cli signal-cli --config /var/lib/signal-cli link -n "PiSovereign" | tee /tmp/signal-uri.txt
 ```
 
 This command:
@@ -50,7 +47,7 @@ This command:
 Once the URI is displayed, generate the QR code:
 
 ```bash
-tr -d '\n' < /tmp/signal-uri.txt | qrencode -t ANSIUTF8
+head -1 /tmp/signal-uri.txt | tr -d '\n' | qrencode -t ANSIUTF8
 ```
 
 Now **quickly** scan with your phone:
