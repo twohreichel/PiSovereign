@@ -141,6 +141,7 @@ services:
     build:
       context: ./signal-cli
       dockerfile: Dockerfile
+    platform: linux/amd64
     container_name: pisovereign-signal-cli
     restart: unless-stopped
     volumes:
