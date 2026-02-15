@@ -226,6 +226,7 @@ fn create_benchmark_state() -> AppState {
         suspicious_activity_tracker: None,
         conversation_store: None,
         secret_store: None,
+        contact_service: None,
         config: presentation_http::ReloadableConfig::new(AppConfig::default()),
         metrics: Arc::new(MetricsCollector::new()),
     }

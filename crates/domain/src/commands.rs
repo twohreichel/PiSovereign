@@ -195,6 +195,62 @@ pub enum AgentCommand {
         departure: Option<String>,
     },
 
+    /// List contacts with optional search query
+    ListContacts {
+        /// Optional search query to filter contacts
+        query: Option<String>,
+    },
+
+    /// Get a single contact by ID
+    GetContact {
+        /// Contact ID to retrieve
+        contact_id: String,
+    },
+
+    /// Create a new contact
+    CreateContact {
+        /// Contact display name
+        name: String,
+        /// Email address
+        email: Option<String>,
+        /// Phone number
+        phone: Option<String>,
+        /// Organization name
+        organization: Option<String>,
+        /// Birthday (YYYY-MM-DD)
+        birthday: Option<String>,
+        /// Notes
+        notes: Option<String>,
+    },
+
+    /// Update an existing contact
+    UpdateContact {
+        /// Contact ID to update
+        contact_id: String,
+        /// New name (None = keep existing)
+        name: Option<String>,
+        /// New email (None = keep existing)
+        email: Option<String>,
+        /// New phone (None = keep existing)
+        phone: Option<String>,
+        /// New organization (None = keep existing)
+        organization: Option<String>,
+        /// New notes (None = keep existing)
+        notes: Option<String>,
+    },
+
+    /// Delete a contact
+    DeleteContact {
+        /// Contact ID to delete
+        contact_id: String,
+    },
+
+    /// Search contacts by query
+    SearchContacts {
+        /// Search query (name, email, phone, org)
+        query: String,
+    },
+
     /// System-level commands
     System(SystemCommand),
 
@@ -246,11 +302,15 @@ impl AgentCommand {
                 | Self::UpdateTask { .. }
                 | Self::DeleteTask { .. }
                 | Self::CreateTaskList { .. }
+                | Self::CreateContact { .. }
+                | Self::UpdateContact { .. }
+                | Self::DeleteContact { .. }
                 | Self::System(SystemCommand::ReloadConfig | SystemCommand::SwitchModel { .. })
         )
     }
 
     /// Get a human-readable description of the command
+    #[allow(clippy::too_many_lines)]
     pub fn description(&self) -> String {
         match self {
             Self::MorningBriefing { date } => {
@@ -367,6 +427,31 @@ impl AgentCommand {
             },
             Self::SearchTransit { from, to, .. } => {
                 format!("Search transit: {from} → {to}")
+            },
+            Self::ListContacts { query } => query.as_ref().map_or_else(
+                || "List all contacts".to_string(),
+                |q| format!("List contacts matching '{q}'"),
+            ),
+            Self::GetContact { contact_id } => {
+                format!("Get contact {contact_id}")
+            },
+            Self::CreateContact { name, email, .. } => email.as_ref().map_or_else(
+                || format!("Create contact '{name}'"),
+                |e| format!("Create contact '{name}' ({e})"),
+            ),
+            Self::UpdateContact {
+                contact_id, name, ..
+            } => {
+                let name_str = name
+                    .as_deref()
+                    .map_or_else(|| "(no name change)".to_string(), |n| format!("'{n}'"));
+                format!("Update contact {contact_id} to {name_str}")
+            },
+            Self::DeleteContact { contact_id } => {
+                format!("Delete contact {contact_id}")
+            },
+            Self::SearchContacts { query } => {
+                format!("Search contacts: {query}")
             },
             Self::System(cmd) => match cmd {
                 SystemCommand::Status => "System status".to_string(),
@@ -1050,6 +1135,217 @@ mod tests {
             duration_minutes: Some(45),
             attendees: Some(vec![EmailAddress::new("bob@test.com").unwrap()]),
             location: Some("Room 101".to_string()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    // --- Contact command tests ---
+
+    #[test]
+    fn create_contact_requires_approval() {
+        let cmd = AgentCommand::CreateContact {
+            name: "Alice".to_string(),
+            email: None,
+            phone: None,
+            organization: None,
+            birthday: None,
+            notes: None,
+        };
+        assert!(cmd.requires_approval());
+    }
+
+    #[test]
+    fn update_contact_requires_approval() {
+        let cmd = AgentCommand::UpdateContact {
+            contact_id: "abc".to_string(),
+            name: Some("New Name".to_string()),
+            email: None,
+            phone: None,
+            organization: None,
+            notes: None,
+        };
+        assert!(cmd.requires_approval());
+    }
+
+    #[test]
+    fn delete_contact_requires_approval() {
+        let cmd = AgentCommand::DeleteContact {
+            contact_id: "abc".to_string(),
+        };
+        assert!(cmd.requires_approval());
+    }
+
+    #[test]
+    fn list_contacts_does_not_require_approval() {
+        let cmd = AgentCommand::ListContacts { query: None };
+        assert!(!cmd.requires_approval());
+    }
+
+    #[test]
+    fn get_contact_does_not_require_approval() {
+        let cmd = AgentCommand::GetContact {
+            contact_id: "abc".to_string(),
+        };
+        assert!(!cmd.requires_approval());
+    }
+
+    #[test]
+    fn search_contacts_does_not_require_approval() {
+        let cmd = AgentCommand::SearchContacts {
+            query: "Alice".to_string(),
+        };
+        assert!(!cmd.requires_approval());
+    }
+
+    #[test]
+    fn list_contacts_description_without_query() {
+        let cmd = AgentCommand::ListContacts { query: None };
+        assert_eq!(cmd.description(), "List all contacts");
+    }
+
+    #[test]
+    fn list_contacts_description_with_query() {
+        let cmd = AgentCommand::ListContacts {
+            query: Some("Acme".to_string()),
+        };
+        assert_eq!(cmd.description(), "List contacts matching 'Acme'");
+    }
+
+    #[test]
+    fn get_contact_description() {
+        let cmd = AgentCommand::GetContact {
+            contact_id: "c-123".to_string(),
+        };
+        assert_eq!(cmd.description(), "Get contact c-123");
+    }
+
+    #[test]
+    fn create_contact_description_with_email() {
+        let cmd = AgentCommand::CreateContact {
+            name: "Bob".to_string(),
+            email: Some("bob@test.com".to_string()),
+            phone: None,
+            organization: None,
+            birthday: None,
+            notes: None,
+        };
+        assert_eq!(cmd.description(), "Create contact 'Bob' (bob@test.com)");
+    }
+
+    #[test]
+    fn create_contact_description_without_email() {
+        let cmd = AgentCommand::CreateContact {
+            name: "Bob".to_string(),
+            email: None,
+            phone: None,
+            organization: None,
+            birthday: None,
+            notes: None,
+        };
+        assert_eq!(cmd.description(), "Create contact 'Bob'");
+    }
+
+    #[test]
+    fn update_contact_description_with_name() {
+        let cmd = AgentCommand::UpdateContact {
+            contact_id: "c-123".to_string(),
+            name: Some("Bobby".to_string()),
+            email: None,
+            phone: None,
+            organization: None,
+            notes: None,
+        };
+        assert_eq!(cmd.description(), "Update contact c-123 to 'Bobby'");
+    }
+
+    #[test]
+    fn update_contact_description_without_name() {
+        let cmd = AgentCommand::UpdateContact {
+            contact_id: "c-123".to_string(),
+            name: None,
+            email: Some("new@test.com".to_string()),
+            phone: None,
+            organization: None,
+            notes: None,
+        };
+        assert_eq!(
+            cmd.description(),
+            "Update contact c-123 to (no name change)"
+        );
+    }
+
+    #[test]
+    fn delete_contact_description() {
+        let cmd = AgentCommand::DeleteContact {
+            contact_id: "c-456".to_string(),
+        };
+        assert_eq!(cmd.description(), "Delete contact c-456");
+    }
+
+    #[test]
+    fn search_contacts_description() {
+        let cmd = AgentCommand::SearchContacts {
+            query: "Acme Corp".to_string(),
+        };
+        assert_eq!(cmd.description(), "Search contacts: Acme Corp");
+    }
+
+    #[test]
+    fn list_contacts_serializes_and_deserializes() {
+        let cmd = AgentCommand::ListContacts {
+            query: Some("test".to_string()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn create_contact_serializes_and_deserializes() {
+        let cmd = AgentCommand::CreateContact {
+            name: "Alice Smith".to_string(),
+            email: Some("alice@test.com".to_string()),
+            phone: Some("+49 123 456".to_string()),
+            organization: Some("Acme".to_string()),
+            birthday: Some("1990-05-15".to_string()),
+            notes: Some("VIP".to_string()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn update_contact_serializes_and_deserializes() {
+        let cmd = AgentCommand::UpdateContact {
+            contact_id: "c-789".to_string(),
+            name: Some("Updated Name".to_string()),
+            email: None,
+            phone: Some("+49 999".to_string()),
+            organization: None,
+            notes: None,
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn delete_contact_serializes_and_deserializes() {
+        let cmd = AgentCommand::DeleteContact {
+            contact_id: "c-000".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: AgentCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn search_contacts_serializes_and_deserializes() {
+        let cmd = AgentCommand::SearchContacts {
+            query: "engineering".to_string(),
         };
         let json = serde_json::to_string(&cmd).unwrap();
         let parsed: AgentCommand = serde_json::from_str(&json).unwrap();

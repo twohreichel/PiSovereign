@@ -32,8 +32,8 @@ use tracing::{debug, info, warn};
 pub use cache::CacheConfig;
 pub use database::DatabaseConfig;
 pub use integrations::{
-    CalDavAppConfig, GeoLocationConfig, ProtonAppConfig, ProtonTlsAppConfig, TransitAppConfig,
-    WeatherConfig, WebSearchAppConfig,
+    CalDavAppConfig, CardDavAppConfig, GeoLocationConfig, ProtonAppConfig, ProtonTlsAppConfig,
+    TransitAppConfig, WeatherConfig, WebSearchAppConfig,
 };
 pub use memory::{EmbeddingAppConfig, MemoryAppConfig, ReminderAppConfig};
 pub use messenger::{MessengerPersistenceConfig, SignalConfig, WhatsAppConfig};
@@ -184,6 +184,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub caldav: Option<CalDavAppConfig>,
 
+    /// CardDAV contact configuration (optional)
+    /// Falls back to CalDAV credentials if not set explicitly.
+    #[serde(default)]
+    pub carddav: Option<CardDavAppConfig>,
+
     /// Proton Mail configuration (optional)
     #[serde(default)]
     pub proton: Option<ProtonAppConfig>,
@@ -259,6 +264,7 @@ impl AppConfig {
     /// - `{prefix}/whatsapp`: `access_token`, `app_secret`
     /// - `{prefix}/websearch`: `api_key`
     /// - `{prefix}/caldav`: `password`
+    /// - `{prefix}/carddav`: `password`
     /// - `{prefix}/proton`: `password`
     /// - `{prefix}/speech`: `openai_api_key`
     ///
@@ -281,6 +287,9 @@ impl AppConfig {
 
         // CalDAV secrets
         self.resolve_caldav_secrets(store, &prefix).await;
+
+        // CardDAV secrets
+        self.resolve_carddav_secrets(store, &prefix).await;
 
         // Proton Mail secrets
         self.resolve_proton_secrets(store, &prefix).await;
@@ -356,6 +365,25 @@ impl AppConfig {
                     }
                 },
                 Err(e) => warn!(path = %path, error = %e, "Failed to resolve CalDAV secrets"),
+            }
+        }
+    }
+
+    async fn resolve_carddav_secrets(&mut self, store: &dyn SecretStorePort, prefix: &str) {
+        if let Some(ref mut carddav) = self.carddav {
+            let path = format!("{prefix}/carddav");
+            match store.get_json(&path).await {
+                Ok(json) => {
+                    if carddav.password.expose_secret().is_empty() {
+                        if let Some(val) = json.get("password").and_then(|v| v.as_str()) {
+                            if !val.is_empty() {
+                                carddav.password = SecretString::from(val.to_owned());
+                                debug!("Loaded carddav.password from secret store");
+                            }
+                        }
+                    }
+                },
+                Err(e) => warn!(path = %path, error = %e, "Failed to resolve CardDAV secrets"),
             }
         }
     }

@@ -15,6 +15,7 @@ ai_core.workspace = true
 ai_speech.workspace = true
 integration_proton.workspace = true
 integration_caldav.workspace = true
+integration_carddav.workspace = true
 integration_weather.workspace = true
 integration_websearch.workspace = true
 integration_whatsapp.workspace = true

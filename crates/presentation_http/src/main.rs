@@ -8,7 +8,7 @@ use std::{sync::Arc, time::Duration};
 use application::{
     AgentService, ApprovalService, ChatService, HealthService, VoiceMessageService,
     ports::{
-        CalendarPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
+        CalendarPort, ContactPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
         MessengerPort, ReminderPort, SecretStorePort, SpeechPort, SuspiciousActivityPort,
         TransitPort, WeatherPort,
     },
@@ -17,8 +17,8 @@ use application::{
 use infrastructure::{
     AppConfig, MessengerSelection, OllamaInferenceAdapter, SecurityValidator,
     adapters::{
-        CalDavCalendarAdapter, ChainedSecretStore, DegradedInferenceAdapter, DegradedModeConfig,
-        EnvSecretStore, InMemorySuspiciousActivityTracker, ProtonEmailAdapter,
+        CalDavCalendarAdapter, CardDavContactAdapter, ChainedSecretStore, DegradedInferenceAdapter,
+        DegradedModeConfig, EnvSecretStore, InMemorySuspiciousActivityTracker, ProtonEmailAdapter,
         SignalMessengerAdapter, SpeechAdapter, TransitAdapter, VaultSecretStore, WeatherAdapter,
         WhatsAppMessengerAdapter,
     },
@@ -274,6 +274,21 @@ async fn main() -> anyhow::Result<()> {
             }
         });
 
+    // Initialize optional CardDAV contact adapter
+    let contact_port: Option<Arc<dyn ContactPort>> =
+        initial_config.carddav.as_ref().and_then(|config| {
+            match CardDavContactAdapter::new(config.to_carddav_config()) {
+                Ok(adapter) => {
+                    info!("📇 CardDAV contact adapter initialized");
+                    Some(Arc::new(adapter.with_circuit_breaker()) as Arc<dyn ContactPort>)
+                },
+                Err(e) => {
+                    warn!(error = %e, "⚠️ Failed to initialize CardDAV contact adapter");
+                    None
+                },
+            }
+        });
+
     // Initialize optional Proton email adapter
     let email_port: Option<Arc<dyn EmailPort>> = initial_config.proton.as_ref().map(|config| {
         let adapter = ProtonEmailAdapter::new(config.to_proton_config()).with_circuit_breaker();
@@ -398,6 +413,10 @@ async fn main() -> anyhow::Result<()> {
     if let Some(location) = home_location {
         agent_service = agent_service.with_home_location(location);
         info!("🏠 AgentService configured with home location");
+    }
+    if let Some(ref contacts) = contact_port {
+        agent_service = agent_service.with_contact_service(Arc::clone(contacts));
+        info!("📇 AgentService configured with contact support");
     }
 
     // Initialize metrics collector
@@ -600,6 +619,7 @@ async fn main() -> anyhow::Result<()> {
         suspicious_activity_tracker,
         conversation_store,
         secret_store,
+        contact_service: contact_port,
     };
 
     // Build router

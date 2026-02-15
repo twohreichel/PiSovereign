@@ -188,6 +188,69 @@ impl CommandParser {
                     })
                 },
             },
+            // List contacts
+            QuickPattern {
+                keywords: vec![
+                    "kontakte",
+                    "contacts",
+                    "adressbuch",
+                    "address book",
+                    "addressbook",
+                ],
+                builder: |input| {
+                    let lower = input.to_lowercase();
+                    if lower == "kontakte"
+                        || lower == "contacts"
+                        || lower == "adressbuch"
+                        || lower == "address book"
+                        || lower.contains("zeig kontakte")
+                        || lower.contains("show contacts")
+                        || lower.contains("list contacts")
+                        || lower.contains("meine kontakte")
+                        || lower.contains("my contacts")
+                        || lower.contains("alle kontakte")
+                        || lower.contains("all contacts")
+                    {
+                        return Some(AgentCommand::ListContacts { query: None });
+                    }
+                    None
+                },
+            },
+            // Search contacts
+            QuickPattern {
+                keywords: vec![
+                    "kontakt suchen",
+                    "kontakte suchen",
+                    "suche kontakt",
+                    "search contacts",
+                    "find contact",
+                ],
+                builder: |input| {
+                    let lower = input.to_lowercase();
+                    let prefixes = [
+                        "kontakt suchen ",
+                        "kontakte suchen ",
+                        "suche kontakt ",
+                        "suche kontakte ",
+                        "search contacts ",
+                        "search contact ",
+                        "find contact ",
+                        "find contacts ",
+                    ];
+
+                    for prefix in prefixes {
+                        if lower.starts_with(prefix) {
+                            let query = input[prefix.len()..].trim();
+                            if !query.is_empty() {
+                                return Some(AgentCommand::SearchContacts {
+                                    query: query.to_string(),
+                                });
+                            }
+                        }
+                    }
+                    None
+                },
+            },
         ]
     }
 

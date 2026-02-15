@@ -513,6 +513,28 @@ global_timeout_secs = 5
 # timeout_secs = 30
 
 # ==============================
+# CardDAV Contact Integration
+# ==============================
+# Uses the same Baikal (or other CardDAV-capable) server as CalDAV.
+# If credentials are the same, you can omit username/password here
+# and use from_caldav() in code to share CalDAV credentials.
+# [carddav]
+# CardDAV server URL (e.g., Baikal, Radicale, Nextcloud)
+# server_url = "https://cal.example.com"
+# When using Baïkal via Docker (setup --baikal):
+# server_url = "http://baikal:80/dav.php"
+# Username for authentication
+# username = "your-username"
+# Password for authentication
+# password = "your-password"
+# Default addressbook path (optional, auto-discovered if omitted)
+# addressbook_path = "/addressbooks/user/default"
+# Verify TLS certificates
+# verify_certs = true
+# Connection timeout in seconds
+# timeout_secs = 30
+
+# ==============================
 # Proton Mail Integration
 # ==============================
 # [proton]

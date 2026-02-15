@@ -1,6 +1,7 @@
 //! Value Objects - Immutable, identity-less domain primitives
 
 mod approval_id;
+mod contact_id;
 mod conversation_id;
 mod draft_id;
 mod email_address;
@@ -18,6 +19,7 @@ mod timezone;
 mod user_id;
 
 pub use approval_id::ApprovalId;
+pub use contact_id::ContactId;
 pub use conversation_id::ConversationId;
 pub use draft_id::DraftId;
 pub use email_address::EmailAddress;

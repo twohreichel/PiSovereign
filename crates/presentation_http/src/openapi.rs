@@ -37,7 +37,8 @@ use crate::{handlers, state::AppState};
         (name = "system", description = "System status and model information"),
         (name = "metrics", description = "Application metrics and observability"),
         (name = "signal", description = "Signal messenger integration"),
-        (name = "whatsapp", description = "WhatsApp Business API integration")
+        (name = "whatsapp", description = "WhatsApp Business API integration"),
+        (name = "contacts", description = "CardDAV contact management")
     ),
     paths(
         // Health endpoints
@@ -72,6 +73,14 @@ use crate::{handlers, state::AppState};
         // WhatsApp endpoints
         handlers::whatsapp::verify_webhook,
         handlers::whatsapp::handle_webhook,
+        // Contact endpoints
+        handlers::contacts::list_addressbooks,
+        handlers::contacts::list_contacts,
+        handlers::contacts::get_contact,
+        handlers::contacts::create_contact,
+        handlers::contacts::update_contact,
+        handlers::contacts::delete_contact,
+        handlers::contacts::search_contacts,
     ),
     components(
         schemas(
@@ -115,6 +124,15 @@ use crate::{handlers, state::AppState};
             // WhatsApp schemas
             handlers::whatsapp::WebhookVerifyQuery,
             handlers::whatsapp::MessageResponse,
+            // Contact schemas
+            handlers::contacts::ContactResponse,
+            handlers::contacts::ContactDetailResponse,
+            handlers::contacts::CreateContactRequest,
+            handlers::contacts::UpdateContactRequest,
+            handlers::contacts::ListContactsQuery,
+            handlers::contacts::SearchContactsRequest,
+            handlers::contacts::CreatedContactResponse,
+            handlers::contacts::AddressbookResponse,
             // Domain schemas (inline re-definitions for OpenAPI)
             AgentCommandSchema,
             SystemCommandSchema,

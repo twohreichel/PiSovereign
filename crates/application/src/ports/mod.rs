@@ -7,6 +7,7 @@ mod approval_queue;
 mod audit_log;
 mod cache_port;
 mod calendar_port;
+mod contact_port;
 mod conversation_store;
 mod database_health_port;
 mod draft_store;
@@ -32,6 +33,12 @@ pub use approval_queue::ApprovalQueuePort;
 pub use audit_log::{AuditLogPort, AuditQuery};
 pub use cache_port::{CachePort, CachePortExt, CacheStats, ttl};
 pub use calendar_port::{CalendarError, CalendarEvent, CalendarInfo, CalendarPort, NewEvent};
+#[cfg(test)]
+pub use contact_port::MockContactPort;
+pub use contact_port::{
+    AddressbookInfo, ContactDetail, ContactError, ContactPort, ContactSummary, ContactUpdate,
+    NewContact,
+};
 pub use conversation_store::ConversationStore;
 #[cfg(test)]
 pub use database_health_port::MockDatabaseHealthPort;
