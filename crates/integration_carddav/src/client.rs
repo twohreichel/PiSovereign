@@ -378,9 +378,8 @@ pub fn parse_vcard(vcard_data: &str) -> Result<Contact, CardDavError> {
         }
 
         // Split property name and value
-        let (prop_with_params, value) = match line.split_once(':') {
-            Some((p, v)) => (p, v),
-            None => continue,
+        let Some((prop_with_params, value)) = line.split_once(':') else {
+            continue;
         };
 
         // Extract property name and parameters

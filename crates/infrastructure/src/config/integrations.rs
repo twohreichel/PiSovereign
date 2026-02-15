@@ -257,6 +257,94 @@ impl CalDavAppConfig {
 }
 
 // ==============================
+// CardDAV Configuration
+// ==============================
+
+/// CardDAV contact server configuration
+///
+/// Shares the same server credentials as CalDAV when both are pointed
+/// at the same DAV server (e.g., Baikal). Can also be configured
+/// independently.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CardDavAppConfig {
+    /// CardDAV server URL (e.g., <https://dav.example.com/dav.php>)
+    pub server_url: String,
+
+    /// Username for authentication
+    pub username: String,
+
+    /// Password for authentication (sensitive - uses `SecretString`)
+    #[serde(skip_serializing)]
+    pub password: SecretString,
+
+    /// Default addressbook path (optional, auto-discovered if not set)
+    #[serde(default)]
+    pub addressbook_path: Option<String>,
+
+    /// Verify TLS certificates (default: true)
+    #[serde(default = "default_true")]
+    pub verify_certs: bool,
+
+    /// Connection timeout in seconds (default: 30)
+    #[serde(default = "default_carddav_timeout")]
+    pub timeout_secs: u64,
+}
+
+impl std::fmt::Debug for CardDavAppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CardDavAppConfig")
+            .field("server_url", &self.server_url)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("addressbook_path", &self.addressbook_path)
+            .field("verify_certs", &self.verify_certs)
+            .field("timeout_secs", &self.timeout_secs)
+            .finish()
+    }
+}
+
+const fn default_carddav_timeout() -> u64 {
+    30
+}
+
+impl CardDavAppConfig {
+    /// Convert to `integration_carddav`'s `CardDavConfig`
+    #[must_use]
+    pub fn to_carddav_config(&self) -> integration_carddav::CardDavConfig {
+        integration_carddav::CardDavConfig {
+            server_url: self.server_url.clone(),
+            username: self.username.clone(),
+            password: self.password.expose_secret().to_string(),
+            addressbook_path: self.addressbook_path.clone(),
+            verify_certs: self.verify_certs,
+            timeout_secs: self.timeout_secs,
+        }
+    }
+
+    /// Create a `CardDavAppConfig` from an existing `CalDavAppConfig`.
+    ///
+    /// This enables sharing credentials when CalDAV and CardDAV point to the
+    /// same server (e.g., Baikal).
+    #[must_use]
+    pub fn from_caldav(caldav: &CalDavAppConfig) -> Self {
+        Self {
+            server_url: caldav.server_url.clone(),
+            username: caldav.username.clone(),
+            password: SecretString::from(caldav.password.expose_secret().to_string()),
+            addressbook_path: None,
+            verify_certs: caldav.verify_certs,
+            timeout_secs: caldav.timeout_secs,
+        }
+    }
+
+    /// Get the password as a string reference
+    #[must_use]
+    pub fn password_str(&self) -> &str {
+        self.password.expose_secret()
+    }
+}
+
+// ==============================
 // Proton Mail Configuration
 // ==============================
 
