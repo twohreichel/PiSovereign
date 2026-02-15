@@ -5,6 +5,7 @@
 mod api_key_hasher;
 mod cached_inference_adapter;
 mod caldav_calendar_adapter;
+mod carddav_contact_adapter;
 mod circuit_breaker;
 mod degraded_inference;
 mod encryption_adapter;
@@ -25,6 +26,7 @@ mod whatsapp_adapter;
 pub use api_key_hasher::{ApiKeyHashError, ApiKeyHasher};
 pub use cached_inference_adapter::CachedInferenceAdapter;
 pub use caldav_calendar_adapter::CalDavCalendarAdapter;
+pub use carddav_contact_adapter::CardDavContactAdapter;
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitOpenError, CircuitState,
 };
