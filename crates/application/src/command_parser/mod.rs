@@ -40,6 +40,12 @@ Possible intents:
 - "acknowledge_reminder": Mark reminder done (requires: reminder_id)
 - "delete_reminder": Delete a reminder (requires: reminder_id)
 - "search_transit": Search public transit (requires: from, to locations; optional: departure datetime)
+- "list_contacts": List contacts (optional: query to filter)
+- "get_contact": Get contact details (requires: contact_id)
+- "create_contact": Create a new contact (requires: name; optional: email, phone, organization, birthday, notes)
+- "update_contact": Update a contact (requires: contact_id; optional: name, email, phone, organization, notes)
+- "delete_contact": Delete a contact (requires: contact_id)
+- "search_contacts": Search contacts by name, email, phone, or organization (requires: query)
 - "ask": General question (if nothing else matches)
 
 Reply ONLY with valid JSON:
@@ -70,7 +76,13 @@ Reply ONLY with valid JSON:
   "include_done": false (optional, for list_reminders),
   "from": "..." (origin address for search_transit),
   "to_address": "..." (destination address for search_transit),
-  "departure": "YYYY-MM-DD HH:MM" (optional, for search_transit)
+  "departure": "YYYY-MM-DD HH:MM" (optional, for search_transit),
+  "contact_id": "..." (for get_contact/update_contact/delete_contact),
+  "email": "..." (optional, for create_contact/update_contact),
+  "phone": "..." (optional, for create_contact/update_contact),
+  "organization": "..." (optional, for create_contact/update_contact),
+  "birthday": "YYYY-MM-DD" (optional, for create_contact),
+  "notes": "..." (optional, for create_contact/update_contact)
 }
 
 Examples:
@@ -98,6 +110,16 @@ Examples:
 - "Delete reminder xyz" → {"intent":"delete_reminder","reminder_id":"xyz"}
 - "How do I get from Alexanderplatz to TU Berlin?" → {"intent":"search_transit","from":"Alexanderplatz, Berlin","to_address":"TU Berlin"}
 - "ÖPNV von Hauptbahnhof nach Potsdamer Platz um 14:00" → {"intent":"search_transit","from":"Hauptbahnhof Berlin","to_address":"Potsdamer Platz","departure":"2025-01-15 14:00"}
+- "Show my contacts" → {"intent":"list_contacts"}
+- "Zeig meine Kontakte" → {"intent":"list_contacts"}
+- "Find contacts at Acme" → {"intent":"list_contacts","query":"Acme"}
+- "Kontakt von Alice anzeigen" → {"intent":"get_contact","contact_id":"Alice"}
+- "Create contact Bob bob@test.com" → {"intent":"create_contact","name":"Bob","email":"bob@test.com"}
+- "Neuen Kontakt anlegen: Max Mustermann, max@example.com, +49 123 456" → {"intent":"create_contact","name":"Max Mustermann","email":"max@example.com","phone":"+49 123 456"}
+- "Update contact c-123 email to new@test.com" → {"intent":"update_contact","contact_id":"c-123","email":"new@test.com"}
+- "Delete contact c-456" → {"intent":"delete_contact","contact_id":"c-456"}
+- "Search contacts for engineers" → {"intent":"search_contacts","query":"engineers"}
+- "Suche Kontakte mit Acme" → {"intent":"search_contacts","query":"Acme"}
 - "What's the weather like?" → {"intent":"ask","question":"What's the weather like?"}"#;
 
 /// Parsed intent from LLM
@@ -158,6 +180,19 @@ pub(super) struct ParsedIntent {
     pub to_address: Option<String>,
     #[serde(default)]
     pub departure: Option<String>,
+    // Contact fields
+    #[serde(default)]
+    pub contact_id: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub phone: Option<String>,
+    #[serde(default)]
+    pub organization: Option<String>,
+    #[serde(default)]
+    pub birthday: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 
 /// Parser for converting natural language to AgentCommand
@@ -216,6 +251,45 @@ impl Default for CommandParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Create a default `ParsedIntent` with all fields set to `None`
+    fn default_parsed_intent() -> ParsedIntent {
+        ParsedIntent {
+            intent: String::new(),
+            date: None,
+            time: None,
+            title: None,
+            to: None,
+            subject: None,
+            body: None,
+            question: None,
+            count: None,
+            draft_id: None,
+            query: None,
+            max_results: None,
+            event_id: None,
+            location: None,
+            duration_minutes: None,
+            task_id: None,
+            priority: None,
+            status: None,
+            description: None,
+            list: None,
+            name: None,
+            reminder_id: None,
+            remind_at: None,
+            include_done: None,
+            from: None,
+            to_address: None,
+            departure: None,
+            contact_id: None,
+            email: None,
+            phone: None,
+            organization: None,
+            birthday: None,
+            notes: None,
+        }
+    }
 
     #[test]
     fn parses_echo_command() {
@@ -572,5 +646,257 @@ mod tests {
             unreachable!("Expected SearchTransit")
         };
         assert_eq!(to, "Alexanderplatz");
+    }
+
+    // --- Contact quick pattern tests ---
+
+    #[test]
+    fn parses_contacts_keyword_german() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("kontakte").unwrap();
+        assert!(matches!(cmd, AgentCommand::ListContacts { query: None }));
+    }
+
+    #[test]
+    fn parses_contacts_keyword_english() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("contacts").unwrap();
+        assert!(matches!(cmd, AgentCommand::ListContacts { query: None }));
+    }
+
+    #[test]
+    fn parses_show_contacts_german() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("Zeig Kontakte").unwrap();
+        assert!(matches!(cmd, AgentCommand::ListContacts { query: None }));
+    }
+
+    #[test]
+    fn parses_list_contacts_english() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("list contacts").unwrap();
+        assert!(matches!(cmd, AgentCommand::ListContacts { query: None }));
+    }
+
+    #[test]
+    fn parses_my_contacts_english() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("my contacts").unwrap();
+        assert!(matches!(cmd, AgentCommand::ListContacts { query: None }));
+    }
+
+    #[test]
+    fn parses_search_contacts_english() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("search contacts Acme").unwrap();
+        let AgentCommand::SearchContacts { query } = cmd else {
+            unreachable!("Expected SearchContacts")
+        };
+        assert_eq!(query, "Acme");
+    }
+
+    #[test]
+    fn parses_search_contacts_german() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("suche kontakt Alice").unwrap();
+        let AgentCommand::SearchContacts { query } = cmd else {
+            unreachable!("Expected SearchContacts")
+        };
+        assert_eq!(query, "Alice");
+    }
+
+    #[test]
+    fn parses_find_contact_english() {
+        let parser = CommandParser::new();
+        let cmd = parser.parse_quick("find contact Bob Smith").unwrap();
+        let AgentCommand::SearchContacts { query } = cmd else {
+            unreachable!("Expected SearchContacts")
+        };
+        assert_eq!(query, "Bob Smith");
+    }
+
+    // --- Contact intent mapping tests ---
+
+    #[test]
+    fn maps_list_contacts_intent() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "list_contacts".to_string(),
+            query: Some("Acme".to_string()),
+            ..default_parsed_intent()
+        };
+        let cmd = parser
+            .intent_to_command(parsed, "list contacts at Acme")
+            .unwrap();
+        let AgentCommand::ListContacts { query } = cmd else {
+            unreachable!("Expected ListContacts")
+        };
+        assert_eq!(query, Some("Acme".to_string()));
+    }
+
+    #[test]
+    fn maps_list_contacts_intent_no_query() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "list_contacts".to_string(),
+            ..default_parsed_intent()
+        };
+        let cmd = parser.intent_to_command(parsed, "show contacts").unwrap();
+        assert!(matches!(cmd, AgentCommand::ListContacts { query: None }));
+    }
+
+    #[test]
+    fn maps_get_contact_intent() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "get_contact".to_string(),
+            contact_id: Some("c-123".to_string()),
+            ..default_parsed_intent()
+        };
+        let cmd = parser
+            .intent_to_command(parsed, "show contact c-123")
+            .unwrap();
+        let AgentCommand::GetContact { contact_id } = cmd else {
+            unreachable!("Expected GetContact")
+        };
+        assert_eq!(contact_id, "c-123");
+    }
+
+    #[test]
+    fn maps_get_contact_intent_missing_id() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "get_contact".to_string(),
+            ..default_parsed_intent()
+        };
+        let result = parser.intent_to_command(parsed, "show contact");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn maps_create_contact_intent() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "create_contact".to_string(),
+            name: Some("Alice Smith".to_string()),
+            email: Some("alice@test.com".to_string()),
+            phone: Some("+49 123".to_string()),
+            organization: Some("Acme".to_string()),
+            birthday: Some("1990-05-15".to_string()),
+            notes: Some("VIP".to_string()),
+            ..default_parsed_intent()
+        };
+        let cmd = parser.intent_to_command(parsed, "create contact").unwrap();
+        let AgentCommand::CreateContact {
+            name,
+            email,
+            phone,
+            organization,
+            birthday,
+            notes,
+        } = cmd
+        else {
+            unreachable!("Expected CreateContact")
+        };
+        assert_eq!(name, "Alice Smith");
+        assert_eq!(email, Some("alice@test.com".to_string()));
+        assert_eq!(phone, Some("+49 123".to_string()));
+        assert_eq!(organization, Some("Acme".to_string()));
+        assert_eq!(birthday, Some("1990-05-15".to_string()));
+        assert_eq!(notes, Some("VIP".to_string()));
+    }
+
+    #[test]
+    fn maps_create_contact_uses_title_as_name_fallback() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "create_contact".to_string(),
+            title: Some("Bob".to_string()),
+            ..default_parsed_intent()
+        };
+        let cmd = parser
+            .intent_to_command(parsed, "create contact Bob")
+            .unwrap();
+        let AgentCommand::CreateContact { name, .. } = cmd else {
+            unreachable!("Expected CreateContact")
+        };
+        assert_eq!(name, "Bob");
+    }
+
+    #[test]
+    fn maps_create_contact_missing_name() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "create_contact".to_string(),
+            ..default_parsed_intent()
+        };
+        let result = parser.intent_to_command(parsed, "create contact");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn maps_update_contact_intent() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "update_contact".to_string(),
+            contact_id: Some("c-789".to_string()),
+            name: Some("New Name".to_string()),
+            email: Some("new@test.com".to_string()),
+            ..default_parsed_intent()
+        };
+        let cmd = parser.intent_to_command(parsed, "update contact").unwrap();
+        let AgentCommand::UpdateContact {
+            contact_id,
+            name,
+            email,
+            ..
+        } = cmd
+        else {
+            unreachable!("Expected UpdateContact")
+        };
+        assert_eq!(contact_id, "c-789");
+        assert_eq!(name, Some("New Name".to_string()));
+        assert_eq!(email, Some("new@test.com".to_string()));
+    }
+
+    #[test]
+    fn maps_delete_contact_intent() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "delete_contact".to_string(),
+            contact_id: Some("c-456".to_string()),
+            ..default_parsed_intent()
+        };
+        let cmd = parser.intent_to_command(parsed, "delete contact").unwrap();
+        let AgentCommand::DeleteContact { contact_id } = cmd else {
+            unreachable!("Expected DeleteContact")
+        };
+        assert_eq!(contact_id, "c-456");
+    }
+
+    #[test]
+    fn maps_search_contacts_intent() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "search_contacts".to_string(),
+            query: Some("engineering".to_string()),
+            ..default_parsed_intent()
+        };
+        let cmd = parser.intent_to_command(parsed, "search contacts").unwrap();
+        let AgentCommand::SearchContacts { query } = cmd else {
+            unreachable!("Expected SearchContacts")
+        };
+        assert_eq!(query, "engineering");
+    }
+
+    #[test]
+    fn maps_search_contacts_missing_query() {
+        let parser = CommandParser::new();
+        let parsed = ParsedIntent {
+            intent: "search_contacts".to_string(),
+            ..default_parsed_intent()
+        };
+        let result = parser.intent_to_command(parsed, "search contacts");
+        assert!(result.is_err());
     }
 }

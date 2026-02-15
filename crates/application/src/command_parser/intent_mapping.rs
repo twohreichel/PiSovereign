@@ -342,6 +342,70 @@ impl CommandParser {
                 })
             },
 
+            "list_contacts" => Ok(AgentCommand::ListContacts {
+                query: parsed.query.clone(),
+            }),
+
+            "get_contact" => {
+                let contact_id = parsed
+                    .contact_id
+                    .as_ref()
+                    .ok_or("Missing contact_id for get_contact")?
+                    .clone();
+                Ok(AgentCommand::GetContact { contact_id })
+            },
+
+            "create_contact" => {
+                let name = parsed
+                    .name
+                    .as_ref()
+                    .or(parsed.title.as_ref())
+                    .ok_or("Missing name for create_contact")?
+                    .clone();
+                Ok(AgentCommand::CreateContact {
+                    name,
+                    email: parsed.email.clone(),
+                    phone: parsed.phone.clone(),
+                    organization: parsed.organization.clone(),
+                    birthday: parsed.birthday.clone(),
+                    notes: parsed.notes.clone(),
+                })
+            },
+
+            "update_contact" => {
+                let contact_id = parsed
+                    .contact_id
+                    .as_ref()
+                    .ok_or("Missing contact_id for update_contact")?
+                    .clone();
+                Ok(AgentCommand::UpdateContact {
+                    contact_id,
+                    name: parsed.name.clone(),
+                    email: parsed.email.clone(),
+                    phone: parsed.phone.clone(),
+                    organization: parsed.organization.clone(),
+                    notes: parsed.notes.clone(),
+                })
+            },
+
+            "delete_contact" => {
+                let contact_id = parsed
+                    .contact_id
+                    .as_ref()
+                    .ok_or("Missing contact_id for delete_contact")?
+                    .clone();
+                Ok(AgentCommand::DeleteContact { contact_id })
+            },
+
+            "search_contacts" => {
+                let query = parsed
+                    .query
+                    .as_ref()
+                    .ok_or("Missing query for search_contacts")?
+                    .clone();
+                Ok(AgentCommand::SearchContacts { query })
+            },
+
             _ => {
                 // "ask" or any unknown intent falls back to Ask command
                 let question = parsed
