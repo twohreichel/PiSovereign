@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5](https://github.com/twohreichel/PiSovereign/compare/v0.4.4...v0.4.5) (2026-02-15)
+
+
+### Features
+
+* **application:** add contact intents to command parser ([cfaf6ad](https://github.com/twohreichel/PiSovereign/commit/cfaf6addd9fd99f7a3e897d629faf95b3a098f01))
+* **application:** add ContactPort trait, DTOs, and contact command handlers ([b5f8c3f](https://github.com/twohreichel/PiSovereign/commit/b5f8c3ff8e559d784da97a6ad61c36659d319f94))
+* **domain:** add ContactId value object and contact AgentCommand variants ([4c8a433](https://github.com/twohreichel/PiSovereign/commit/4c8a4335997476d96d45f4b0a7cd7da8bc07264e))
+* **infrastructure:** add CardDAV config with CalDAV credential sharing ([70895e4](https://github.com/twohreichel/PiSovereign/commit/70895e4fc1e2a97480b0799a23d35acea2cf1a4f))
+* **infrastructure:** add CardDAV contact adapter implementing ContactPort ([055edca](https://github.com/twohreichel/PiSovereign/commit/055edcadd7cce483802c505d74a6545516525164))
+* **integration_carddav:** add CardDAV client with vCard 3.0 support\n\nNew integration crate for CardDAV contact management:\n- HttpCardDavClient with PROPFIND, REPORT, PUT, DELETE support\n- vCard 3.0 parsing and building (N, FN, EMAIL, TEL, ORG, TITLE, ADR, BDAY, NOTE, PHOTO, CATEGORIES)\n- Contact model with builder pattern and search capability\n- CardDavClient trait for testability\n- Comprehensive unit tests (54) and WireMock integration tests (19)\n- Registered as workspace member" ([4db5f8b](https://github.com/twohreichel/PiSovereign/commit/4db5f8b4c8e6e60acbddf25f34e5e66267803e3b))
+* **main:** wire CardDAV contact adapter into application startup ([cd22ed2](https://github.com/twohreichel/PiSovereign/commit/cd22ed2350a2892ac72c23301ea335946e7b1584))
+* **presentation_http:** add REST API endpoints for contacts ([11af178](https://github.com/twohreichel/PiSovereign/commit/11af1789958c3424557b053cefae4800fdab72c1))
+
+
+### Documentation
+
+* **config:** add CardDAV contact integration section to config example ([33b1452](https://github.com/twohreichel/PiSovereign/commit/33b14524fad959e2bdaeac34b6841f2122415823))
+
 ## [0.4.4](https://github.com/twohreichel/PiSovereign/compare/v0.4.3...v0.4.4) (2026-02-14)
 
 
