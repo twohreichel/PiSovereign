@@ -484,9 +484,7 @@ pub async fn delete_contact(
 ) -> Result<axum::http::StatusCode, ApiError> {
     let port = contact_port(&state)?;
 
-    port.delete_contact(&id)
-        .await
-        .map_err(map_contact_error)?;
+    port.delete_contact(&id).await.map_err(map_contact_error)?;
 
     debug!(id = %id, "Deleted contact");
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -515,9 +513,7 @@ pub async fn search_contacts(
     let port = contact_port(&state)?;
 
     if body.query.trim().is_empty() {
-        return Err(ApiError::BadRequest(
-            "Search query is required".to_string(),
-        ));
+        return Err(ApiError::BadRequest("Search query is required".to_string()));
     }
 
     let contacts = port

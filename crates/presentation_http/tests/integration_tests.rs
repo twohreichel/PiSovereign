@@ -476,7 +476,7 @@ fn create_test_state_with_health_service(
         suspicious_activity_tracker: None,
         conversation_store: None,
         secret_store: None,
-            contact_service: None,
+        contact_service: None,
     }
 }
 
@@ -500,7 +500,7 @@ fn create_test_state() -> AppState {
         suspicious_activity_tracker: None,
         conversation_store: None,
         secret_store: None,
-            contact_service: None,
+        contact_service: None,
     }
 }
 
@@ -524,7 +524,7 @@ fn create_unhealthy_test_state() -> AppState {
         suspicious_activity_tracker: None,
         conversation_store: None,
         secret_store: None,
-            contact_service: None,
+        contact_service: None,
     }
 }
 

@@ -418,8 +418,7 @@ impl ContactPort for CardDavContactAdapter {
             .await
             .map_err(Self::map_error)?;
 
-        let summaries: Vec<ContactSummary> =
-            contacts.iter().map(Self::to_summary).collect();
+        let summaries: Vec<ContactSummary> = contacts.iter().map(Self::to_summary).collect();
         debug!(count = summaries.len(), "Search complete");
         Ok(summaries)
     }
@@ -433,10 +432,7 @@ impl ContactPort for CardDavContactAdapter {
     }
 
     #[instrument(skip(self), fields(circuit = %self.circuit_state_desc()))]
-    async fn get_upcoming_birthdays(
-        &self,
-        days: u32,
-    ) -> Result<Vec<ContactSummary>, ContactError> {
+    async fn get_upcoming_birthdays(&self, days: u32) -> Result<Vec<ContactSummary>, ContactError> {
         self.check_circuit()?;
         debug!(days, "Getting upcoming birthdays from CardDAV");
 
@@ -457,13 +453,11 @@ impl ContactPort for CardDavContactAdapter {
                 c.birthday.is_some_and(|bday| {
                     // Check if the birthday (month+day) falls within the range
                     let this_year = bday.with_year(today.year()).unwrap_or(bday);
-                    (this_year >= today && this_year <= end_date)
-                        || {
-                            // Also check next year for year-boundary cases
-                            let next_year =
-                                bday.with_year(today.year() + 1).unwrap_or(bday);
-                            next_year >= today && next_year <= end_date
-                        }
+                    (this_year >= today && this_year <= end_date) || {
+                        // Also check next year for year-boundary cases
+                        let next_year = bday.with_year(today.year() + 1).unwrap_or(bday);
+                        next_year >= today && next_year <= end_date
+                    }
                 })
             })
             .map(Self::to_summary)
@@ -490,8 +484,7 @@ mod tests {
 
     #[test]
     fn to_summary_with_phone_and_org() {
-        let mut contact =
-            CardDavContact::new("uid-2", "Bob").with_phone("+49 123", None);
+        let mut contact = CardDavContact::new("uid-2", "Bob").with_phone("+49 123", None);
         contact.organization = Some("Acme".to_string());
         let summary = CardDavContactAdapter::to_summary(&contact);
         assert_eq!(summary.phone, Some("+49 123".to_string()));
@@ -607,9 +600,8 @@ mod tests {
 
     #[test]
     fn map_error_connection() {
-        let err = CardDavContactAdapter::map_error(CardDavError::ConnectionFailed(
-            "timeout".to_string(),
-        ));
+        let err =
+            CardDavContactAdapter::map_error(CardDavError::ConnectionFailed("timeout".to_string()));
         assert!(matches!(err, ContactError::ServiceUnavailable));
     }
 
@@ -629,9 +621,8 @@ mod tests {
 
     #[test]
     fn map_error_contact_not_found() {
-        let err = CardDavContactAdapter::map_error(CardDavError::ContactNotFound(
-            "c-123".to_string(),
-        ));
+        let err =
+            CardDavContactAdapter::map_error(CardDavError::ContactNotFound("c-123".to_string()));
         assert!(matches!(err, ContactError::ContactNotFound(_)));
     }
 
@@ -651,8 +642,7 @@ mod tests {
 
     #[test]
     fn map_error_request_failed() {
-        let err =
-            CardDavContactAdapter::map_error(CardDavError::RequestFailed("500".to_string()));
+        let err = CardDavContactAdapter::map_error(CardDavError::RequestFailed("500".to_string()));
         let ContactError::OperationFailed(msg) = err else {
             unreachable!()
         };
