@@ -1,0 +1,26 @@
+[package]
+name = "integration_carddav"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+quick-xml = { version = "0.37", features = ["serialize"] }
+
+[dev-dependencies]
+tokio-test.workspace = true
+serde_json.workspace = true
+wiremock.workspace = true
+proptest.workspace = true
