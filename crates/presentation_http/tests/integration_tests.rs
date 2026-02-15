@@ -476,6 +476,7 @@ fn create_test_state_with_health_service(
         suspicious_activity_tracker: None,
         conversation_store: None,
         secret_store: None,
+            contact_service: None,
     }
 }
 
@@ -499,6 +500,7 @@ fn create_test_state() -> AppState {
         suspicious_activity_tracker: None,
         conversation_store: None,
         secret_store: None,
+            contact_service: None,
     }
 }
 
@@ -522,6 +524,7 @@ fn create_unhealthy_test_state() -> AppState {
         suspicious_activity_tracker: None,
         conversation_store: None,
         secret_store: None,
+            contact_service: None,
     }
 }
 
@@ -1038,6 +1041,7 @@ mod degraded_mode_tests {
             suspicious_activity_tracker: None,
             conversation_store: None,
             secret_store: None,
+            contact_service: None,
         }
     }
 
@@ -1341,6 +1345,7 @@ mod workflow_tests {
             suspicious_activity_tracker: None,
             conversation_store: None,
             secret_store: None,
+            contact_service: None,
         };
 
         (state, draft_store)
@@ -1371,6 +1376,7 @@ mod workflow_tests {
             suspicious_activity_tracker: None,
             conversation_store: None,
             secret_store: None,
+            contact_service: None,
         };
 
         (state, user_profile_store)
@@ -1695,6 +1701,7 @@ mod workflow_tests {
             suspicious_activity_tracker: None,
             conversation_store: None,
             secret_store: None,
+            contact_service: None,
         };
 
         let router = create_router(state);
@@ -1770,6 +1777,7 @@ mod workflow_tests {
             suspicious_activity_tracker: None,
             conversation_store: None,
             secret_store: None,
+            contact_service: None,
         };
 
         let router = create_router(state);
@@ -1815,6 +1823,7 @@ mod workflow_tests {
             suspicious_activity_tracker: None,
             conversation_store: None,
             secret_store: None,
+            contact_service: None,
         };
 
         let router = create_router(state);
@@ -1987,6 +1996,7 @@ mod health_service_e2e_tests {
             suspicious_activity_tracker: None,
             conversation_store: None,
             secret_store: None,
+            contact_service: None,
         };
 
         let router = create_router(state);

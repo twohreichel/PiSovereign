@@ -600,6 +600,7 @@ async fn main() -> anyhow::Result<()> {
         suspicious_activity_tracker,
         conversation_store,
         secret_store,
+        contact_service: None,
     };
 
     // Build router

@@ -49,6 +49,11 @@ pub fn create_router(state: AppState) -> Router {
         // System API
         .route("/v1/system/status", get(handlers::system::status))
         .route("/v1/system/models", get(handlers::system::list_models))
+        // Contact API (v1)
+        .route("/v1/contacts", get(handlers::contacts::list_contacts).post(handlers::contacts::create_contact))
+        .route("/v1/contacts/{id}", get(handlers::contacts::get_contact).put(handlers::contacts::update_contact).delete(handlers::contacts::delete_contact))
+        .route("/v1/contacts/search", post(handlers::contacts::search_contacts))
+        .route("/v1/contacts/addressbooks", get(handlers::contacts::list_addressbooks))
         // WhatsApp webhook (Meta Platform)
         .route(
             "/webhook/whatsapp",

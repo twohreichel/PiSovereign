@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use application::ports::{
-    ConversationStore, MessengerPort, SecretStorePort, SuspiciousActivityPort,
+    ContactPort, ConversationStore, MessengerPort, SecretStorePort, SuspiciousActivityPort,
 };
 use application::services::PromptSanitizer;
 use application::{AgentService, ApprovalService, ChatService, HealthService, VoiceMessageService};
@@ -40,6 +40,8 @@ pub struct AppState {
     pub conversation_store: Option<Arc<dyn ConversationStore>>,
     /// Secret store for Vault/env secret management
     pub secret_store: Option<Arc<dyn SecretStorePort>>,
+    /// Contact service for CardDAV contact operations
+    pub contact_service: Option<Arc<dyn ContactPort>>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -64,6 +66,7 @@ impl std::fmt::Debug for AppState {
             )
             .field("conversation_store", &self.conversation_store.is_some())
             .field("secret_store", &self.secret_store.is_some())
+            .field("contact_service", &self.contact_service.is_some())
             .finish()
     }
 }

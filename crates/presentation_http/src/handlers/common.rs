@@ -40,6 +40,12 @@ pub fn command_type_name(command: &AgentCommand) -> String {
         AgentCommand::AcknowledgeReminder { .. } => "acknowledge_reminder",
         AgentCommand::DeleteReminder { .. } => "delete_reminder",
         AgentCommand::SearchTransit { .. } => "search_transit",
+        AgentCommand::ListContacts { .. } => "list_contacts",
+        AgentCommand::GetContact { .. } => "get_contact",
+        AgentCommand::CreateContact { .. } => "create_contact",
+        AgentCommand::UpdateContact { .. } => "update_contact",
+        AgentCommand::DeleteContact { .. } => "delete_contact",
+        AgentCommand::SearchContacts { .. } => "search_contacts",
     }
     .to_string()
 }
