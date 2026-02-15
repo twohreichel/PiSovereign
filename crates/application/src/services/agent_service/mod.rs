@@ -10,6 +10,7 @@
 //! - [`transit`]: Public transit connection search
 
 mod briefing;
+mod contacts;
 mod email;
 mod reminders;
 mod system;
@@ -26,8 +27,8 @@ use crate::{
     command_parser::CommandParser,
     error::ApplicationError,
     ports::{
-        DraftStorePort, InferencePort, ReminderPort, TaskPort, TransitPort, UserProfileStore,
-        WeatherPort, WebSearchPort,
+        ContactPort, DraftStorePort, InferencePort, ReminderPort, TaskPort, TransitPort,
+        UserProfileStore, WeatherPort, WebSearchPort,
     },
 };
 
@@ -81,6 +82,8 @@ pub struct AgentService {
     pub(super) reminder_service: Option<Arc<dyn ReminderPort>>,
     /// Optional transit service for ÖPNV connections
     pub(super) transit_service: Option<Arc<dyn TransitPort>>,
+    /// Optional contact service for contact management (CardDAV)
+    pub(super) contact_service: Option<Arc<dyn ContactPort>>,
     /// Default location for weather when user profile has no location
     pub(super) default_weather_location: Option<GeoLocation>,
     /// Home location for transit searches (used when "from" is not specified)
@@ -100,6 +103,7 @@ impl fmt::Debug for AgentService {
             .field("has_websearch", &self.websearch_service.is_some())
             .field("has_reminder", &self.reminder_service.is_some())
             .field("has_transit", &self.transit_service.is_some())
+            .field("has_contacts", &self.contact_service.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -119,6 +123,7 @@ impl AgentService {
             websearch_service: None,
             reminder_service: None,
             transit_service: None,
+            contact_service: None,
             default_weather_location: None,
             home_location: None,
         }
@@ -184,6 +189,13 @@ impl AgentService {
     #[must_use]
     pub fn with_transit_service(mut self, service: Arc<dyn TransitPort>) -> Self {
         self.transit_service = Some(service);
+        self
+    }
+
+    /// Add contact service for contact management (CardDAV)
+    #[must_use]
+    pub fn with_contact_service(mut self, service: Arc<dyn ContactPort>) -> Self {
+        self.contact_service = Some(service);
         self
     }
 
@@ -343,7 +355,10 @@ impl AgentService {
             | AgentCommand::UpdateTask { .. }
             | AgentCommand::DeleteTask { .. }
             | AgentCommand::CreateTaskList { .. }
-            | AgentCommand::SendEmail { .. } => {
+            | AgentCommand::SendEmail { .. }
+            | AgentCommand::CreateContact { .. }
+            | AgentCommand::UpdateContact { .. }
+            | AgentCommand::DeleteContact { .. } => {
                 Err(ApplicationError::ApprovalRequired(command.description()))
             },
 
@@ -387,6 +402,13 @@ impl AgentService {
                 self.handle_search_transit(from, to, departure.as_deref())
                     .await
             },
+
+            // Contact management - read-only operations
+            AgentCommand::ListContacts { query } => {
+                self.handle_list_contacts(query.as_deref()).await
+            },
+            AgentCommand::GetContact { contact_id } => self.handle_get_contact(contact_id).await,
+            AgentCommand::SearchContacts { query } => self.handle_search_contacts(query).await,
         }
     }
 }
