@@ -6,6 +6,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use integration_carddav::client::{CardDavClient, CardDavConfig, HttpCardDavClient};
 
 /// Helper to create a test client against a mock server
+#[allow(clippy::expect_used)]
 fn test_client(server_url: &str) -> HttpCardDavClient {
     let config = CardDavConfig {
         server_url: server_url.to_string(),
@@ -20,14 +21,14 @@ fn test_client(server_url: &str) -> HttpCardDavClient {
 
 fn sample_vcard_xml(uid: &str, name: &str) -> String {
     format!(
-        r#"BEGIN:VCARD
+        r"BEGIN:VCARD
 VERSION:3.0
 UID:{uid}
 FN:{name}
 N:{name};;;
 EMAIL;TYPE=work:{uid}@example.com
 TEL;TYPE=cell:+49123456
-END:VCARD"#
+END:VCARD"
     )
 }
 
@@ -36,14 +37,14 @@ fn multistatus_response(vcards: &[String]) -> String {
         .iter()
         .map(|vc| {
             format!(
-                r#"<D:response>
+                r"<D:response>
   <D:propstat>
     <D:prop>
       <card:address-data>{vc}</card:address-data>
     </D:prop>
     <D:status>HTTP/1.1 200 OK</D:status>
   </D:propstat>
-</D:response>"#
+</D:response>"
             )
         })
         .collect::<Vec<_>>()
@@ -62,7 +63,7 @@ fn addressbook_propfind_response(hrefs: &[&str]) -> String {
         .iter()
         .map(|href| {
             format!(
-                r#"<D:response>
+                r"<D:response>
   <D:href>{href}</D:href>
   <D:propstat>
     <D:prop>
@@ -74,7 +75,7 @@ fn addressbook_propfind_response(hrefs: &[&str]) -> String {
     </D:prop>
     <D:status>HTTP/1.1 200 OK</D:status>
   </D:propstat>
-</D:response>"#
+</D:response>"
             )
         })
         .collect::<Vec<_>>()

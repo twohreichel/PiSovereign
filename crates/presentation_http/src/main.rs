@@ -8,18 +8,17 @@ use std::{sync::Arc, time::Duration};
 use application::{
     AgentService, ApprovalService, ChatService, HealthService, VoiceMessageService,
     ports::{
-        CalendarPort, ContactPort, ConversationStore, DatabaseHealthPort, EmailPort,
-        InferencePort, MessengerPort, ReminderPort, SecretStorePort, SpeechPort,
-        SuspiciousActivityPort, TransitPort, WeatherPort,
+        CalendarPort, ContactPort, ConversationStore, DatabaseHealthPort, EmailPort, InferencePort,
+        MessengerPort, ReminderPort, SecretStorePort, SpeechPort, SuspiciousActivityPort,
+        TransitPort, WeatherPort,
     },
     services::PromptSanitizer,
 };
 use infrastructure::{
     AppConfig, MessengerSelection, OllamaInferenceAdapter, SecurityValidator,
     adapters::{
-        CalDavCalendarAdapter, CardDavContactAdapter, ChainedSecretStore,
-        DegradedInferenceAdapter, DegradedModeConfig, EnvSecretStore,
-        InMemorySuspiciousActivityTracker, ProtonEmailAdapter,
+        CalDavCalendarAdapter, CardDavContactAdapter, ChainedSecretStore, DegradedInferenceAdapter,
+        DegradedModeConfig, EnvSecretStore, InMemorySuspiciousActivityTracker, ProtonEmailAdapter,
         SignalMessengerAdapter, SpeechAdapter, TransitAdapter, VaultSecretStore, WeatherAdapter,
         WhatsAppMessengerAdapter,
     },
